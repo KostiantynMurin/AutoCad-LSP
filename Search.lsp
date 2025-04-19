@@ -1,7 +1,5 @@
-;; --- LISP Скрипт для Пошуку Блоків та Наступної Вставки/Перевірки/Перейменування (v4 - Незалежність дій) ---
+;; --- LISP Скрипт для Пошуку Блоків та Наступної Вставки з Буфера (v2) ---
 ;; --- Додано функцію CHECKPOINTS (v3) ---
-;; --- Додано функцію REPLACENAME (v3) ---
-;; --- Модифіковано PASTEHERE, CHECKPOINTS, REPLACENAME для роботи з ручним вибором (v4) ---
 
 ;; Глобальна змінна для зберігання результату пошуку
 (setq *g_last_search_result* nil)
@@ -31,10 +29,9 @@
 ;; Шукає блоки "PIKET" за атрибутом "НОМЕРА", ВИДІЛЯЄ їх, якщо значення
 ;; атрибута ПОЧИНАЄТЬСЯ з ключового слова,
 ;; та ЗБЕРІГАЄ набір вибірки у глобальну змінну *g_last_search_result*.
-;; Цей результат МОЖЕ бути використаний командами PASTEHERE, CHECKPOINTS, REPLACENAME.
 
 (defun c:SEARCH ( / keyword ssAll i ename edata bname hasAttribs
-                   attEname attEdata attTag attValue ssFound foundCount )
+                  attEname attEdata attTag attValue ssFound foundCount )
   ;; --- Отримати Введення Користувача ---
   (setq keyword (getstring T "\nВведіть ПОЧАТОК значення атрибуту 'НОМЕРА' для пошуку: ")) ; Змінено підказку
 
@@ -48,12 +45,9 @@
 
       ;; --- Ініціалізація ---
       (setq ssFound (ssadd)) ;; Створити порожній набір вибірки для результатів
-      (setq foundCount 0)     ;; Ініціалізувати лічильник знайдених
+      (setq foundCount 0)    ;; Ініціалізувати лічильник знайдених
 
       ;; --- Отримати Всі Об'єкти ---
-      ;; Розглянути можливість використання фільтра для оптимізації на великих файлах:
-      ;; (setq ssAll (ssget "_X" '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
-      ;; Але поточний підхід більш гнучкий, якщо структура блоків може змінюватись.
       (setq ssAll (ssget "_X"))
 
       ;; --- Пошук відповідних блоків ---
@@ -76,12 +70,14 @@
                             (setq attEname (entnext ename)) ;; Перший атрибут
                             (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                               (setq attTag (strcase (cdr (assoc 2 attEdata)))) ;; Тег
-                              (setq attValue (cdr (assoc 1 attEdata)))      ;; Значення
+                              (setq attValue (cdr (assoc 1 attEdata)))       ;; Значення
                               (if (and (eq "НОМЕРА" attTag)
                                        attValue
+                                       ;; ***** ПОЧАТОК ЗМІН: Використання wcmatch *****
                                        ;; Перевіряємо, чи значення атрибута (в верхньому регістрі)
                                        ;; відповідає шаблону "КЛЮЧОВЕСЛОВО*" (також в верхньому регістрі)
                                        (wcmatch (strcase attValue) (strcat (strcase keyword) "*"))
+                                       ;; ***** КІНЕЦЬ ЗМІН *****
                                   )
                                 (progn
                                   (ssadd ename ssFound) ;; Додати блок до вибірки
@@ -112,7 +108,7 @@
           (setq *g_last_search_result* ssFound)
           ;; ВИДІЛИТИ знайдені об'єкти для користувача
           (sssetfirst nil ssFound)
-          (princ (strcat "\nЗнайдено та ВИДІЛЕНО " (itoa foundCount) " блоків. Результат збережено для можливого використання командами CHECKPOINTS, PASTEHERE або REPLACENAME.")) ; Оновлено повідомлення
+          (princ (strcat "\nЗнайдено та ВИДІЛЕНО " (itoa foundCount) " блоків. Результат збережено для команди CHECKPOINTS, PASTEHERE або REPLACENAME."))
         )
         (progn ;; Якщо нічого не знайдено
            (setq *g_last_search_result* nil) ; Переконатися, що результат порожній
@@ -127,24 +123,24 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 2: ВСТАВКА В ТОЧКИ ЗБЕРЕЖЕНОГО РЕЗУЛЬТАТУ АБО ВИБРАНИХ ОБ'ЄКТІВ
+;; СКРИПТ 2: ВСТАВКА В ТОЧКИ ЗБЕРЕЖЕНОГО РЕЗУЛЬТАТУ ПОШУКУ
 ;; ====================================================================
-;; Команда: PASTEHERE (v4)
+;; Команда: PASTEHERE
 ;; Бере набір вибірки, збережений командою SEARCH у змінній *g_last_search_result*,
-;; АБО об'єкти, вибрані користувачем (попередньо або під час виконання команди).
-;; Вставляє в точку вставки кожного об'єкта (блока/вставки) з цього набору
+;; і вставляє в точку вставки кожного об'єкта з цього набору
 ;; об'єкт(и) з буфера обміну (які були скопійовані за допомогою COPYBASE).
-(defun c:PASTEHERE ( / *error* ss ss_source i ename edata ipoint oldCmdEcho oldOsmode pasteCount )
+;; (Код цієї функції залишається без змін)
+(defun c:PASTEHERE ( / *error* ss i ename edata ipoint oldCmdEcho oldOsmode pasteCount )
 
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
     (if oldCmdEcho (setvar "CMDECHO" oldCmdEcho)) ; Відновити CMDECHO
     (if oldOsmode (setvar "OSMODE" oldOsmode))   ; Відновити OSMODE
-    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command "_.UNDO" "_End")) ; Завершити UNDO якщо активне
-    (cond ((not msg))                     ; Вихід без повідомлення (наприклад, ESC)
+    (command "_.UNDO" "_End")                    ; Завершити групування UNDO
+    (cond ((not msg))                            ; Вихід без повідомлення (наприклад, ESC)
           ((vl-string-search "Function cancelled" msg)) ; Користувач скасував
           ((vl-string-search "quit / exit abort" msg))  ; Користувач скасував
-          (T (princ (strcat "\nПомилка: " msg)))       ; Інша помилка
+          (T (princ (strcat "\nПомилка: " msg)))        ; Інша помилка
     )
     (setq *error* nil) ; Скинути обробник помилок
     (princ)
@@ -158,39 +154,16 @@
     )
   )
 
-  ;; --- Визначення робочого набору вибірки (ss) ---
-  (setq ss nil ss_source "") ; Ініціалізація
-  (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
-          *g_last_search_result*
-          (= 'PICKSET (type *g_last_search_result*))
-          (> (sslength *g_last_search_result*) 0)
-     )
-     (setq ss *g_last_search_result*)
-     (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
-    )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ((setq ss (car (ssgetfirst))) ; Отримати попередньо вибрані об'єкти
-     (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " об.)"))
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
-    (T
-     (princ "\nНе знайдено збереженого результату пошуку або попередньої вибірки.")
-     ;; Запит на вибір блоків (INSERT)
-     (princ "\nВиберіть об'єкти (блоки), в точки вставки яких потрібно вставити з буфера: ")
-     (setq ss (ssget '((0 . "INSERT")))) ; Фільтр для блоків
-     (if ss
-       (setq ss_source (strcat "щойно вибраних об'єктів (" (itoa (sslength ss)) " об.)"))
-       (progn (princ "\nОб'єкти не вибрано. Команду скасовано.") (exit)) ; Вихід, якщо нічого не вибрано
-     )
-    )
-  )
-
-  ;; --- Основна логіка вставки ---
-  (if ss
-    (progn ;; Є дійсний набір вибірки
-      (princ (strcat "\nВставлення об'єкта(ів) з буфера обміну в точки вставки " ss_source "..."))
+  ;; --- Перевірка наявності та дійсності збережених результатів пошуку ---
+  (if (and (boundp '*g_last_search_result*) ; Чи змінна існує?
+           *g_last_search_result* ; Чи вона не nil?
+           (= 'PICKSET (type *g_last_search_result*)) ; Чи це дійсно набір вибірки?
+           (> (sslength *g_last_search_result*) 0) ; Чи набір не порожній?
+      )
+    (progn ;; Є дійсні результати пошуку
+      (setq ss *g_last_search_result*) ;; Використати збережений набір вибірки
+      (princ (strcat "\nВикористовується збережений результат пошуку з " (itoa (sslength ss)) " об'єктів."))
+      (princ "\nВставлення об'єкта(ів) з буфера обміну в точки їх вставки...")
 
       ;; --- Налаштування середовища та UNDO ---
       (setq oldCmdEcho (getvar "CMDECHO"))
@@ -200,13 +173,13 @@
       (command "_.UNDO" "_Begin") ;; Почати групування UNDO
       (setq pasteCount 0) ;; Лічильник успішних вставок
 
-      ;; --- Цикл по Об'єктах у вибірці та Вставка ---
+      ;; --- Цикл по Збережених Об'єктах та Вставка ---
       (setq i 0)
       (repeat (sslength ss)
         (setq ename (ssname ss i)) ;; Отримати ім'я об'єкта з набору вибірки
         (if (setq edata (entget ename)) ; Перевірити, чи об'єкт ще існує
           (progn
-            ;; Перевірка, чи це блок (INSERT) - вже відфільтровано в ssget, але залишаємо для надійності
+            ;; Перевірка, чи це блок (INSERT)
             (if (eq "INSERT" (cdr (assoc 0 edata)))
               (progn
                 (setq ipoint (cdr (assoc 10 edata))) ;; Отримати точку вставки блоку
@@ -219,12 +192,12 @@
                   (princ (strcat "\n Попередження: Не вдалося отримати точку вставки для об'єкта: " (vl-princ-to-string ename)))
                 )
               )
-              ;; Попередження, якщо об'єкт у вибірці - не блок (малоймовірно через фільтр ssget)
-              (princ (strcat "\n Попередження: Об'єкт у вибірці не є блоком (INSERT): " (vl-princ-to-string ename)))
+              ;; Попередження, якщо об'єкт у вибірці - не блок
+              (princ (strcat "\n Попередження: Об'єкт у збереженій вибірці не є блоком (INSERT): " (vl-princ-to-string ename)))
             )
           )
           ;; Попередження, якщо об'єкт з вибірки вже не існує
-          (princ (strcat "\n Попередження: Об'єкт зі збереженої/вибраної вибірки вже не існує: " (vl-princ-to-string ename)))
+          (princ (strcat "\n Попередження: Об'єкт зі збереженої вибірки вже не існує: " (vl-princ-to-string ename)))
         )
         (setq i (1+ i)) ;; Наступний об'єкт у вибірці
       ) ;; кінець циклу repeat
@@ -238,33 +211,36 @@
       (princ (strcat "\nЗавершено. Об'єкт(и) з буфера обміну вставлено " (itoa pasteCount) " раз(ів)."))
 
     )
-    ;; --- Якщо ss залишився nil (мало б обробитись раніше, але про всяк випадок) ---
-    (princ "\nНе вдалося визначити об'єкти для обробки.")
-  ) ;; кінець if (ss)
+    ;; --- Якщо Результатів Пошуку Немає або вони недійсні ---
+    (princ "\nНе знайдено дійсних результатів попереднього пошуку. Спочатку виконайте команду SEARCH.")
+  ) ;; кінець if (перевірка *g_last_search_result*)
 
   ;; --- Очистка та вихід ---
   (setq *error* nil) ; Скинути обробник помилок
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:PASTEHERE
 
-
 ;; ====================================================================
 ;; СКРИПТ 3: ПЕРЕВІРКА ТА ВИПРАВЛЕННЯ КООРДИНАТИ Z ЗА АТРИБУТОМ "ОТМЕТКА"
 ;; ====================================================================
-;; Команда: CHECKPOINTS (v4)
-;; Бере набір вибірки "PIKET" з результату SEARCH, АБО вибрані користувачем.
+;; Команда: CHECKPOINTS
+;; Бере набір вибірки, збережений командою SEARCH у змінній *g_last_search_result*.
 ;; Для кожного блоку "PIKET" у наборі порівнює значення атрибута "ОТМЕТКА"
 ;; з координатою Z точки вставки блоку.
 ;; Виводить звіт про розбіжності, ВИДІЛЯЄ тільки блоки з розбіжностями
 ;; та запитує дозвіл на виправлення Z координати.
-(defun c:CHECKPOINTS ( / *error* ss ss_source totalCount i ename edata ipoint zCoord
+
+(defun c:CHECKPOINTS ( / *error* ss totalCount i ename edata ipoint zCoord
                        attEname attEdata attTag otmetkaStr otmetkaNum
                        diffList diffCount fuzz modCount answer oldCmdecho
-                       ssDiff )
+                       ssDiff ; <--- Додана локальна змінна для нового набору вибірки
+                     )
 
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
+    ;; Відновити CMDECHO, якщо воно було змінене
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+    ;; Якщо група UNDO була розпочата, але не завершена коректно
     (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command "_.UNDO" "_End"))
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
@@ -276,74 +252,38 @@
   )
 
   ;; --- Ініціалізація ---
-  (setq diffList nil      ; Список блоків з розбіжностями [(ename . (otmetkaStr . zCoord))]
-        diffCount 0       ; Лічильник блоків з розбіжностями
-        fuzz 1e-6         ; Допуск для порівняння дійсних чисел
-        modCount 0        ; Лічильник змінених блоків
-        oldCmdecho nil    ; Ініціалізуємо перед getvar
-        ss nil            ; Робочий набір вибірки
-        ss_source ""      ; Джерело вибірки для повідомлень
+  (setq diffList nil         ; Список блоків з розбіжностями [(ename . (otmetkaStr . zCoord))]
+        diffCount 0        ; Лічильник блоків з розбіжностями
+        fuzz 1e-6          ; Допуск для порівняння дійсних чисел
+        modCount 0         ; Лічильник змінених блоків
+        oldCmdecho (getvar "CMDECHO")
   )
-  (setq oldCmdecho (getvar "CMDECHO"))
   (setvar "CMDECHO" 0) ; Тимчасово вимкнути ехо команд
 
-  ;; --- Визначення робочого набору вибірки (ss) ---
-  (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
-          *g_last_search_result*
-          (= 'PICKSET (type *g_last_search_result*))
-          (> (sslength *g_last_search_result*) 0)
-     )
-     (setq ss *g_last_search_result*)
-     (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
-    )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ((setq ss (car (ssgetfirst)))
-     ;; Додатково фільтруємо попередню вибірку, залишаючи тільки блоки PIKET з атрибутами
-     (if ss
-       (progn
-         (setq ss (ssget "_P" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо pickfirst set
-         (if (or (null ss) (= 0 (sslength ss)))
-             (setq ss nil) ; Якщо після фільтрації нічого не залишилось
-             (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
-         )
-       )
-     )
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
-    (T
-     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
-     (princ "\nВиберіть блоки 'PIKET' для перевірки Z-координати та атрибуту 'ОТМЕТКА': ")
-     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтр для PIKET з атрибутами
-     (if ss
-       (setq ss_source (strcat "щойно вибраних блоків 'PIKET' (" (itoa (sslength ss)) " об.)"))
-       (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
-     )
-    )
-  )
-
-  ;; --- Основна логіка перевірки ---
-  (if ss
-    (progn
+  ;; --- Перевірка наявності та дійсності збережених результатів пошуку ---
+  (if (and (boundp '*g_last_search_result*)
+           *g_last_search_result*
+           (= 'PICKSET (type *g_last_search_result*))
+           (> (sslength *g_last_search_result*) 0)
+      )
+    (progn ;; Є дійсні результати пошуку
+      (setq ss *g_last_search_result*)
       (setq totalCount (sslength ss))
-      (princ (strcat "\nПеревірка " (itoa totalCount) " блоків з " ss_source "..."))
+      (princ (strcat "\nПеревірка " (itoa totalCount) " блоків зі збереженого результату пошуку..."))
 
-      ;; --- Цикл по Об'єктах у вибірці ---
+      ;; --- Цикл по Збережених Об'єктах ---
       (setq i 0)
       (repeat totalCount
         (setq ename (ssname ss i))
         (if (setq edata (entget ename)) ; Перевірити, чи об'єкт ще існує
-          ;; Перевірка типу об'єкта (має бути INSERT, але ssget вже фільтрує)
-          (if (eq "INSERT" (cdr (assoc 0 edata)))
+          (if (eq "INSERT" (cdr (assoc 0 edata))) ; Перевірити, чи це блок
             (progn
               (setq ipoint (cdr (assoc 10 edata))) ; Отримати точку вставки
               (setq zCoord (caddr ipoint))       ; Отримати Z координату
-              (setq otmetkaStr nil)              ; Скинути значення атрибута
+              (setq otmetkaStr nil)              ; Скинути значення атрибута для поточного блоку
 
               ;; --- Пошук атрибута "ОТМЕТКА" ---
-              ;; Перевірка наявності атрибутів (має бути, бо фільтрували)
-              (if (and (assoc 66 edata) (= 1 (cdr (assoc 66 edata))))
+              (if (and (assoc 66 edata) (= 1 (cdr (assoc 66 edata)))) ; Чи є атрибути?
                 (progn
                   (setq attEname (entnext ename))
                   (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
@@ -351,19 +291,18 @@
                     (if (eq "ОТМЕТКА" attTag)
                       (progn
                         (setq otmetkaStr (cdr (assoc 1 attEdata))) ; Зберегти значення атрибута
-                        (setq attEname nil) ; Зупинити пошук атрибутів
+                        (setq attEname nil) ; Зупинити пошук атрибутів для цього блоку
                       )
                       (setq attEname (entnext attEname)) ; Наступний атрибут
                     )
                   ) ; end while
                 )
-                (princ (strcat "\n Попередження: Блок " (vl-princ-to-string ename) " не має атрибутів (неочікувано)."))
               ) ; end if has attributes
 
               ;; --- Порівняння значення атрибута та Z координати ---
               (if otmetkaStr
                 (progn
-                  (setq otmetkaNum (distof (str-replace "," "." otmetkaStr))) ; Спробувати конвертувати рядок в число (заміняємо кому на крапку)
+                  (setq otmetkaNum (distof otmetkaStr)) ; Спробувати конвертувати рядок в число
                   (if otmetkaNum ; Перевірка, чи вдалося конвертувати
                     ;; Порівняти з допуском
                     (if (not (equal zCoord otmetkaNum fuzz))
@@ -379,9 +318,9 @@
                 (princ (strcat "\n Попередження: Не знайдено атрибут 'ОТМЕТКА' для блоку: " (vl-princ-to-string ename)))
               )
             ) ; end progn (is insert)
-            (princ (strcat "\n Попередження: Об'єкт у вибірці не є блоком (INSERT): " (vl-princ-to-string ename)))
+            (princ (strcat "\n Попередження: Об'єкт у збереженій вибірці не є блоком (INSERT): " (vl-princ-to-string ename)))
           ) ; end if (is insert)
-          (princ (strcat "\n Попередження: Об'єкт зі збереженої/вибраної вибірки вже не існує: " (vl-princ-to-string ename)))
+          (princ (strcat "\n Попередження: Об'єкт зі збереженої вибірки вже не існує: " (vl-princ-to-string ename)))
         ) ; end if (entget)
         (setq i (1+ i))
       ) ; end repeat
@@ -389,7 +328,7 @@
       ;; --- Звіт про результати перевірки та ВИДІЛЕННЯ ПРОБЛЕМНИХ ---
       (if (= diffCount 0)
         (progn
-           (princ (strcat "\nПеревірку завершено. Всі " (itoa totalCount) " перевірених блоків мають відповідну координату Z та значення атрибуту 'ОТМЕТКА'."))
+           (princ (strcat "\nПеревірку завершено. Всі " (itoa totalCount) " блоків мають відповідну координату Z та значення атрибуту 'ОТМЕТКА'."))
            ;; Зняти виділення, якщо розбіжностей немає
            (sssetfirst nil nil)
         )
@@ -402,69 +341,73 @@
             (princ (strcat "\n  - Блок <" (vl-princ-to-string (car item)) ">: '" (car (cdr item)) "' | " (rtos (cdr (cdr item)))))
           )
 
-          ;; Створення та виділення нового набору тільки з проблемних блоків
+          ;; ***** ПОЧАТОК ЗМІН: Створення та виділення нового набору *****
           (setq ssDiff (ssadd)) ; Створити порожній набір
-          (if diffList
+          (if diffList ; Перевірка, чи список не порожній (хоча diffCount > 0 вже це гарантує)
               (foreach item diffList
-                  (if (entget (car item)) ; Додаткова перевірка існування
-                    (ssadd (car item) ssDiff) ; Додати ename
-                  )
+                 (if (entget (car item)) ; Додаткова перевірка існування об'єкта перед додаванням
+                    (ssadd (car item) ssDiff) ; Додати ename кожного блоку з розбіжностями
+                 )
               )
           )
           (if (> (sslength ssDiff) 0)
-              (progn
+             (progn
                 (princ (strcat "\nВиділено " (itoa (sslength ssDiff)) " блоків з розбіжностями."))
                 (sssetfirst nil ssDiff) ; Виділити тільки ці блоки
-              )
-              (progn
+             )
+             (progn
                 (princ "\nНе вдалося створити набір вибірки для виділення блоків з розбіжностями.")
-                (sssetfirst nil nil) ; Зняти виділення
-              )
+                (sssetfirst nil nil)    ; Якщо з якоїсь причини ssDiff порожній, зняти виділення
+             )
           )
+          ;; ***** КІНЕЦЬ ЗМІН *****
 
           ;; --- Запит на виправлення ---
-          (initget "Так Ні") ; Дозволити тільки ці відповіді (Українською)
-          (setq answer (getkword "\n\nЗмінити координату Z для цих блоків відповідно до атрибуту 'ОТМЕТКА'? [Так/Ні]: "))
+          (initget "Yes No") ; Дозволити тільки ці відповіді
+          (setq answer (getkword "\n\nЗмінити координату Z для цих блоків відповідно до атрибуту 'ОТМЕТКА'? [Yes/No]: "))
 
-          (if (eq answer "Так")
+          (if (eq answer "Yes")
             (progn
               ;; --- Виконання змін ---
               (princ "\nВиконую зміни...")
+              ;; *** Код роботи з UNDOCTL видалено, покладаємось на налаштування AutoCAD ***
               (command "_.UNDO" "_Begin") ; Почати групування UNDO
 
               (foreach item diffList
-                (setq ename (car item))
-                (setq otmetkaStr (car (cdr item)))
-                (if (setq edata (entget ename))
-                  (progn
-                    (setq ipoint (cdr (assoc 10 edata)))
-                    (setq otmetkaNum (distof (str-replace "," "." otmetkaStr))) ; Переконуємось, що конвертуємо правильно
-                    (if otmetkaNum
-                      (progn
-                        (setq new_ipoint (list (car ipoint) (cadr ipoint) otmetkaNum))
-                        (setq edata (subst (cons 10 new_ipoint) (assoc 10 edata) edata))
-                        (if (entmod edata)
-                          (setq modCount (1+ modCount))
-                          (princ (strcat "\n Помилка зміни Z координати для блоку: " (vl-princ-to-string ename)))
+                 (setq ename (car item))
+                 (setq otmetkaStr (car (cdr item)))
+                 (if (setq edata (entget ename))
+                    (progn
+                      (setq ipoint (cdr (assoc 10 edata)))
+                      (setq otmetkaNum (distof otmetkaStr))
+                      (if otmetkaNum
+                        (progn
+                          (setq new_ipoint (list (car ipoint) (cadr ipoint) otmetkaNum))
+                          (setq edata (subst (cons 10 new_ipoint) (assoc 10 edata) edata))
+                          (if (entmod edata)
+                            (setq modCount (1+ modCount))
+                            (princ (strcat "\n Помилка зміни Z координати для блоку: " (vl-princ-to-string ename)))
+                          )
                         )
                       )
-                       (princ (strcat "\n Помилка конвертації '" otmetkaStr "' для блоку " (vl-princ-to-string ename) " під час спроби зміни."))
                     )
-                  )
-                  (princ (strcat "\n Помилка: Не вдалося отримати дані для блоку " (vl-princ-to-string ename) " під час спроби зміни."))
-                )
+                    (princ (strcat "\n Помилка: Не вдалося отримати дані для блоку " (vl-princ-to-string ename) " під час спроби зміни."))
+                 )
               ) ; end foreach item
 
               (command "_.UNDO" "_End") ; Завершити групування UNDO
               (princ (strcat "\nУспішно змінено Z координату для " (itoa modCount) " з " (itoa diffCount) " блоків."))
-            ) ; end progn (answer = Так)
+              ;; *** Код відновлення UNDOCTL видалено ***
+
+            ) ; end progn (answer = Yes)
             (princ "\nЗміни не виконувались.")
-          ) ; end if (answer = Так)
+          ) ; end if (answer = Yes)
         ) ; end progn (diffCount > 0)
       ) ; end if (= diffCount 0)
-    ) ; end progn (ss is valid)
-    (princ "\nНе вдалося визначити об'єкти для обробки.")
-  ) ; end if (ss)
+    ) ; end progn (results are valid)
+    ;; --- Якщо Результатів Пошуку Немає або вони недійсні ---
+    (princ "\nНе знайдено дійсних результатів попереднього пошуку (з команди SEARCH). Спочатку виконайте команду SEARCH.")
+  ) ; end if (check *g_last_search_result*)
 
   ;; --- Відновлення середовища та вихід ---
   (setvar "CMDECHO" oldCmdecho) ; Відновити CMDECHO
@@ -476,12 +419,13 @@
 ;; ====================================================================
 ;; СКРИПТ 4: ЗАМІНА ПІДСТРОКИ В АТРИБУТІ "НОМЕРА"
 ;; ====================================================================
-;; Команда: REPLACENAME (v4)
-;; Бере набір вибірки "PIKET" з результату SEARCH, АБО вибрані користувачем.
+;; Команда: REPLACENAME
+;; Бере набір вибірки, збережений командою SEARCH у змінній *g_last_search_result*.
 ;; Запитує підстроку для пошуку та підстроку для заміни.
 ;; Замінює всі входження першої підстроки на другу у значенні
-;; атрибута "НОМЕРА" для кожного блоку у вибірці. (Чутливо до регістру!)
-(defun c:REPLACENAME ( / *error* ss ss_source i ename edata
+;; атрибута "НОМЕРА" для кожного блоку у вибірці.
+
+(defun c:REPLACENAME ( / *error* ss i ename edata
                        attEname attEdata attTag currentVal newVal
                        findStr replaceStr modCount oldCmdecho )
 
@@ -499,62 +443,27 @@
   )
 
   ;; --- Ініціалізація ---
-  (setq modCount 0        ; Лічильник змінених блоків
-        oldCmdecho nil
-        ss nil            ; Робочий набір вибірки
-        ss_source ""      ; Джерело вибірки для повідомлень
-  )
+  (setq modCount 0) ; Лічильник змінених блоків
   (setq oldCmdecho (getvar "CMDECHO"))
   ;(setvar "CMDECHO" 0) ; Можна вимкнути ехо, якщо бажано
 
- ;; --- Визначення робочого набору вибірки (ss) ---
-  (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
-          *g_last_search_result*
-          (= 'PICKSET (type *g_last_search_result*))
-          (> (sslength *g_last_search_result*) 0)
-     )
-     (setq ss *g_last_search_result*)
-     (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
-    )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ((setq ss (car (ssgetfirst)))
-     ;; Додатково фільтруємо попередню вибірку, залишаючи тільки блоки PIKET з атрибутами
-     (if ss
-       (progn
-         (setq ss (ssget "_P" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо pickfirst set
-         (if (or (null ss) (= 0 (sslength ss)))
-             (setq ss nil) ; Якщо після фільтрації нічого не залишилось
-             (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
-         )
-       )
-     )
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
-    (T
-     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
-     (princ "\nВиберіть блоки 'PIKET', в яких потрібно замінити значення атрибуту 'НОМЕРА': ")
-     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтр для PIKET з атрибутами
-     (if ss
-       (setq ss_source (strcat "щойно вибраних блоків 'PIKET' (" (itoa (sslength ss)) " об.)"))
-       (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
-     )
-    )
-  )
-
-  ;; --- Основна логіка заміни ---
-  (if ss
-    (progn ;; Є дійсний набір вибірки
-      (princ (strcat "\nБуде оброблено " (itoa (sslength ss)) " блоків з " ss_source "."))
+  ;; --- Перевірка наявності та дійсності збережених результатів пошуку ---
+  (if (and (boundp '*g_last_search_result*)
+           *g_last_search_result*
+           (= 'PICKSET (type *g_last_search_result*))
+           (> (sslength *g_last_search_result*) 0)
+      )
+    (progn ;; Є дійсні результати пошуку
+      (setq ss *g_last_search_result*)
+      (princ (strcat "\nБуде оброблено " (itoa (sslength ss)) " блоків зі збереженого результату пошуку."))
 
       ;; --- Отримати рядки для пошуку та заміни ---
-      (setq findStr (getstring T "\nВведіть підстроку, ЯКУ замінити в атрибуті 'НОМЕРА' (чутливо до регістру): "))
+      (setq findStr (getstring T "\nВведіть підстроку, ЯКУ замінити в атрибуті 'НОМЕРА': "))
       (if (= "" findStr)
-        (progn
-          (princ "\nПомилка: Підстрока для пошуку не може бути порожньою. Заміну скасовано.")
-          (exit)
-        )
+          (progn
+            (princ "\nПомилка: Підстрока для пошуку не може бути порожньою. Заміну скасовано.")
+            (exit)
+          )
       )
       (setq replaceStr (getstring T "\nВведіть підстроку, НА ЯКУ замінити: "))
 
@@ -563,14 +472,13 @@
       ;; --- Початок групи UNDO ---
       (command "_.UNDO" "_Begin")
 
-      ;; --- Цикл по Об'єктах у вибірці ---
+      ;; --- Цикл по Збережених Об'єктах ---
       (setq i 0)
       (repeat (sslength ss)
         (setq ename (ssname ss i))
         (if (setq edata (entget ename)) ; Перевірити, чи об'єкт ще існує
-          ;; Перевірка типу об'єкта та наявності атрибутів (має бути за фільтром)
-          (if (and (eq "INSERT" (cdr (assoc 0 edata)))
-                   (assoc 66 edata) (= 1 (cdr (assoc 66 edata))))
+          (if (and (eq "INSERT" (cdr (assoc 0 edata))) ; Перевірити, чи це блок
+                   (assoc 66 edata) (= 1 (cdr (assoc 66 edata)))) ; і чи має атрибути
             (progn
               ;; --- Пошук атрибута "НОМЕРА" та його зміна ---
               (setq attEname (entnext ename))
@@ -580,18 +488,19 @@
                 (if (eq "НОМЕРА" attTag)
                   (progn
                     (setq currentVal (cdr (assoc 1 attEdata))) ; Поточне значення атрибута
-                    ;; Виконати заміну за допомогою допоміжної функції (чутлива до регістру)
+                    ;; Виконати заміну за допомогою допоміжної функції
                     (setq newVal (str-replace findStr replaceStr currentVal))
 
                     ;; Якщо значення змінилося, оновити атрибут
-                    (if (not (equal currentVal newVal)) ; Використовуємо equal для рядків
+                    (if (not (eq currentVal newVal))
                       (progn
                         (setq attEdata (subst (cons 1 newVal) (assoc 1 attEdata) attEdata))
                         (if (entmod attEdata)
-                          (setq modCount (1+ modCount)) ; Збільшити лічильник успішних змін
-                          (princ (strcat "\n Помилка оновлення атрибута для блоку: " (vl-princ-to-string ename)))
+                            (setq modCount (1+ modCount)) ; Збільшити лічильник успішних змін
+                            (princ (strcat "\n Помилка оновлення атрибута для блоку: " (vl-princ-to-string ename)))
                         )
                       )
+                      ;(princ (strcat "\n У блоці " (vl-princ-to-string ename) " підстроку '" findStr "' не знайдено в атрибуті 'НОМЕРА'."))
                     )
                     (setq attEname nil) ; Зупинити пошук атрибутів для цього блоку
                   )
@@ -600,9 +509,7 @@
                 ) ; кінець if (eq "НОМЕРА" attTag)
               ) ; кінець while (перебір атрибутів)
             ) ; кінець progn (це блок з атрибутами)
-            (princ (strcat "\n Попередження: Об'єкт " (vl-princ-to-string ename) " не є блоком 'PIKET' з атрибутами (неочікувано)."))
           ) ; кінець if (це блок з атрибутами)
-          (princ (strcat "\n Попередження: Об'єкт зі збереженої/вибраної вибірки вже не існує: " (vl-princ-to-string ename)))
         ) ; кінець if (entget)
         (setq i (1+ i))
       ) ; кінець repeat
@@ -613,9 +520,10 @@
       ;; --- Фінальне повідомлення ---
       (princ (strcat "\nЗавершено. Виконано заміну в атрибуті 'НОМЕРА' для " (itoa modCount) " блоків."))
 
-    ) ; end progn (ss is valid)
-    (princ "\nНе вдалося визначити об'єкти для обробки.")
-  ) ; end if (ss)
+    ) ; end progn (results are valid)
+    ;; --- Якщо Результатів Пошуку Немає або вони недійсні ---
+    (princ "\nНе знайдено дійсних результатів попереднього пошуку (з команди SEARCH). Спочатку виконайте команду SEARCH.")
+  ) ; end if (check *g_last_search_result*)
 
   ;; --- Відновлення середовища та вихід ---
   (if oldCmdecho (setvar "CMDECHO" oldCmdecho)) ; Відновити CMDECHO, якщо змінювали
@@ -623,310 +531,12 @@
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:REPLACENAME
 
-;; ====================================================================
-;; СКРИПТ 5: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "НОМЕРА"
-;; (v1.4 - Додано виділення знайденого тексту та запит на підтвердження)
-;; ====================================================================
-;; Команда: RENAME_OKM (v1.4)
-;; Бере набір вибірки "PIKET" з результату SEARCH, АБО вибрані користувачем.
-;; Для кожного блоку "PIKET":
-;; 1. Вилучає номер з дужок в атрибуті "НОМЕРА" (напр., з "ОКМ(22)12" -> "22").
-;; 2. Шукає *перший* найближчий текстовий об'єкт (TEXT або MTEXT) в межах заданого радіусу,
-;;    який починається з "№" І ЩЕ НЕ БУВ ПРИЗНАЧЕНИЙ іншому блоку в цьому запуску.
-;; 3. Збирає список всіх таких знайдених текстових об'єктів та їх нових значень.
-;; 4. ВИДІЛЯЄ всі знайдені текстові об'єкти.
-;; 5. Запитує користувача, чи дійсно потрібно оновити текст для виділених об'єктів.
-;; 6. Якщо користувач погоджується, оновлює текст.
-(defun c:RENAME_OKM ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
-                           attrValNomera blockPt openParen closeParen
-                           extractedNum searchDist ssTextAll j textEnt textData textPt textVal
-                           newTextVal textFoundForBlock modCount processedCount totalCount
-                           oldCmdecho fuzz
-                           ; --- Нові змінні для v1.4 ---
-                           updatedTextEnts ; Список EName текстів, вже "зайнятих" блоками під час пошуку
-                           updatesToPerform ; Список пар (list textEnt newTextVal) для оновлення
-                           ssHighlight ; Набір вибірки для виділення знайдених текстів
-                           answer ; Відповідь користувача на запит
-                           item currentTextVal )
-
-  ;; --- Функція обробки помилок ---
-  (defun *error* (msg)
-    (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
-    ;; Спробувати зняти виділення при помилці/скасуванні
-    (if ssHighlight (sssetfirst nil nil))
-    (cond ((not msg))
-          ((vl-string-search "Function cancelled" msg))
-          ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка: " msg)))
-    )
-    (setq *error* nil)
-    (princ)
-  )
-
-  ;; --- Ініціалізація ---
-  (setq modCount 0
-        processedCount 0
-        oldCmdecho nil
-        ss nil
-        ss_source ""
-        fuzz 1e-9 ; (не використовується в цій версії, але залишено)
-        updatedTextEnts nil ; Список ENames текстів, вже призначених блокам під час ПОШУКУ
-        updatesToPerform nil ; Список пар (list textEnt newTextVal) для фактичного оновлення
-        ssHighlight (ssadd) ; Порожній набір вибірки для виділення
-  )
-  (setq oldCmdecho (getvar "CMDECHO"))
-  ;(setvar "CMDECHO" 0) ; Можна вимкнути для пришвидшення, але повідомлення стануть менш інформативними
-
-  ;; --- Отримати радіус пошуку тексту ---
-  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET: "))
-  (if (or (null searchDist) (<= searchDist 0))
-    (progn (princ "\nНевірна відстань пошуку. Команду скасовано.") (exit))
-  )
-
-  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
-   (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
-          *g_last_search_result*
-          (= 'PICKSET (type *g_last_search_result*))
-          (> (sslength *g_last_search_result*) 0)
-     )
-     (setq ss *g_last_search_result*)
-     ;; НАСТУПНИЙ РЯДОК МАВ БУТИ ВИДАЛЕНИЙ (ЗГІДНО КОМЕНТАРЯ В ПОПЕРЕДНІЙ ВЕРСІЇ)
-     ;; Переконуємося, що використовуємо саме збережений результат.
-     (if (and ss (> (sslength ss) 0))
-         (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " блоків 'PIKET')"))
-         (setq ss nil ss_source "збереженого результату пошуку (але він порожній або некоректний)")
-     )
-    )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ;; Примітка: ssgetfirst повертає список, перший елемент якого - ім'я набору (не сам набір)
-    ;; Тому використовуємо (cadr (ssgetfirst)) або перевіряємо інакше
-    ((setq ss (ssgetfirst)) ; Перевіряємо чи є PickFirst set взагалі
-     (setq ss (car ss)) ; Отримуємо сам набір вибірки
-     (if ss
-        (progn
-         (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо PickFirst set, _I - Implicit
-         (if (or (null ss) (= 0 (sslength ss)))
-             (setq ss nil ss_source "поточної вибірки (але вона не містить блоків 'PIKET' з атрибутами)")
-             (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
-         )
-       )
-       (setq ss nil) ; Якщо ssgetfirst повернув nil
-     )
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
-    (T
-     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
-     (princ "\nВиберіть блоки 'PIKET', біля яких потрібно оновити текст: ")
-     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
-     (if ss
-       (setq ss_source (strcat "щойно вибраних блоків 'PIKET' (" (itoa (sslength ss)) " об.)"))
-       (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
-     )
-    )
-  )
-
-  ;; --- Основна логіка ---
-  (if ss
-    (progn
-      (setq totalCount (sslength ss))
-      (princ (strcat "\nОбробка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
-
-      ;; --- Фаза 1: Ідентифікація потенційних оновлень ---
-      (setq ssTextAll (ssget "_X" '((0 . "TEXT,MTEXT"))))
-      (if (null ssTextAll)
-         (princ "\nПопередження: У кресленні не знайдено жодних текстових об'єктів (TEXT або MTEXT).")
-         (progn
-           (princ (strcat "\nШукаємо відповідні текстові об'єкти в радіусі " (rtos searchDist 2 2) "..."))
-           ;; --- Цикл по вибраних/знайдених блоках PIKET ---
-           (setq i 0)
-           (repeat totalCount
-             (setq enamePiket (ssname ss i))
-             (setq extractedNum nil attrValNomera nil)
-             (setq textFoundForBlock nil) ; Скидаємо прапорець для КОЖНОГО блоку
-
-             (if (setq edataPiket (entget enamePiket))
-               (progn
-                 (setq processedCount (1+ processedCount))
-                 (setq blockPt (cdr (assoc 10 edataPiket)))
-
-                 ;; --- Пошук атрибуту "НОМЕРА" ---
-                 (if (and (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
-                   (progn
-                     (setq attEname (entnext enamePiket))
-                     (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
-                       (setq attTag (strcase (cdr (assoc 2 attEdata))))
-                       (if (eq "НОМЕРА" attTag)
-                         (progn (setq attrValNomera (cdr (assoc 1 attEdata))) (setq attEname nil)) ; Знайшли, виходимо
-                         (setq attEname (entnext attEname)) ; Шукаємо далі
-                       )
-                     )
-                   )
-                 )
-
-                 ;; --- Вилучення номера з атрибуту ---
-                 (if attrValNomera
-                   (progn
-                     (setq openParen (vl-string-search "(" attrValNomera))
-                     (setq closeParen (vl-string-search ")" attrValNomera (if openParen (+ openParen 1) 0)))
-                     (if (and openParen closeParen (> closeParen openParen))
-                       (setq extractedNum (substr attrValNomera (+ openParen 2) (- closeParen openParen 1)))
-                     )
-                   )
-                 )
-
-                 ;; --- Пошук відповідного тексту, якщо номер вилучено ---
-                 (if (and extractedNum blockPt) ; Перевіряємо чи є номер і точка блоку
-                   (progn
-                     (setq j 0)
-                     ;; Цикл по ВСІХ текстових об'єктах креслення
-                     (while (and (< j (sslength ssTextAll)) (not textFoundForBlock)) ; Шукаємо ТІЛЬКИ ОДИН текст для поточного блоку
-                       (setq textEnt (ssname ssTextAll j))
-                       (if (not (member textEnt updatedTextEnts)) ; Перевіряємо, чи цей текст НЕ ЗАЙНЯТИЙ іншим блоком
-                         (if (setq textData (entget textEnt)) ; Перевіряємо, чи текст ще існує
-                           (progn
-                             (setq textPt (cdr (assoc 10 textData)))
-                             (setq textVal (cdr (assoc 1 textData)))
-
-                             ;; Перевірка відстані та префіксу "№"
-                             (if (and textPt textVal
-                                      (<= (distance blockPt textPt) searchDist)
-                                      (= (vl-string-search "№" textVal) 0)
-                                 )
-                               (progn
-                                 ;; --- Знайдено відповідний текст ---
-                                 (setq newTextVal (strcat "№" extractedNum))
-
-                                 ;; Додаємо пару (list textEnt newTextVal) до списку для майбутнього оновлення
-                                 (setq updatesToPerform (cons (list textEnt newTextVal) updatesToPerform))
-
-                                 ;; Позначаємо цей текст як "зайнятий", щоб інший блок його не взяв
-                                 (setq updatedTextEnts (cons textEnt updatedTextEnts))
-
-                                 ;; Встановлюємо прапорець, щоб зупинити пошук для ПОТОЧНОГО блоку PIKET
-                                 (setq textFoundForBlock T)
-
-                                 ;; Друкуємо інформацію про знахідку (не про оновлення!)
-                                 (princ (strcat "\n + Знайдено текст <" (vl-princ-to-string textEnt) "> для блоку <" (vl-princ-to-string enamePiket) ">. Потенційне значення: '" newTextVal "'."))
-                               )
-                             )
-                           )
-                           ;; (princ (strcat "\n Попередження: Не вдалося отримати дані тексту <" (vl-princ-to-string textEnt) ">"))
-                         )
-                       )
-                       (setq j (1+ j)) ; Переходимо до наступного текстового об'єкта
-                     ) ; end while (пошук тексту)
-                   ) ; end progn (пошук тексту)
-                   ;; (if (not extractedNum) (princ (strcat "\n Попередження: Не вдалося вилучити номер з атрибуту для блоку <" (vl-princ-to-string enamePiket) ">")))
-                 ) ; end if (є номер і точка)
-               ) ; end progn (блок існує)
-               ;; (princ (strcat "\n Попередження: Блок <" (vl-princ-to-string enamePiket) "> більше не існує."))
-             ) ; end if (блок існує)
-             (setq i (1+ i)) ; Переходимо до наступного блоку PIKET
-           ) ; end repeat (по блоках PIKET)
-         ) ; end progn (якщо є текстові об'єкти)
-      ) ; end if (є текстові об'єкти)
-
-      ;; --- Фаза 2: Виділення знайденого тексту та Запит на підтвердження ---
-      (if updatesToPerform
-        (progn
-          ;; Створюємо набір вибірки ssHighlight з усіх знайдених текстів
-          (foreach item updatesToPerform
-            (setq textEnt (car item)) ; Отримуємо ename тексту
-            (if (entget textEnt) ; Перевірка чи текст все ще існує
-                (ssadd textEnt ssHighlight)
-            )
-          )
-
-          ;; Перевіряємо чи вдалося додати щось до набору вибірки
-          (if (> (sslength ssHighlight) 0)
-            (progn
-              (princ (strcat "\n\nЗнайдено та ВИДІЛЕНО " (itoa (sslength ssHighlight)) " текстових об'єктів для можливого оновлення."))
-              (sssetfirst nil ssHighlight) ; Виділяємо знайдені тексти
-
-              ;; --- Запит на підтвердження ---
-              (initget "Так Ні") ; Дозволити тільки ці відповіді (Українською)
-              (setq answer (getkword (strcat "\nОновити значення для " (itoa (sslength ssHighlight)) " виділених текстових об'єктів? [Так/Ні]: ")))
-
-              ;; --- Фаза 3: Виконання оновлень (якщо підтверджено) ---
-              (if (eq answer "Так")
-                (progn
-                  (princ "\nВиконую оновлення...")
-                  (command "_.UNDO" "_Begin") ; Почати групування UNDO для змін
-                  (setq modCount 0) ; Скидаємо лічильник фактично змінених
-
-                  ;; Цикл по списку запланованих оновлень
-                  (foreach item updatesToPerform
-                     (setq textEnt (car item))
-                     (setq newTextVal (cadr item))
-
-                     (if (setq textData (entget textEnt)) ; Перевіряємо чи текст ще існує
-                       (progn
-                         (setq currentTextVal (cdr (assoc 1 textData))) ; Отримуємо поточне значення
-                         ;; Оновлюємо ТІЛЬКИ якщо нове значення відрізняється від поточного
-                         (if (not (equal currentTextVal newTextVal fuzz)) ; Порівняння рядків
-                           (progn
-                             (setq textData (subst (cons 1 newTextVal) (assoc 1 textData) textData))
-                             (if (entmod textData)
-                               (progn
-                                 (setq modCount (1+ modCount)) ; Збільшуємо лічильник успішних змін
-                                 ;; Можна додати повідомлення про кожну зміну тут, якщо потрібно
-                                 ;; (princ (strcat "\n Оновлено <" (vl-princ-to-string textEnt) ">: '" currentTextVal "' -> '" newTextVal "'"))
-                               )
-                               (princ (strcat "\n Помилка оновлення тексту <" (vl-princ-to-string textEnt) ">."))
-                             )
-                           )
-                           ;; (princ (strcat "\n Текст <" (vl-princ-to-string textEnt) "> вже має потрібне значення: '" currentTextVal "'"))
-                         )
-                       )
-                       (princ (strcat "\n Попередження: Текст <" (vl-princ-to-string textEnt) "> більше не існує під час спроби оновлення."))
-                     )
-                  ) ; end foreach item
-
-                  (command "_.UNDO" "_End") ; Завершити групування UNDO
-                  (princ (strcat "\nЗавершено. Успішно оновлено " (itoa modCount) " з " (itoa (sslength ssHighlight)) " виділених текстових об'єктів."))
-                  ;; Залишаємо виділеними оновлені об'єкти
-                )
-                (progn ; Якщо користувач відповів "Ні"
-                  (princ "\nОновлення скасовано користувачем.")
-                  (sssetfirst nil nil) ; Знімаємо виділення
-                )
-              ) ; end if (answer = "Так")
-            )
-            (princ "\nНе вдалося створити набір вибірки з знайдених текстових об'єктів (можливо, вони були видалені).")
-          )
-        )
-        (princ "\n\nНе знайдено текстових об'єктів, що відповідають критеріям пошуку, для вибраних блоків 'PIKET'.")
-      ) ; end if updatesToPerform
-
-      ;; --- Фінальний звіт (навіть якщо оновлень не було) ---
-      (princ (strcat "\nВсього блоків 'PIKET' для обробки (з " ss_source "): " (itoa totalCount)))
-      (princ (strcat "\nРеально оброблено блоків (знайдено атрибут 'НОМЕРА'): " (itoa processedCount)))
-      (if updatesToPerform
-          (princ (strcat "\nЗнайдено відповідних текстових полів: " (itoa (sslength ssHighlight))))
-          (princ "\nЗнайдено відповідних текстових полів: 0")
-      )
-      (if (eq answer "Так") (princ (strcat "\nФактично змінено текстових полів: " (itoa modCount))))
-
-
-    ) ; end progn (якщо ss існує)
-    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
-  ) ; end if (ss існує)
-
-  ;; --- Відновлення середовища та вихід ---
-  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-  (setq *error* nil) ; Скинути обробник помилок
-  (princ) ;; Чистий вихід
-) ;; кінець defun c:RENAME_OKM
 
 ;; --- Повідомлення про завантаження ---
-(princ "\nLISP-скрипти (v5.2 - RENAME_OKM v1.4 з підтвердженням завантажено.") ; Оновіть версію тут
+(princ "\nLISP-скрипти (v3) завантажено.")
 (princ "\nКоманди:")
-(princ "\n  SEARCH        - Пошук блоків 'PIKET' за атрибутом 'НОМЕРА', виділення та збереження результату.")
-(princ "\n  PASTEHERE     - Вставка об'єкта з буфера в точки блоків (зі збереженого пошуку або вибраних вручну).")
-(princ "\n  CHECKPOINTS   - Перевірка Z координати та атрибуту 'ОТМЕТКА' у блоках 'PIKET' (зі збереженого пошуку або вибраних вручну), з можливістю виправлення.")
-(princ "\n  REPLACENAME   - Заміна підстроки в атрибуті 'НОМЕРА' блоків 'PIKET' (зі збереженого пошуку або вибраних вручну, чутливо до регістру).")
-(princ "\n  RENAME_OKM    - Оновлення тексту ('№...') біля блоків 'PIKET' за номером з атрибуту 'НОМЕРА' (зі збереженого пошуку або вибраних вручну, з ВИДІЛЕННЯМ та ПІДТВЕРДЖЕННЯМ).")
+(princ "\n  SEARCH      - Пошук блоків 'PIKET' за атрибутом 'НОМЕРА', виділення та збереження результату.")
+(princ "\n  PASTEHERE   - Вставка об'єкта з буфера (_COPYBASE) в точки збереженого результату SEARCH.")
+(princ "\n  CHECKPOINTS - Перевірка відповідності Z координати та атрибуту 'ОТМЕТКА' у блоках зі збереженого результату SEARCH, з можливістю виправлення.")
+(princ "\n  REPLACENAME - Зміна значення атрибуту НОМЕРА (якщо теба перейменувати блоки точок)")
 (princ) ;; Чистий вихід
