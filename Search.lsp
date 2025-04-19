@@ -659,13 +659,13 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 5: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "НОМЕРА" (v5.2)
+;; СКРИПТ 5: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "НОМЕРА" (v5.3)
 ;; ====================================================================
-;; Команда: RENAME_OKM (v5.2 - Додано виділення та підтвердження перед зміною тексту)
+;; Команда: RENAME_OKM (v5.3 - Відстань розраховується в 2D, ігноруючи Z)
 ;; Бере набір вибірки "PIKET" з результату SEARCH, АБО вибрані користувачем.
 ;; Для кожного блоку "PIKET":
 ;; 1. Вилучає номер з дужок в атрибуті "НОМЕРА" (напр., з "ОКМ(22)12" -> "22").
-;; 2. Шукає найближчий текстовий об'єкт (TEXT або MTEXT) в межах заданого радіусу.
+;; 2. Шукає найближчий текстовий об'єкт (TEXT або MTEXT) в межах заданого 2D-радіусу.
 ;; 3. Якщо текст знайдено, він починається з "№" І ЩЕ НЕ БУВ ОБРОБЛЕНИЙ У ЦЬОМУ ЗАПУСКУ:
 ;;    - Збирає інформацію про потенційне оновлення.
 ;; Після перевірки всіх блоків:
@@ -689,33 +689,34 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка: " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM: " msg)))
     )
-    (setq *g_last_search_result* nil) ; Скидання результату пошуку
+    (setq *g_last_search_result* nil)
     (setq *error* nil)
     (princ)
   )
 
   ;; --- Ініціалізація ---
-  (setq updatedCount 0 ; Лічильник знайдених відповідних текстів (включаючи ті, що вже правильні)
+  (setq updatedCount 0
         processedCount 0
         oldCmdecho nil
         ss nil
         ss_source ""
         fuzz 1e-9
-        updatedTextEnts nil ; Список вже оброблених/знайдених текстів (щоб уникнути дублювання)
-        ;; --- Ініціалізація нових змінних ---
-        texts_to_update_info nil ; Список для зберігання інформації про оновлення: ((textEnt newTextVal enamePiket) ...)
-        ssHighlight nil          ; Набір вибірки для виділення
-        potentialUpdateCount 0   ; Лічильник текстів, що реально ПОТРЕБУЮТЬ зміни
-        actualUpdateCount 0      ; Лічильник текстів, що були змінені ПІСЛЯ підтвердження
-        answer nil               ; Відповідь користувача
+        updatedTextEnts nil
+        texts_to_update_info nil
+        ssHighlight nil
+        potentialUpdateCount 0
+        actualUpdateCount 0
+        answer nil
   )
   (setq oldCmdecho (getvar "CMDECHO"))
   ;(setvar "CMDECHO" 0)
 
+
   ;; --- Отримати радіус пошуку тексту ---
-  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET: "))
+  ; Пояснення можна додати, що це 2D відстань, якщо потрібно
+  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET (в площині XY): "))
   (if (or (null searchDist) (<= searchDist 0))
     (progn (princ "\nНевірна відстань пошуку. Команду скасовано.") (exit))
   )
@@ -738,7 +739,7 @@
     ((setq ss (cadr (ssgetfirst)))
       (if ss
         (progn
-          (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо
+          (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
           (if (or (null ss) (= 0 (sslength ss)))
               (setq ss nil ss_source "поточної вибірки (але вона не містить блоків 'PIKET' з атрибутами)")
               (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
@@ -765,8 +766,6 @@
       (setq totalCount (sslength ss))
       (princ (strcat "\nПошук відповідних текстових полів біля " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
 
-      ;; (Не починаємо UNDO тут, бо ще не змінюємо нічого)
-
       (setq ssTextAll (ssget "_X" '((0 . "TEXT,MTEXT"))))
       (if (null ssTextAll) (princ "\nПопередження: У кресленні не знайдено жодних текстових об'єктів (TEXT або MTEXT)."))
 
@@ -775,12 +774,12 @@
       (repeat totalCount
         (setq enamePiket (ssname ss i))
         (setq extractedNum nil attrValNomera nil)
-        (setq textFoundForBlock nil) ; Скидаємо прапорець для КОЖНОГО блоку
+        (setq textFoundForBlock nil)
 
         (if (setq edataPiket (entget enamePiket))
           (progn
             (setq processedCount (1+ processedCount))
-            (setq blockPt (cdr (assoc 10 edataPiket)))
+            (setq blockPt (cdr (assoc 10 edataPiket))) ; 3D точка блоку
 
             ;; --- Пошук атрибуту "НОМЕРА" ---
             (if (and (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
@@ -816,34 +815,36 @@
                    (setq textEnt (ssname ssTextAll j))
                    (if (setq textData (entget textEnt))
                      (progn
-                        (setq textPt (cdr (assoc 10 textData)))
+                        (setq textPt (cdr (assoc 10 textData))) ; 3D точка тексту
                         (setq textVal (cdr (assoc 1 textData)))
 
-                        ;; Перевірка відстані, префіксу "№" І ЧИ НЕ БУВ ЦЕЙ ТЕКСТ ВЖЕ ОБРОБЛЕНИЙ
+                        ;; Перевірка відстані в 2D, префіксу "№" І ЧИ НЕ БУВ ЦЕЙ ТЕКСТ ВЖЕ ОБРОБЛЕНИЙ
                         (if (and textPt textVal
-                                 (<= (distance blockPt textPt) searchDist)
-                                 (= (vl-string-search "№" textVal) 0)
-                                 (not (member textEnt updatedTextEnts))
+                                 ;; --- ЗМІНА: Розрахунок 2D відстані ---
+                                 (<= (distance (list (car blockPt) (cadr blockPt) 0.0) ; 2D точка блоку
+                                               (list (car textPt) (cadr textPt) 0.0)   ; 2D точка тексту
+                                         )
+                                     searchDist
+                                 )
+                                 ;; --- Кінець зміни ---
+                                 (= (vl-string-search "№" textVal) 0) ; Перевірка префіксу
+                                 (not (member textEnt updatedTextEnts)) ; Перевірка чи не оброблено
                             )
                           (progn
-                              ;; Цей текст підходить для даного блоку
-                              (setq updatedCount (1+ updatedCount)) ; Рахуємо всі знайдені відповідні
+                              ;; Цей текст підходить
+                              (setq updatedCount (1+ updatedCount))
                               (setq newTextVal (strcat "№" extractedNum))
 
-                              ;; Перевіряємо, чи текст ВЖЕ має правильне значення
                               (if (not (equal textVal newTextVal))
                                  (progn
-                                    ;; --- ЗМІНА: Не оновлюємо, а ЗБЕРІГАЄМО інформацію ---
                                     (setq texts_to_update_info (cons (list textEnt newTextVal enamePiket) texts_to_update_info))
-                                    (setq potentialUpdateCount (1+ potentialUpdateCount)) ; Рахуємо тільки ті, що потребують зміни
+                                    (setq potentialUpdateCount (1+ potentialUpdateCount))
                                     (princ (strcat "\n   * Кандидат на оновлення: <" (vl-princ-to-string textEnt) "> ('" textVal "' -> '" newTextVal "') біля блоку <" (vl-princ-to-string enamePiket) ">"))
                                  )
-                                 ;;(princ (strcat "\n   - Текст <" (vl-princ-to-string textEnt) "> біля блоку <" (vl-princ-to-string enamePiket) "> вже має правильне значення: '" textVal "'"))
                               )
 
-                              ;; Додаємо текст до списку оброблених, щоб інший блок його не взяв
                               (setq updatedTextEnts (cons textEnt updatedTextEnts))
-                              (setq textFoundForBlock T) ; Позначити, що для ЦЬОГО блоку текст знайдено
+                              (setq textFoundForBlock T)
                           )
                         ) ; кінець if (перевірка відстані, префіксу та списку)
                      )
@@ -864,7 +865,7 @@
           ;; --- Створення набору вибірки для виділення ---
           (setq ssHighlight (ssadd))
           (foreach item texts_to_update_info
-            (if (entget (car item)) ; Перевірка існування перед додаванням
+            (if (entget (car item))
                 (ssadd (car item) ssHighlight)
             )
           )
@@ -886,11 +887,11 @@
                   (foreach item texts_to_update_info
                      (setq textEnt (car item))
                      (setq newTextVal (cadr item))
-                     (setq enamePiket (caddr item)) ; Можна використовувати для логування
+                     (setq enamePiket (caddr item))
 
                      (if (setq textData (entget textEnt))
                        (progn
-                          (setq currentTextVal (cdr (assoc 1 textData))) ; Отримати поточне значення перед зміною
+                          (setq currentTextVal (cdr (assoc 1 textData)))
                           (setq textData (subst (cons 1 newTextVal) (assoc 1 textData) textData))
                           (if (entmod textData)
                             (progn
@@ -920,18 +921,17 @@
         ;; --- Якщо не знайдено текстів, що потребують оновлення ---
         (progn
            (princ "\n\nНе знайдено текстових полів, що потребують оновлення.")
-           (if updatedTextEnts (sssetfirst nil nil)) ; Зняти виділення, якщо щось було виділено раніше
+           (if updatedTextEnts (sssetfirst nil nil))
         )
       )
 
-      ;; --- Фінальний звіт (трохи змінений) ---
+      ;; --- Фінальний звіт ---
       (princ (strcat "\n\nОперацію завершено."))
       (princ (strcat "\nВсього блоків 'PIKET' для обробки (з " ss_source "): " (itoa totalCount)))
       (princ (strcat "\nРеально оброблено блоків: " (itoa processedCount)))
-      (princ (strcat "\nЗнайдено відповідних текстових полів біля блоків: " (itoa updatedCount))) ; Всі, що підійшли (включаючи вже правильні)
+      (princ (strcat "\nЗнайдено відповідних текстових полів біля блоків: " (itoa updatedCount)))
       (if (> potentialUpdateCount 0) (princ (strcat "\nЗ них потребували оновлення: " (itoa potentialUpdateCount))))
       (if (eq answer "Так") (princ (strcat "\nФактично оновлено після підтвердження: " (itoa actualUpdateCount))))
-
 
     ) ; end progn (ss is valid)
     (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
@@ -939,19 +939,19 @@
 
   ;; --- Відновлення середовища та вихід ---
   (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-  (setq *g_last_search_result* nil) ; Скидання результату пошуку
+  (setq *g_last_search_result* nil)
   (setq *error* nil)
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:RENAME_OKM
 
 ;; ====================================================================
-;; СКРИПТ 6: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.1)
+;; СКРИПТ 6: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.2)
 ;; ====================================================================
-;; Команда: RENAME_ZMARKER (v1.1 - Додано фільтр за шаром "21 ВІДМІТКИ")
+;; Команда: RENAME_ZMARKER (v1.2 - Відстань розраховується в 2D, ігноруючи Z)
 ;; Бере набір вибірки "PIKET" з результату SEARCH, АБО вибрані користувачем.
 ;; Для кожного блоку "PIKET":
 ;; 1. Знаходить значення атрибуту "ОТМЕТКА".
-;; 2. Шукає найближчий текстовий об'єкт (TEXT або MTEXT) в межах заданого радіусу,
+;; 2. Шукає найближчий текстовий об'єкт (TEXT або MTEXT) в межах заданого 2D-радіусу,
 ;;    який знаходиться на шарі "21 ВІДМІТКИ".
 ;; 3. Якщо текст знайдено І ЩЕ НЕ БУВ ОБРОБЛЕНИЙ У ЦЬОМУ ЗАПУСКУ:
 ;;    - Збирає інформацію про потенційне оновлення тексту на значення атрибуту "ОТМЕТКА".
@@ -962,7 +962,7 @@
 
 (defun c:RENAME_ZMARKER ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
                            attrValOtmetka blockPt
-                           otmetkaValue searchDist ssTextAll j textEnt textData textPt textVal textLayer ; Додано textLayer
+                           otmetkaValue searchDist ssTextAll j textEnt textData textPt textVal textLayer
                            newTextVal textFoundForBlock updatedCount processedCount totalCount
                            oldCmdecho fuzz updatedTextEnts
                            ;; --- Змінні для виділення та підтвердження ---
@@ -1001,7 +1001,8 @@
   ;(setvar "CMDECHO" 0)
 
   ;; --- Отримати радіус пошуку тексту ---
-  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET: "))
+  ; Пояснення можна додати, що це 2D відстань, якщо потрібно
+  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET (в площині XY): "))
   (if (or (null searchDist) (<= searchDist 0))
     (progn (princ "\nНевірна відстань пошуку. Команду скасовано.") (exit))
   )
@@ -1049,10 +1050,8 @@
   (if ss
     (progn
       (setq totalCount (sslength ss))
-      (princ (strcat "\nПошук текстових полів на шарі '21 ВІДМІТКИ' біля " (itoa totalCount) " блоків 'PIKET' з " ss_source "...")) ; Оновлено повідомлення
+      (princ (strcat "\nПошук текстових полів на шарі '21 ВІДМІТКИ' біля " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
 
-      ;; Отримуємо всі текстові об'єкти ОДИН РАЗ для оптимізації
-      ;; Фільтр за шаром тут не застосовуємо, бо він потрібен лише для найближчих
       (setq ssTextAll (ssget "_X" '((0 . "TEXT,MTEXT"))))
       (if (null ssTextAll) (princ "\nПопередження: У кресленні не знайдено жодних текстових об'єктів (TEXT або MTEXT)."))
 
@@ -1066,7 +1065,7 @@
         (if (setq edataPiket (entget enamePiket))
           (progn
             (setq processedCount (1+ processedCount))
-            (setq blockPt (cdr (assoc 10 edataPiket)))
+            (setq blockPt (cdr (assoc 10 edataPiket))) ; 3D точка блоку
 
             ;; --- Пошук атрибуту "ОТМЕТКА" ---
             (if (and (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
@@ -1100,37 +1099,39 @@
                    (setq textEnt (ssname ssTextAll j))
                    (if (setq textData (entget textEnt))
                      (progn
-                        (setq textPt (cdr (assoc 10 textData))) ; Точка вставки тексту
-                        (setq textVal (cdr (assoc 1 textData)))  ; Значення тексту
-                        (setq textLayer (cdr (assoc 8 textData))) ; Шар тексту
+                        (setq textPt (cdr (assoc 10 textData))) ; 3D точка тексту
+                        (setq textVal (cdr (assoc 1 textData)))
+                        (setq textLayer (cdr (assoc 8 textData)))
 
-                        ;; Перевірка відстані, ШАРУ та чи не був оброблений
-                        (if (and textPt textVal textLayer ; Перевірка, що всі дані отримано
-                                 (equal textLayer "21 ВІДМІТКИ") ; <<< ДОДАНО ПЕРЕВІРКУ ШАРУ
-                                 (<= (distance blockPt textPt) searchDist) ; Перевірка відстані
-                                 (not (member textEnt updatedTextEnts)) ; Перевірка, чи не оброблено
+                        ;; Перевірка відстані в 2D, ШАРУ та чи не був оброблений
+                        (if (and textPt textVal textLayer
+                                 (equal textLayer "21 ВІДМІТКИ") ; Перевірка шару
+                                 ;; --- ЗМІНА: Розрахунок 2D відстані ---
+                                 (<= (distance (list (car blockPt) (cadr blockPt) 0.0) ; 2D точка блоку
+                                               (list (car textPt) (cadr textPt) 0.0)   ; 2D точка тексту
+                                         )
+                                     searchDist
+                                 )
+                                 ;; --- Кінець зміни ---
+                                 (not (member textEnt updatedTextEnts)) ; Перевірка чи не оброблено
                             )
                           (progn
                               ;; Цей текст підходить
                               (setq updatedCount (1+ updatedCount))
                               (setq newTextVal otmetkaValue)
 
-                              ;; Перевіряємо, чи текст ВЖЕ має правильне значення
                               (if (not (equal textVal newTextVal))
                                  (progn
-                                    ;; Зберігаємо інформацію для можливого оновлення
                                     (setq texts_to_update_info (cons (list textEnt newTextVal enamePiket) texts_to_update_info))
                                     (setq potentialUpdateCount (1+ potentialUpdateCount))
                                     (princ (strcat "\n   * Кандидат на оновлення (Шар: " textLayer "): <" (vl-princ-to-string textEnt) "> ('" textVal "' -> '" newTextVal "') біля блоку <" (vl-princ-to-string enamePiket) ">"))
                                  )
-                                 ;(princ (strcat "\n   - Текст <" (vl-princ-to-string textEnt) "> (Шар: " textLayer ") біля блоку <" (vl-princ-to-string enamePiket) "> вже має правильне значення: '" textVal "'"))
                               )
 
-                              ;; Додаємо текст до списку оброблених
                               (setq updatedTextEnts (cons textEnt updatedTextEnts))
                               (setq textFoundForBlock T)
                           )
-                        ) ; кінець if (перевірка відстані, ШАРУ та списку)
+                        ) ; кінець if (перевірка відстані, шару та списку)
                      )
                    )
                    (setq j (1+ j))
