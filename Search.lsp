@@ -624,234 +624,309 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "НОМЕРА" (Виправлено баг перезапису)
+;; СКРИПТ 5: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "НОМЕРА"
+;; (v1.4 - Додано виділення знайденого тексту та запит на підтвердження)
 ;; ====================================================================
-;; Команда: RENAME_OKM (v1.3 - виправлено баг перезапису тексту між близькими блоками)
+;; Команда: RENAME_OKM (v1.4)
 ;; Бере набір вибірки "PIKET" з результату SEARCH, АБО вибрані користувачем.
 ;; Для кожного блоку "PIKET":
 ;; 1. Вилучає номер з дужок в атрибуті "НОМЕРА" (напр., з "ОКМ(22)12" -> "22").
-;; 2. Шукає найближчий текстовий об'єкт (TEXT або MTEXT) в межах заданого радіусу.
-;; 3. Якщо текст знайдено, він починається з "№" І ЩЕ НЕ БУВ ОНОВЛЕНИЙ У ЦЬОМУ ЗАПУСКУ,
-;;    замінює число після "№" на вилучений номер.
+;; 2. Шукає *перший* найближчий текстовий об'єкт (TEXT або MTEXT) в межах заданого радіусу,
+;;    який починається з "№" І ЩЕ НЕ БУВ ПРИЗНАЧЕНИЙ іншому блоку в цьому запуску.
+;; 3. Збирає список всіх таких знайдених текстових об'єктів та їх нових значень.
+;; 4. ВИДІЛЯЄ всі знайдені текстові об'єкти.
+;; 5. Запитує користувача, чи дійсно потрібно оновити текст для виділених об'єктів.
+;; 6. Якщо користувач погоджується, оновлює текст.
 (defun c:RENAME_OKM ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
-                           attrValNomera blockPt openParen closeParen
-                           extractedNum searchDist ssTextAll j textEnt textData textPt textVal
-                           newTextVal textFoundForBlock updatedCount processedCount totalCount
-                           oldCmdecho fuzz updatedTextEnts ) ; <-- Додано updatedTextEnts
+                           attrValNomera blockPt openParen closeParen
+                           extractedNum searchDist ssTextAll j textEnt textData textPt textVal
+                           newTextVal textFoundForBlock modCount processedCount totalCount
+                           oldCmdecho fuzz
+                           ; --- Нові змінні для v1.4 ---
+                           updatedTextEnts ; Список EName текстів, вже "зайнятих" блоками під час пошуку
+                           updatesToPerform ; Список пар (list textEnt newTextVal) для оновлення
+                           ssHighlight ; Набір вибірки для виділення знайдених текстів
+                           answer ; Відповідь користувача на запит
+                           item currentTextVal )
 
-  ;; --- Функція обробки помилок ---
-  (defun *error* (msg)
-    (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
-    (cond ((not msg))
-          ((vl-string-search "Function cancelled" msg))
-          ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка: " msg)))
-    )
-    (setq *error* nil)
-    (princ)
-  )
+  ;; --- Функція обробки помилок ---
+  (defun *error* (msg)
+    (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
+    ;; Спробувати зняти виділення при помилці/скасуванні
+    (if ssHighlight (sssetfirst nil nil))
+    (cond ((not msg))
+          ((vl-string-search "Function cancelled" msg))
+          ((vl-string-search "quit / exit abort" msg))
+          (T (princ (strcat "\nПомилка: " msg)))
+    )
+    (setq *error* nil)
+    (princ)
+  )
 
-  ;; --- Ініціалізація ---
-  (setq updatedCount 0
-        processedCount 0
-        oldCmdecho nil
-        ss nil
-        ss_source ""
-        fuzz 1e-9
-        updatedTextEnts nil ; <-- Ініціалізація списку оновлених текстів
-  )
-  (setq oldCmdecho (getvar "CMDECHO"))
-  ;(setvar "CMDECHO" 0)
+  ;; --- Ініціалізація ---
+  (setq modCount 0
+        processedCount 0
+        oldCmdecho nil
+        ss nil
+        ss_source ""
+        fuzz 1e-9 ; (не використовується в цій версії, але залишено)
+        updatedTextEnts nil ; Список ENames текстів, вже призначених блокам під час ПОШУКУ
+        updatesToPerform nil ; Список пар (list textEnt newTextVal) для фактичного оновлення
+        ssHighlight (ssadd) ; Порожній набір вибірки для виділення
+  )
+  (setq oldCmdecho (getvar "CMDECHO"))
+  ;(setvar "CMDECHO" 0) ; Можна вимкнути для пришвидшення, але повідомлення стануть менш інформативними
 
-  ;; --- Отримати радіус пошуку тексту ---
-  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET: "))
-  (if (or (null searchDist) (<= searchDist 0))
-    (progn (princ "\nНевірна відстань пошуку. Команду скасовано.") (exit))
-  )
+  ;; --- Отримати радіус пошуку тексту ---
+  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET: "))
+  (if (or (null searchDist) (<= searchDist 0))
+    (progn (princ "\nНевірна відстань пошуку. Команду скасовано.") (exit))
+  )
 
-  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
-   (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
-          *g_last_search_result*
-          (= 'PICKSET (type *g_last_search_result*))
-          (> (sslength *g_last_search_result*) 0)
-     )
-     (setq ss *g_last_search_result*) ; <<< Assign the saved set
-     ;; ВИДАЛИТИ АБО ЗАКОМЕНТУВАТИ НАСТУПНИЙ РЯДОК:
-     ;; (setq ss (ssget "_P" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; <<< ВИДАЛИТИ ЦЕЙ РЯДОК
-
-     ;; Перевірка чи ss не порожній (має бути > 0 з умови вище, але про всяк випадок)
-     (if (and ss (> (sslength ss) 0))
-         (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " блоків 'PIKET')"))
-         ;; Якщо *g_last_search_result* існував, але став порожнім (дуже малоймовірно)
-         (setq ss nil ss_source "збереженого результату пошуку (але він порожній або некоректний)") 
-     )
-    )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ((setq ss (cadr (ssgetfirst)))
-      (if ss
-        (progn
-          (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо
-          (if (or (null ss) (= 0 (sslength ss)))
-              (setq ss nil ss_source "поточної вибірки (але вона не містить блоків 'PIKET' з атрибутами)")
-              (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
-          )
-        )
-        (setq ss nil)
-      )
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
-    (T
-     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
-     (princ "\nВиберіть блоки 'PIKET', біля яких потрібно оновити текст: ")
-     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
+  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
+   (cond
+    ;; 1. Перевірити збережений результат SEARCH
+    ((and (boundp '*g_last_search_result*)
+          *g_last_search_result*
+          (= 'PICKSET (type *g_last_search_result*))
+          (> (sslength *g_last_search_result*) 0)
+     )
+     (setq ss *g_last_search_result*)
+     ;; НАСТУПНИЙ РЯДОК МАВ БУТИ ВИДАЛЕНИЙ (ЗГІДНО КОМЕНТАРЯ В ПОПЕРЕДНІЙ ВЕРСІЇ)
+     ;; Переконуємося, що використовуємо саме збережений результат.
+     (if (and ss (> (sslength ss) 0))
+         (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " блоків 'PIKET')"))
+         (setq ss nil ss_source "збереженого результату пошуку (але він порожній або некоректний)")
+     )
+    )
+    ;; 2. Перевірити попередню вибірку (PickFirst)
+    ;; Примітка: ssgetfirst повертає список, перший елемент якого - ім'я набору (не сам набір)
+    ;; Тому використовуємо (cadr (ssgetfirst)) або перевіряємо інакше
+    ((setq ss (ssgetfirst)) ; Перевіряємо чи є PickFirst set взагалі
+     (setq ss (car ss)) ; Отримуємо сам набір вибірки
      (if ss
-       (setq ss_source (strcat "щойно вибраних блоків 'PIKET' (" (itoa (sslength ss)) " об.)"))
-       (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
+        (progn
+         (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо PickFirst set, _I - Implicit
+         (if (or (null ss) (= 0 (sslength ss)))
+             (setq ss nil ss_source "поточної вибірки (але вона не містить блоків 'PIKET' з атрибутами)")
+             (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
+         )
+       )
+       (setq ss nil) ; Якщо ssgetfirst повернув nil
      )
     )
-  )
+    ;; 3. Запросити користувача вибрати об'єкти
+    (T
+     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
+     (princ "\nВиберіть блоки 'PIKET', біля яких потрібно оновити текст: ")
+     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
+     (if ss
+       (setq ss_source (strcat "щойно вибраних блоків 'PIKET' (" (itoa (sslength ss)) " об.)"))
+       (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
+     )
+    )
+  )
 
-  ;; --- Основна логіка оновлення тексту ---
-  (if ss
-    (progn
-      (setq totalCount (sslength ss))
-      (princ (strcat "\nОбробка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
-      (command "_.UNDO" "_Begin")
+  ;; --- Основна логіка ---
+  (if ss
+    (progn
+      (setq totalCount (sslength ss))
+      (princ (strcat "\nОбробка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
 
-      (setq ssTextAll (ssget "_X" '((0 . "TEXT,MTEXT"))))
-      (if (null ssTextAll) (princ "\nПопередження: У кресленні не знайдено жодних текстових об'єктів (TEXT або MTEXT)."))
+      ;; --- Фаза 1: Ідентифікація потенційних оновлень ---
+      (setq ssTextAll (ssget "_X" '((0 . "TEXT,MTEXT"))))
+      (if (null ssTextAll)
+         (princ "\nПопередження: У кресленні не знайдено жодних текстових об'єктів (TEXT або MTEXT).")
+         (progn
+           (princ (strcat "\nШукаємо відповідні текстові об'єкти в радіусі " (rtos searchDist 2 2) "..."))
+           ;; --- Цикл по вибраних/знайдених блоках PIKET ---
+           (setq i 0)
+           (repeat totalCount
+             (setq enamePiket (ssname ss i))
+             (setq extractedNum nil attrValNomera nil)
+             (setq textFoundForBlock nil) ; Скидаємо прапорець для КОЖНОГО блоку
 
-      ;; --- Цикл по вибраних/знайдених блоках PIKET ---
-      (setq i 0)
-      (repeat totalCount
-        (setq enamePiket (ssname ss i))
-        (setq extractedNum nil attrValNomera nil)
-        (setq textFoundForBlock nil) ; Скидаємо прапорець для КОЖНОГО блоку
+             (if (setq edataPiket (entget enamePiket))
+               (progn
+                 (setq processedCount (1+ processedCount))
+                 (setq blockPt (cdr (assoc 10 edataPiket)))
 
-        (if (setq edataPiket (entget enamePiket))
-          (progn
-            (setq processedCount (1+ processedCount))
-            (setq blockPt (cdr (assoc 10 edataPiket)))
+                 ;; --- Пошук атрибуту "НОМЕРА" ---
+                 (if (and (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
+                   (progn
+                     (setq attEname (entnext enamePiket))
+                     (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
+                       (setq attTag (strcase (cdr (assoc 2 attEdata))))
+                       (if (eq "НОМЕРА" attTag)
+                         (progn (setq attrValNomera (cdr (assoc 1 attEdata))) (setq attEname nil)) ; Знайшли, виходимо
+                         (setq attEname (entnext attEname)) ; Шукаємо далі
+                       )
+                     )
+                   )
+                 )
 
-            ;; --- Пошук атрибуту "НОМЕРА" методом entnext ---
-            (if (and (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
-              (progn
-                (setq attEname (entnext enamePiket))
-                (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
-                  (setq attTag (strcase (cdr (assoc 2 attEdata))))
-                  (if (eq "НОМЕРА" attTag)
-                    (progn (setq attrValNomera (cdr (assoc 1 attEdata))) (setq attEname nil))
-                    (setq attEname (entnext attEname))
-                  )
-                )
-              )
-             ; (princ (strcat "\n Попередження: Блок <" (vl-princ-to-string enamePiket) "> не має прапорця наявності атрибутів (код 66)."))
-            )
+                 ;; --- Вилучення номера з атрибуту ---
+                 (if attrValNomera
+                   (progn
+                     (setq openParen (vl-string-search "(" attrValNomera))
+                     (setq closeParen (vl-string-search ")" attrValNomera (if openParen (+ openParen 1) 0)))
+                     (if (and openParen closeParen (> closeParen openParen))
+                       (setq extractedNum (substr attrValNomera (+ openParen 2) (- closeParen openParen 1)))
+                     )
+                   )
+                 )
 
-            ;; --- Вилучення номера з атрибуту ---
-            (if attrValNomera
-              (progn
-                (setq openParen (vl-string-search "(" attrValNomera))
-                (setq closeParen (vl-string-search ")" attrValNomera (if openParen (+ openParen 1) 0)))
-                (if (and openParen closeParen (> closeParen openParen))
-                  (setq extractedNum (substr attrValNomera (+ openParen 2) (- closeParen openParen 1)))
-                  ;(princ (strcat "\n Попередження: Не вдалося вилучити номер з дужок в атрибуті '" attrValNomera "' блоку: " (vl-princ-to-string enamePiket)))
-                )
-              )
-             ; (princ (strcat "\n Попередження: Атрибут 'НОМЕРА' не знайдено у блоці: " (vl-princ-to-string enamePiket)))
-            )
-
-            ;; --- Пошук та оновлення тексту, якщо номер вилучено і є текстові об'єкти ---
-            (if (and extractedNum ssTextAll blockPt)
-              (progn
-                 (setq j 0)
-                 ;; Цикл по ВСІХ текстових об'єктах креслення
-                 (while (and (< j (sslength ssTextAll)) (not textFoundForBlock)) ; Шукаємо ТІЛЬКИ ОДИН текст для поточного блоку
-                      (setq textEnt (ssname ssTextAll j))
-                      (if (setq textData (entget textEnt))
-                          (progn
+                 ;; --- Пошук відповідного тексту, якщо номер вилучено ---
+                 (if (and extractedNum blockPt) ; Перевіряємо чи є номер і точка блоку
+                   (progn
+                     (setq j 0)
+                     ;; Цикл по ВСІХ текстових об'єктах креслення
+                     (while (and (< j (sslength ssTextAll)) (not textFoundForBlock)) ; Шукаємо ТІЛЬКИ ОДИН текст для поточного блоку
+                       (setq textEnt (ssname ssTextAll j))
+                       (if (not (member textEnt updatedTextEnts)) ; Перевіряємо, чи цей текст НЕ ЗАЙНЯТИЙ іншим блоком
+                         (if (setq textData (entget textEnt)) ; Перевіряємо, чи текст ще існує
+                           (progn
                              (setq textPt (cdr (assoc 10 textData)))
                              (setq textVal (cdr (assoc 1 textData)))
 
-                             ;; Перевірка відстані, префіксу "№" І ЧИ НЕ БУВ ЦЕЙ ТЕКСТ ВЖЕ ОНОВЛЕНИЙ
+                             ;; Перевірка відстані та префіксу "№"
                              (if (and textPt textVal
                                       (<= (distance blockPt textPt) searchDist)
                                       (= (vl-string-search "№" textVal) 0)
-                                      (not (member textEnt updatedTextEnts)) ; <-- ОСНОВНА ЗМІНА: Перевірка, чи тексту немає у списку вже оновлених
                                  )
-                                 (progn
-                                     ;; --- Оновлення тексту ---
-                                     (setq newTextVal (strcat "№" extractedNum))
-                                     (if (not (equal textVal newTextVal))
-                                         (progn
-                                            (setq textData (subst (cons 1 newTextVal) (assoc 1 textData) textData))
-                                            (if (entmod textData)
-                                                 (progn
-                                                     (princ (strcat "\n Оновлено текст <" (vl-princ-to-string textEnt) ">: '" textVal "' -> '" newTextVal "' біля блоку <" (vl-princ-to-string enamePiket) ">"))
-                                                     (setq updatedCount (1+ updatedCount))
-                                                     ;; Додаємо текст до списку оновлених ТІЛЬКИ ПІСЛЯ УСПІШНОГО ОНОВЛЕННЯ
-                                                     (setq updatedTextEnts (cons textEnt updatedTextEnts))
-                                                     (setq textFoundForBlock T) ; Позначити, що для ЦЬОГО блоку текст знайдено/оновлено
-                                                 )
-                                                 (princ (strcat "\n Помилка оновлення тексту <" (vl-princ-to-string textEnt) "> біля блоку: " (vl-princ-to-string enamePiket)))
-                                            )
-                                         )
-                                         (progn ; Текст вже правильний, але ми його "забираємо" для цього блоку
-                                            (princ (strcat "\n Текст <" (vl-princ-to-string textEnt) "> біля блоку <" (vl-princ-to-string enamePiket) "> вже має правильне значення: '" textVal "'"))
-                                            ;; Додаємо до списку, щоб інший блок його не змінив
-                                            (setq updatedTextEnts (cons textEnt updatedTextEnts))
-                                            (setq textFoundForBlock T) ; Позначити, що для ЦЬОГО блоку текст знайдено
-                                         )
-                                     )
-                                 )
-                             ) ; кінець if (перевірка відстані, префіксу та списку оновлених)
-                          )
-                         ; (princ (strcat "\n Попередження: Текстовий об'єкт <" (vl-princ-to-string textEnt) "> більше не існує."))
-                      )
-                      (setq j (1+ j))
-                 ) ; end while (пошук тексту)
+                               (progn
+                                 ;; --- Знайдено відповідний текст ---
+                                 (setq newTextVal (strcat "№" extractedNum))
 
-                 ;(if (and (not textFoundForBlock) extractedNum)
-                 ;     (princ (strcat "\n Попередження: Не знайдено відповідний текст (починається з '№' в радіусі " (rtos searchDist) ") для блоку: " (vl-princ-to-string enamePiket)))
-                 ;)
-              )
+                                 ;; Додаємо пару (list textEnt newTextVal) до списку для майбутнього оновлення
+                                 (setq updatesToPerform (cons (list textEnt newTextVal) updatesToPerform))
+
+                                 ;; Позначаємо цей текст як "зайнятий", щоб інший блок його не взяв
+                                 (setq updatedTextEnts (cons textEnt updatedTextEnts))
+
+                                 ;; Встановлюємо прапорець, щоб зупинити пошук для ПОТОЧНОГО блоку PIKET
+                                 (setq textFoundForBlock T)
+
+                                 ;; Друкуємо інформацію про знахідку (не про оновлення!)
+                                 (princ (strcat "\n + Знайдено текст <" (vl-princ-to-string textEnt) "> для блоку <" (vl-princ-to-string enamePiket) ">. Потенційне значення: '" newTextVal "'."))
+                               )
+                             )
+                           )
+                           ;; (princ (strcat "\n Попередження: Не вдалося отримати дані тексту <" (vl-princ-to-string textEnt) ">"))
+                         )
+                       )
+                       (setq j (1+ j)) ; Переходимо до наступного текстового об'єкта
+                     ) ; end while (пошук тексту)
+                   ) ; end progn (пошук тексту)
+                   ;; (if (not extractedNum) (princ (strcat "\n Попередження: Не вдалося вилучити номер з атрибуту для блоку <" (vl-princ-to-string enamePiket) ">")))
+                 ) ; end if (є номер і точка)
+               ) ; end progn (блок існує)
+               ;; (princ (strcat "\n Попередження: Блок <" (vl-princ-to-string enamePiket) "> більше не існує."))
+             ) ; end if (блок існує)
+             (setq i (1+ i)) ; Переходимо до наступного блоку PIKET
+           ) ; end repeat (по блоках PIKET)
+         ) ; end progn (якщо є текстові об'єкти)
+      ) ; end if (є текстові об'єкти)
+
+      ;; --- Фаза 2: Виділення знайденого тексту та Запит на підтвердження ---
+      (if updatesToPerform
+        (progn
+          ;; Створюємо набір вибірки ssHighlight з усіх знайдених текстів
+          (foreach item updatesToPerform
+            (setq textEnt (car item)) ; Отримуємо ename тексту
+            (if (entget textEnt) ; Перевірка чи текст все ще існує
+                (ssadd textEnt ssHighlight)
             )
           )
-         ; (princ (strcat "\n Попередження: Блок PIKET зі збереженої/вибраної вибірки вже не існує: " (vl-princ-to-string enamePiket)))
-        ) ; end if (entget enamePiket)
-        (setq i (1+ i))
-      ) ; end repeat (по блоках PIKET)
 
-      (command "_.UNDO" "_End")
+          ;; Перевіряємо чи вдалося додати щось до набору вибірки
+          (if (> (sslength ssHighlight) 0)
+            (progn
+              (princ (strcat "\n\nЗнайдено та ВИДІЛЕНО " (itoa (sslength ssHighlight)) " текстових об'єктів для можливого оновлення."))
+              (sssetfirst nil ssHighlight) ; Виділяємо знайдені тексти
 
-      ;; --- Фінальний звіт ---
-      (princ (strcat "\n\nОперацію завершено."))
+              ;; --- Запит на підтвердження ---
+              (initget "Так Ні") ; Дозволити тільки ці відповіді (Українською)
+              (setq answer (getkword (strcat "\nОновити значення для " (itoa (sslength ssHighlight)) " виділених текстових об'єктів? [Так/Ні]: ")))
+
+              ;; --- Фаза 3: Виконання оновлень (якщо підтверджено) ---
+              (if (eq answer "Так")
+                (progn
+                  (princ "\nВиконую оновлення...")
+                  (command "_.UNDO" "_Begin") ; Почати групування UNDO для змін
+                  (setq modCount 0) ; Скидаємо лічильник фактично змінених
+
+                  ;; Цикл по списку запланованих оновлень
+                  (foreach item updatesToPerform
+                     (setq textEnt (car item))
+                     (setq newTextVal (cadr item))
+
+                     (if (setq textData (entget textEnt)) ; Перевіряємо чи текст ще існує
+                       (progn
+                         (setq currentTextVal (cdr (assoc 1 textData))) ; Отримуємо поточне значення
+                         ;; Оновлюємо ТІЛЬКИ якщо нове значення відрізняється від поточного
+                         (if (not (equal currentTextVal newTextVal fuzz)) ; Порівняння рядків
+                           (progn
+                             (setq textData (subst (cons 1 newTextVal) (assoc 1 textData) textData))
+                             (if (entmod textData)
+                               (progn
+                                 (setq modCount (1+ modCount)) ; Збільшуємо лічильник успішних змін
+                                 ;; Можна додати повідомлення про кожну зміну тут, якщо потрібно
+                                 ;; (princ (strcat "\n Оновлено <" (vl-princ-to-string textEnt) ">: '" currentTextVal "' -> '" newTextVal "'"))
+                               )
+                               (princ (strcat "\n Помилка оновлення тексту <" (vl-princ-to-string textEnt) ">."))
+                             )
+                           )
+                           ;; (princ (strcat "\n Текст <" (vl-princ-to-string textEnt) "> вже має потрібне значення: '" currentTextVal "'"))
+                         )
+                       )
+                       (princ (strcat "\n Попередження: Текст <" (vl-princ-to-string textEnt) "> більше не існує під час спроби оновлення."))
+                     )
+                  ) ; end foreach item
+
+                  (command "_.UNDO" "_End") ; Завершити групування UNDO
+                  (princ (strcat "\nЗавершено. Успішно оновлено " (itoa modCount) " з " (itoa (sslength ssHighlight)) " виділених текстових об'єктів."))
+                  ;; Залишаємо виділеними оновлені об'єкти
+                )
+                (progn ; Якщо користувач відповів "Ні"
+                  (princ "\nОновлення скасовано користувачем.")
+                  (sssetfirst nil nil) ; Знімаємо виділення
+                )
+              ) ; end if (answer = "Так")
+            )
+            (princ "\nНе вдалося створити набір вибірки з знайдених текстових об'єктів (можливо, вони були видалені).")
+          )
+        )
+        (princ "\n\nНе знайдено текстових об'єктів, що відповідають критеріям пошуку, для вибраних блоків 'PIKET'.")
+      ) ; end if updatesToPerform
+
+      ;; --- Фінальний звіт (навіть якщо оновлень не було) ---
       (princ (strcat "\nВсього блоків 'PIKET' для обробки (з " ss_source "): " (itoa totalCount)))
-      (princ (strcat "\nРеально оброблено блоків: " (itoa processedCount)))
-      (princ (strcat "\nТекстових полів успішно оновлено/перевірено: " (itoa updatedCount))) ; Змінено текст звіту
+      (princ (strcat "\nРеально оброблено блоків (знайдено атрибут 'НОМЕРА'): " (itoa processedCount)))
+      (if updatesToPerform
+          (princ (strcat "\nЗнайдено відповідних текстових полів: " (itoa (sslength ssHighlight))))
+          (princ "\nЗнайдено відповідних текстових полів: 0")
+      )
+      (if (eq answer "Так") (princ (strcat "\nФактично змінено текстових полів: " (itoa modCount))))
 
-    ) ; end progn (ss is valid)
-    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
-  ) ; end if (ss)
 
-  ;; --- Відновлення середовища та вихід ---
-  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-  (setq *error* nil)
-  (princ) ;; Чистий вихід
+    ) ; end progn (якщо ss існує)
+    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
+  ) ; end if (ss існує)
+
+  ;; --- Відновлення середовища та вихід ---
+  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+  (setq *error* nil) ; Скинути обробник помилок
+  (princ) ;; Чистий вихід
 ) ;; кінець defun c:RENAME_OKM
 
-
-
-
 ;; --- Повідомлення про завантаження ---
-(princ "\nLISP-скрипти (v5.1 завантажено.") ; Оновіть версію тут, якщо бажаєте
+(princ "\nLISP-скрипти (v5.2 - RENAME_OKM v1.4 з підтвердженням завантажено.") ; Оновіть версію тут
 (princ "\nКоманди:")
-(princ "\n  SEARCH              - Пошук блоків 'PIKET' за атрибутом 'НОМЕРА', виділення та збереження результату.")
-(princ "\n  PASTEHERE           - Вставка об'єкта з буфера в точки блоків (зі збереженого пошуку або вибраних вручну).")
-(princ "\n  CHECKPOINTS         - Перевірка Z координати та атрибуту 'ОТМЕТКА' у блоках 'PIKET' (зі збереженого пошуку або вибраних вручну), з можливістю виправлення.")
-(princ "\n  REPLACENAME         - Заміна підстроки в атрибуті 'НОМЕРА' блоків 'PIKET' (зі збереженого пошуку або вибраних вручну, чутливо до регістру).")
-(princ "\n  RENAME_OKM          - Оновлення тексту ('№...') біля блоків 'PIKET' за номером з атрибуту 'НОМЕРА' (зі збереженого пошуку або вибраних вручну).") ; <-- ЗМІНЕНО НАЗВУ КОМАНДИ ТУТ
+(princ "\n  SEARCH        - Пошук блоків 'PIKET' за атрибутом 'НОМЕРА', виділення та збереження результату.")
+(princ "\n  PASTEHERE     - Вставка об'єкта з буфера в точки блоків (зі збереженого пошуку або вибраних вручну).")
+(princ "\n  CHECKPOINTS   - Перевірка Z координати та атрибуту 'ОТМЕТКА' у блоках 'PIKET' (зі збереженого пошуку або вибраних вручну), з можливістю виправлення.")
+(princ "\n  REPLACENAME   - Заміна підстроки в атрибуті 'НОМЕРА' блоків 'PIKET' (зі збереженого пошуку або вибраних вручну, чутливо до регістру).")
+(princ "\n  RENAME_OKM    - Оновлення тексту ('№...') біля блоків 'PIKET' за номером з атрибуту 'НОМЕРА' (зі збереженого пошуку або вибраних вручну, з ВИДІЛЕННЯМ та ПІДТВЕРДЖЕННЯМ).")
 (princ) ;; Чистий вихід
