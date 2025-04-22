@@ -9,7 +9,7 @@
 (setq *g_last_search_result* nil)
 
 ;; Глобальна змінна для зберігання кандидатів на оновлення текстом відмітки Z
-(setq *g_rename_zmarker_candidates* nil) ; <--- НОВА ГЛОБАЛЬНА ЗМІННА
+(setq *g_rename_zmarker_candidates* nil)
 
 ;; --- Допоміжна функція: Заміна всіх входжень підрядка (чутлива до регістру) ---
 ;; Замінює всі входження рядка 'find' на рядок 'replace' у рядку 'source'.
@@ -950,9 +950,9 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 6: ПОШУК КАНДИДАТІВ ДЛЯ ОНОВЛЕННЯ ТЕКСТУ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.5)
+;; СКРИПТ 6: ПОШУК КАНДИДАТІВ ДЛЯ ОНОВЛЕННЯ ТЕКСТУ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.5.1)
 ;; ====================================================================
-;; Команда: RENAME_ZMARKER (v1.5 - Знаходить, Зберігає, Підсвічує)
+;; Команда: RENAME_ZMARKER (v1.5.1 - Виправлено зайву дужку в циклі пошуку тексту)
 ;; Ця команда виконує першу частину процесу:
 ;; 1. Бере набір вибірки "PIKET" (з SEARCH або вибрані).
 ;; 2. Знаходить значення атрибуту "ОТМЕТКА" для кожного блоку.
@@ -1032,24 +1032,44 @@
               (progn (setq attEname (entnext enamePiket))
                      (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                        (setq attTag (strcase (cdr (assoc 2 attEdata))))
-                       (if (eq "ОТМЕТКА" attTag) (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) (setq attEname (entnext attEname))))))
+                       (if (eq "ОТМЕТКА" attTag) (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) (setq attEname (entnext attEname)))
+                     )
+              )
+            )
             (if attrValOtmetka (setq otmetkaValue attrValOtmetka) (princ (strcat "\n Попередження: Атрибут 'ОТМЕТКА' не знайдено/порожній: " (vl-princ-to-string enamePiket))))
             ;; Пошук тексту
             (if (and otmetkaValue ssTextAll blockPt)
-              (progn (setq j 0)
-                     (while (and (< j (sslength ssTextAll)) (not textFoundForBlock))
-                       (setq textEnt (ssname ssTextAll j))
-                       (if (setq textData (entget textEnt))
-                         (progn (setq textPt (cdr (assoc 10 textData))) (setq textVal (cdr (assoc 1 textData))) (setq textLayer (cdr (assoc 8 textData)))
-                                (if (and textPt textVal textLayer (equal textLayer "21 ВІДМІТКИ") (<= (distance (list (car blockPt) (cadr blockPt) 0.0) (list (car textPt) (cadr textPt) 0.0)) searchDist) (not (member textEnt updatedTextEnts)))
-                                  (progn (setq updatedCount (1+ updatedCount)) (setq newTextVal otmetkaValue)
-                                         (if (not (equal textVal newTextVal))
-                                           (progn (setq texts_to_update_info (cons (list textEnt newTextVal enamePiket) texts_to_update_info)) (setq potentialUpdateCount (1+ potentialUpdateCount))
-                                                  (princ (strcat "\n   * Кандидат: <" (vl-princ-to-string textEnt) "> ('" textVal "' -> '" newTextVal "') біля <" (vl-princ-to-string enamePiket) ">"))))
-                                         (setq updatedTextEnts (cons textEnt updatedTextEnts)) (setq textFoundForBlock T))))))
-                       (setq j (1+ j)))))))
+              (progn
+                 (setq j 0)
+                 (while (and (< j (sslength ssTextAll)) (not textFoundForBlock))
+                   (setq textEnt (ssname ssTextAll j))
+                   (if (setq textData (entget textEnt))
+                     (progn
+                       (setq textPt (cdr (assoc 10 textData))) (setq textVal (cdr (assoc 1 textData))) (setq textLayer (cdr (assoc 8 textData)))
+                       (if (and textPt textVal textLayer (equal textLayer "21 ВІДМІТКИ") (<= (distance (list (car blockPt) (cadr blockPt) 0.0) (list (car textPt) (cadr textPt) 0.0)) searchDist) (not (member textEnt updatedTextEnts))) ; Початок IF conditions met
+                         (progn
+                           (setq updatedCount (1+ updatedCount)) (setq newTextVal otmetkaValue)
+                           (if (not (equal textVal newTextVal))
+                             (progn
+                               (setq texts_to_update_info (cons (list textEnt newTextVal enamePiket) texts_to_update_info))
+                               (setq potentialUpdateCount (1+ potentialUpdateCount))
+                               (princ (strcat "\n   * Кандидат: <" (vl-princ-to-string textEnt) "> ('" textVal "' -> '" newTextVal "') біля <" (vl-princ-to-string enamePiket) ">"))
+                             )
+                           )
+                           (setq updatedTextEnts (cons textEnt updatedTextEnts))
+                           (setq textFoundForBlock T)
+                         )
+                       )
+                     )
+                   )
+                   (setq j (1+ j))
+                 )
+              )
+            )
+          )
+        )
         (setq i (1+ i))
-      ) ; end repeat
+      )
 
       ;; --- Збереження результатів та підсвічування ---
       (if (> potentialUpdateCount 0)
