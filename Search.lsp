@@ -1116,27 +1116,28 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 7: ВИКОНАННЯ ОНОВЛЕННЯ ТЕКСТУ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.0)
+;; СКРИПТ 7: ВИКОНАННЯ ОНОВЛЕННЯ ТЕКСТУ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.1)
 ;; ====================================================================
-;; Команда: RENAME_ZMARKER_RUN (v1.0 - Виконує оновлення для вибраних кандидатів)
+;; Команда: RENAME_ZMARKER_RUN (v1.1 - Додано очищення *g_last_search_result*)
 ;; Ця команда виконує другу частину процесу:
 ;; 1. Перевіряє, чи є збережений список кандидатів від RENAME_ZMARKER.
 ;; 2. Отримує поточний набір вибірки (PickFirst set), який користувач мав відредагувати.
 ;; 3. Фільтрує список кандидатів, залишаючи тільки ті, що є у поточній вибірці.
 ;; 4. Запитує підтвердження на оновлення.
 ;; 5. Якщо підтверджено, оновлює текст для відфільтрованих об'єктів.
-;; 6. Очищує збережений список кандидатів.
+;; 6. Очищує збережений список кандидатів (*g_rename_zmarker_candidates*) ТА результат пошуку (*g_last_search_result*).
 
 (defun c:RENAME_ZMARKER_RUN ( / *error* retrieved_candidates final_ss final_update_info
                                 answer actualUpdateCount item textEnt newTextVal textData currentTextVal
-                                oldCmdecho
+                                oldCmdecho user_input
                               )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
     (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
-    ;; Очищення глобальної змінної при помилці/скасуванні
+    ;; Очищення глобальних змінних при помилці/скасуванні
     (setq *g_rename_zmarker_candidates* nil)
+    (setq *g_last_search_result* nil) ; <--- ДОДАНО ОЧИЩЕННЯ ТУТ
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
           ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
@@ -1147,7 +1148,7 @@
   )
 
   ;; --- Ініціалізація ---
-  (setq retrieved_candidates nil final_ss nil final_update_info nil answer nil actualUpdateCount 0 oldCmdecho nil)
+  (setq retrieved_candidates nil final_ss nil final_update_info nil answer nil actualUpdateCount 0 oldCmdecho nil user_input nil)
   (setq oldCmdecho (getvar "CMDECHO"))
   ;(setvar "CMDECHO" 0)
 
@@ -1165,8 +1166,9 @@
 
   (if (null final_ss)
       (progn
-         (princ "\nНічого не вибрано для оновлення (PickFirst порожній).")
-         (setq *g_rename_zmarker_candidates* nil) ; Очищаємо глобальну змінну
+         (princ "\nНічого не вибрано для оновлення (PickFirst порожній). Запустіть RENAME_ZMARKER знову, якщо потрібно.")
+         (setq *g_rename_zmarker_candidates* nil) ; Очищаємо глобальну змінну кандидатів
+         (setq *g_last_search_result* nil) ; <--- ДОДАНО ОЧИЩЕННЯ ТУТ
          (exit)
       )
   )
@@ -1244,7 +1246,8 @@
   )
 
   ;; --- Очищення та вихід ---
-  (setq *g_rename_zmarker_candidates* nil) ; Очищення глобальної змінної в будь-якому випадку
+  (setq *g_rename_zmarker_candidates* nil) ; Очищення глобальної змінної кандидатів
+  (setq *g_last_search_result* nil) ; <--- ДОДАНО ОЧИЩЕННЯ ТУТ
   (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
   (setq *error* nil) ; Скинути обробник помилок
   (princ) ;; Чистий вихід
