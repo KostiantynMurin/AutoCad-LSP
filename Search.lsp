@@ -1147,7 +1147,7 @@
           (if (and ssHighlight (> (sslength ssHighlight) 0))
             (progn
               (princ (strcat "\nВиділено " (itoa (sslength ssHighlight)) " текстових об'єктів-кандидатів для перевірки."))
-              (sssetfirst nil ssHighlight) ; Початкове виділення кандидатів
+              ;; (sssetfirst nil ssHighlight) ; Початкове виділення кандидатів
 
               ;; --- *** Запит на АКТИВНИЙ вибір користувачем *** ---
               (prompt "\n\n---> Об'єкти-кандидати підсвічено. Тепер ВИБЕРІТЬ ті з них, які ВИ ДІЙСНО бажаєте оновити:")
