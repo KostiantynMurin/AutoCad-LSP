@@ -1255,20 +1255,21 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z (v1.1)
+;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА ВСТАВКА СИМВОЛУ (v1.2)
 ;; ====================================================================
-;; Команда: CREATE_ZMARKER (v1.1 - Запитує висоту, фіксує стиль/вирівнювання)
+;; Команда: CREATE_ZMARKER (v1.2 - Вставляє символ з буфера разом з текстом)
 ;; 1. Вибирає блоки PIKET (з пошуку, виділення або вручну).
 ;; 2. Запитує висоту тексту (з підказками та запам'ятовуванням).
 ;; 3. Для кожного блоку перевіряє наявність атрибуту "ОТМЕТКА".
 ;; 4. Перевіряє, чи існує текст на шарі "21 ВІДМІТКИ" ТОЧНО в точці вставки блоку.
-;; 5. Якщо текст в точці вставки відсутній, створює новий текст зі значенням "ОТМЕТКА"
-;;    в цій точці на шарі "21 ВІДМІТКИ" з заданою висотою, стилем "Д-431" та вирівнюванням "Вліво".
+;; 5. Якщо текст в точці вставки відсутній:
+;;    а) Створює новий текст зі значенням "ОТМЕТКА" в цій точці (стиль "Д-431", вирівн. "Вліво", задана висота).
+;;    б) Вставляє умовне позначення з буфера обміну AutoCAD у цю ж точку.
 
 (defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
                             attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
                             foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
-                            userHeight prompt_str inputHeight ; <-- Змінні для висоти
+                            userHeight prompt_str inputHeight clipboard_ok ; <-- Додано clipboard_ok
                            )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
@@ -1287,10 +1288,16 @@
   (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
         attrValOtmetka nil otmetkaValue nil ssTextLayer nil j 0 textEnt nil textData nil textPt nil
         foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
-        userHeight nil prompt_str nil inputHeight nil ; <-- Ініціалізація змінних висоти
+        userHeight nil prompt_str nil inputHeight nil clipboard_ok nil
   )
   (setq oldCmdecho (getvar "CMDECHO"))
   (setvar "CMDECHO" 0) ; Вимкнути ехо команд
+
+  ;; --- Перевірка буфера обміну ЗАЗДАЛЕГІДЬ (опціонально, для зручності) ---
+  (if (> (getvar "CLIPROPS") 0)
+      (setq clipboard_ok T)
+      (princ "\nПопередження: Буфер обміну порожній або не містить даних AutoCAD. Символи НЕ будуть вставлені.")
+  )
 
   ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
   (cond
@@ -1367,20 +1374,18 @@
                     (while (and (< j (sslength ssTextLayer)) (not foundExactText))
                       (setq textEnt (ssname ssTextLayer j))
                       (if (setq textData (entget textEnt))
-                        (progn
-                          (setq textPt (cdr (assoc 10 textData)))
-                          (if (equal piketPt textPt fuzz) (setq foundExactText T))
-                        ) ;_ end progn process text
+                        (progn (setq textPt (cdr (assoc 10 textData)))
+                               (if (equal piketPt textPt fuzz) (setq foundExactText T)))
                       ) ;_ end IF textData
                       (setq j (1+ j))
                     ) ;_ end WHILE text check
                   ) ;_ end progn ssTextLayer exists
                 ) ;_ end if ssTextLayer exists
 
-                ;; Створення нового тексту, якщо не знайдено існуючий в точці
+                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ, якщо не знайдено існуючий
                 (if (not foundExactText)
                   (progn
-                    ;; Створення DXF списку для нового тексту
+                    ;; Створення DXF списку для тексту
                     (setq newTextDxf (list
                                        '(0 . "TEXT")
                                        '(100 . "AcDbEntity")
@@ -1397,10 +1402,18 @@
                     ) ;_ end setq newTextDxf
                     ;; Створення сутності
                     (if (entmake newTextDxf)
-                        (setq createdCount (1+ createdCount))
+                        (progn
+                          (setq createdCount (1+ createdCount))
+                          ;; --- *** ВСТАВКА СИМВОЛУ З БУФЕРУ ОБМІНУ *** ---
+                          (if clipboard_ok ; Використовуємо прапорець, встановлений на початку
+                              (command "._PASTECLIP" piketPt)
+                              ; Повідомлення про порожній буфер виводилось на початку
+                          )
+                          ;; --- *** КІНЕЦЬ ВСТАВКИ *** ---
+                        ) ;_ end progn entmake success
                         (princ (strcat "\n  ! Помилка створення тексту для блоку <" (vl-princ-to-string piketEnt) ">"))
                     ) ;_ end if entmake
-                  ) ;_ end progn create text
+                  ) ;_ end progn create text and paste
                 ) ;_ end if not foundExactText
               ) ;_ end progn piketPt and otmetkaValue valid
             ) ;_ end if piketPt and otmetkaValue valid
@@ -1413,7 +1426,7 @@
 
       ;; Фінальне повідомлення
       (if (> createdCount 0)
-        (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх текстових відміток у точках вставки блоків."))
+        (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх пар (текст відмітки + символ) у точках вставки блоків."))
         (princ "\nОбробку завершено. Відсутніх текстових відміток у точках вставки не знайдено або не вдалося створити.")
       ) ;_ end if
 
