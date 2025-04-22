@@ -1254,16 +1254,173 @@
 ) ;; кінець defun c:RENAME_ZMARKER_RUN
 
 
+;; ====================================================================
+;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z (v1.0)
+;; ====================================================================
+;; Команда: CREATE_ZMARKER (v1.0 - Створює текст Z в точці PIKET, якщо його там ще немає)
+;; 1. Вибирає блоки PIKET (з пошуку, виділення або вручну).
+;; 2. Для кожного блоку перевіряє наявність атрибуту "ОТМЕТКА".
+;; 3. Перевіряє, чи існує текст на шарі "21 ВІДМІТКИ" ТОЧНО в точці вставки блоку.
+;; 4. Якщо текст в точці вставки відсутній, створює новий текст зі значенням "ОТМЕТКА"
+;;    в цій точці на шарі "21 ВІДМІТКИ".
+
+(defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
+                            attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
+                            foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
+                           )
+  ;; --- Функція обробки помилок ---
+  (defun *error* (msg)
+    (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End")) ; Завершити UNDO, якщо активне
+    (cond ((not msg))
+          ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
+          ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
+          (T (princ (strcat "\nПомилка в CREATE_ZMARKER: " msg)))
+    ) ;_ end cond
+    (setq *error* nil)
+    (princ)
+  ) ;_ end defun *error*
+
+  ;; --- Ініціалізація ---
+  (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
+        attrValOtmetka nil otmetkaValue nil ssTextLayer nil j 0 textEnt nil textData nil textPt nil
+        foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
+  )
+  (setq oldCmdecho (getvar "CMDECHO"))
+  (setvar "CMDECHO" 0) ; Вимкнути ехо команд
+
+  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
+  (cond
+    ((and (boundp '*g_last_search_result*) *g_last_search_result* (= 'PICKSET (type *g_last_search_result*)) (> (sslength *g_last_search_result*) 0))
+     (setq ss *g_last_search_result*) (setq ss_source (strcat "збереженого пошуку (" (itoa (sslength ss)) " бл.)")))
+    ((setq ss (cadr (ssgetfirst)))
+     (if ss (progn (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) (if (or (null ss) (= 0 (sslength ss))) (setq ss nil ss_source "поточної вибірки (не підходить)") (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " бл.)")))) (setq ss nil)))
+    (T (princ "\nНе знайдено збереженого пошуку або поточної вибірки.") (princ "\nВиберіть блоки 'PIKET' для створення відсутніх відміток: ") (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
+       (if ss (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " бл.)")) (progn (princ "\nБлоки 'PIKET' не вибрано.") (exit))))
+  ) ;_ end cond
+
+  ;; --- Основна логіка ---
+  (if ss
+    (progn ; Початок блоку IF ss
+      (setq totalCount (sslength ss))
+      (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET' з " ss_source " на наявність тексту відмітки в точці вставки..."))
+
+      ;; Отримати всі тексти на цільовому шарі один раз
+      (setq ssTextLayer (ssget "_X" '((0 . "TEXT,MTEXT") (8 . "21 ВІДМІТКИ"))))
+      (if (null ssTextLayer) (princ "\nПопередження: У кресленні не знайдено текстів на шарі '21 ВІДМІТКИ'."))
+
+      (command "_.UNDO" "_Begin") ; Почати групування UNDO
+
+      ;; --- Цикл по вибраних блоках PIKET ---
+      (setq i 0)
+      (repeat totalCount
+        (setq piketEnt (ssname ss i))
+        (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactText nil) ; Скидання для поточного блоку
+
+        (if (setq piketData (entget piketEnt)) ; Початок IF piketData
+          (progn ; Початок PROGN piketData
+            (setq piketPt (cdr (assoc 10 piketData))) ; Точка вставки блоку
+
+            ;; Пошук атрибуту "ОТМЕТКА"
+            (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData)))) ; Перевірка наявності точки та атрибутів
+              (progn (setq attEname (entnext piketEnt))
+                     (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
+                       (setq attTag (strcase (cdr (assoc 2 attEdata))))
+                       (if (eq "ОТМЕТКА" attTag)
+                         (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) ; Знайшли, виходимо
+                         (setq attEname (entnext attEname)) ; Наступний атрибут
+                       ) ;_ end if "ОТМЕТКА"
+                     ) ;_ end while attributes
+                     (if attrValOtmetka (setq otmetkaValue attrValOtmetka)) ; Присвоюємо значення, якщо знайшли
+              ) ;_ end progn attribute search
+            ) ;_ end if block has point and attributes
+
+            ;; Перевірка наявності існуючого тексту ТОЧНО в точці вставки
+            (if (and piketPt otmetkaValue (/= "" otmetkaValue)) ; Продовжуємо, тільки якщо є точка і не порожня відмітка
+              (progn
+                (setq foundExactText nil) ; Скидаємо прапорець перед пошуком
+                (if ssTextLayer ; Шукаємо тільки якщо є тексти на потрібному шарі
+                  (progn
+                    (setq j 0)
+                    (while (and (< j (sslength ssTextLayer)) (not foundExactText)) ; Початок WHILE text check
+                      (setq textEnt (ssname ssTextLayer j))
+                      (if (setq textData (entget textEnt)) ; Початок IF textData
+                        (progn
+                          (setq textPt (cdr (assoc 10 textData))) ; Точка вставки тексту
+                          (if (equal piketPt textPt fuzz) ; Порівняння точок з допуском
+                              (setq foundExactText T) ; Знайшли текст точно в точці
+                          ) ;_ end if equal points
+                        ) ;_ end progn process text
+                      ) ;_ end IF textData
+                      (setq j (1+ j))
+                    ) ;_ end WHILE text check
+                  ) ;_ end progn ssTextLayer exists
+                ) ;_ end if ssTextLayer exists
+
+                ;; Створення нового тексту, якщо не знайдено існуючий в точці
+                (if (not foundExactText)
+                  (progn
+                    ;; Створення DXF списку для нового тексту
+                    (setq newTextDxf (list
+                                       '(0 . "TEXT")
+                                       '(100 . "AcDbEntity")
+                                       '(8 . "21 ВІДМІТКИ") ; Цільовий шар
+                                       '(100 . "AcDbText")
+                                       (cons 10 piketPt) ; Точка вставки = точка вставки блоку
+                                       (cons 40 (getvar "TEXTSIZE")) ; Поточна висота тексту
+                                       (cons 1 otmetkaValue) ; Значення тексту
+                                       (cons 7 (getvar "TEXTSTYLE")) ; Поточний стиль тексту
+                                       (cons 50 0.0) ; Кут повороту (0)
+                                       ; '(72 . 0) '(73 . 0) ; Вирівнювання (опціонально, 0=Left/Baseline)
+                                     ) ;_ end list
+                    ) ;_ end setq newTextDxf
+                    ;; Створення сутності
+                    (if (entmake newTextDxf)
+                        (progn
+                          (setq createdCount (1+ createdCount))
+                          ;(princ (strcat "\n  + Створено текст '" otmetkaValue "' для блоку <" (vl-princ-to-string piketEnt) ">")) ; Опціональне детальне повідомлення
+                        ) ;_ end progn entmake success
+                        (princ (strcat "\n  ! Помилка створення тексту для блоку <" (vl-princ-to-string piketEnt) ">"))
+                    ) ;_ end if entmake
+                  ) ;_ end progn create text
+                ) ;_ end if not foundExactText
+              ) ;_ end progn piketPt and otmetkaValue valid
+            ) ;_ end if piketPt and otmetkaValue valid
+          ) ;_ end PROGN piketData
+        ) ;_ end IF piketData
+        (setq i (1+ i))
+      ) ;_ end repeat
+
+      (command "_.UNDO" "_End") ; Завершити групування UNDO
+
+      ;; Фінальне повідомлення
+      (if (> createdCount 0)
+        (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх текстових відміток у точках вставки блоків."))
+        (princ "\nОбробку завершено. Відсутніх текстових відміток у точках вставки не знайдено або не вдалося створити.")
+      ) ;_ end if
+
+    ) ;_ end progn IF ss
+    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
+  ) ;_ end if ss
+
+  ;; --- Відновлення середовища та вихід ---
+  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+  (setq *error* nil)
+  (princ) ;; Чистий вихід
+) ;; кінець defun c:CREATE_ZMARKER
+
+
 ;; --- Повідомлення про завантаження ---
-(princ "\nLISP-скрипти (v5.4 + RENAME_ZMARKER v1.5 / RENAME_ZMARKER_RUN v1.0) завантажено.") ; Оновлено версію
+(princ "\nLISP-скрипти (v5.5 + CREATE_ZMARKER v1.0) завантажено.") ; Оновлено версію
 
 (princ "\nКоманди:")
-(princ "\n  SEARCH              - Пошук блоків 'PIKET' за атрибутом 'НОМЕРА', виділення та збереження результату.")
-(princ "\n  PASTEHERE           - Вставка об'єкта з буфера в точки блоків (зі збереженого пошуку або вибраних вручну).")
-(princ "\n  CHECKPOINTS         - Перевірка Z координати та атрибуту 'ОТМЕТКА' у блоках 'PIKET', з можливістю виправлення.")
+(princ "\n  SEARCH              - Пошук блоків 'PIKET' за атрибутом 'НОМЕРА'.")
+(princ "\n  PASTEHERE           - Вставка об'єкта з буфера в точки блоків.")
+(princ "\n  CHECKPOINTS         - Перевірка Z та атрибуту 'ОТМЕТКА' у блоках 'PIKET'.")
 (princ "\n  REPLACENAME         - Заміна підстроки в атрибуті 'НОМЕРА' блоків 'PIKET'.")
-(princ "\n  RENAME_OKM          - Оновлення тексту ('№...') біля блоків 'PIKET' за номером з атрибуту 'НОМЕРА'.")
-(princ "\n  RENAME_ZMARKER      - Крок 1: Знаходить та підсвічує тексти біля 'PIKET' для оновлення значенням 'ОТМЕТКА'.") ; <-- Оновлено опис
-(princ "\n  RENAME_ZMARKER_RUN  - Крок 2: Виконує оновлення для текстів, що залишились вибраними після RENAME_ZMARKER.") ; <-- Нова команда
+(princ "\n  RENAME_OKM          - Оновлення тексту ('№...') біля блоків 'PIKET'.")
+(princ "\n  RENAME_ZMARKER      - Крок 1: Знаходить/підсвічує тексти для оновлення значенням 'ОТМЕТКА'.")
+(princ "\n  RENAME_ZMARKER_RUN  - Крок 2: Виконує оновлення для вибраних текстів Z.")
+(princ "\n  CREATE_ZMARKER      - Створює відсутні тексти 'ОТМЕТКА' в точках вставки блоків 'PIKET'.") ; <-- Нова команда
 
 (princ) ;; Чистий вихід
