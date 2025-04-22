@@ -947,9 +947,9 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 6: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.3)
+;; СКРИПТ 6: ОНОВЛЕННЯ ТЕКСТУ БІЛЯ ПІКЕТІВ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.4)
 ;; ====================================================================
-;; Команда: RENAME_ZMARKER (v1.3 - Дозволено редагування вибору перед підтвердженням)
+;; Команда: RENAME_ZMARKER (v1.4 - Замінено паузу на активний вибір ssget)
 ;; Бере набір вибірки "PIKET" з результату SEARCH, АБО вибрані користувачем.
 ;; Для кожного блоку "PIKET":
 ;; 1. Знаходить значення атрибуту "ОТМЕТКА".
@@ -958,9 +958,9 @@
 ;; 3. Якщо текст знайдено І ЩЕ НЕ БУВ ОБРОБЛЕНИЙ У ЦЬОМУ ЗАПУСКУ:
 ;;    - Збирає інформацію про потенційне оновлення тексту на значення атрибуту "ОТМЕТКА".
 ;; Після перевірки всіх блоків:
-;; 4. ВИДІЛЯЄ всі текстові об'єкти, які потребують оновлення.
-;; 5. ДОЗВОЛЯЄ КОРИСТУВАЧУ ЗМІНИТИ ВИДІЛЕННЯ.
-;; 6. Запитує користувача підтвердження на зміну для об'єктів, ЩО ЗАЛИШИЛИСЯ ВИДІЛЕНИМИ.
+;; 4. ВИДІЛЯЄ всі текстові об'єкти, які потребують оновлення (кандидати).
+;; 5. Пропонує користувачу АКТИВНО ВИБРАТИ об'єкти для фінального оновлення з підсвічених кандидатів.
+;; 6. Запитує користувача підтвердження на зміну для ЩОЙНО ВИБРАНИХ об'єктів.
 ;; 7. Якщо підтверджено, оновлює текст значенням з атрибуту "ОТМЕТКА".
 
 (defun c:RENAME_ZMARKER ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
@@ -971,8 +971,8 @@
                             ;; --- Змінні для виділення та підтвердження ---
                             texts_to_update_info ssHighlight potentialUpdateCount answer actualUpdateCount
                             ;; --- Нові змінні для редагованого вибору ---
-                            final_ss final_update_info currentTextVal continue_prompt
-                           )
+                            final_ss final_update_info currentTextVal
+                           ) ; Видалено continue_prompt
 
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
@@ -1001,8 +1001,8 @@
         potentialUpdateCount 0
         actualUpdateCount 0
         answer nil
-        final_ss nil      ; Ініціалізація нової змінної
-        final_update_info nil ; Ініціалізація нової змінної
+        final_ss nil      ; Ініціалізація змінної для фінального вибору
+        final_update_info nil ; Ініціалізація списку для фінального оновлення
   )
   (setq oldCmdecho (getvar "CMDECHO"))
   ;(setvar "CMDECHO" 0)
@@ -1027,17 +1027,17 @@
           (setq ss nil ss_source "збереженого результату пошуку (але він порожній або некоректний)")
      )
     )
-    ;; 2. Перевірити попередню вибірку (PickFirst) - УВАГА: ssgetfirst повертає (ss name_ss), тому cadr
+    ;; 2. Перевірити попередню вибірку (PickFirst)
     ((setq ss (cadr (ssgetfirst)))
       (if ss
         (progn
-          (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Перевіряємо поточний PickFirst на відповідність критеріям
+          (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
           (if (or (null ss) (= 0 (sslength ss)))
               (setq ss nil ss_source "поточної вибірки (але вона не містить блоків 'PIKET' з атрибутами)")
               (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
           )
         )
-        (setq ss nil) ; Якщо cadr(ssgetfirst) - nil
+        (setq ss nil)
       )
     )
     ;; 3. Запросити користувача вибрати об'єкти
@@ -1071,7 +1071,7 @@
         (if (setq edataPiket (entget enamePiket))
           (progn
             (setq processedCount (1+ processedCount))
-            (setq blockPt (cdr (assoc 10 edataPiket))) ; 3D точка блоку
+            (setq blockPt (cdr (assoc 10 edataPiket)))
 
             ;; --- Пошук атрибуту "ОТМЕТКА" ---
             (if (and (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
@@ -1089,70 +1089,53 @@
                 )
               )
             )
+            (if attrValOtmetka (setq otmetkaValue attrValOtmetka) (princ (strcat "\n Попередження: Атрибут 'ОТМЕТКА' не знайдено/порожній: " (vl-princ-to-string enamePiket))))
 
-            ;; --- Використовуємо значення атрибуту, якщо знайдено ---
-            (if attrValOtmetka
-              (setq otmetkaValue attrValOtmetka)
-              (princ (strcat "\n Попередження: Атрибут 'ОТМЕТКА' не знайдено або порожній у блоці: " (vl-princ-to-string enamePiket)))
-            )
-
-            ;; --- Пошук тексту, ЯКЩО значення ОТМЕТКА знайдено і є текстові об'єкти ---
+            ;; --- Пошук тексту ---
             (if (and otmetkaValue ssTextAll blockPt)
               (progn
                  (setq j 0)
-                 ;; Цикл по ВСІХ текстових об'єктах
                  (while (and (< j (sslength ssTextAll)) (not textFoundForBlock))
                    (setq textEnt (ssname ssTextAll j))
                    (if (setq textData (entget textEnt))
                      (progn
-                       (setq textPt (cdr (assoc 10 textData))) ; 3D точка тексту
+                       (setq textPt (cdr (assoc 10 textData)))
                        (setq textVal (cdr (assoc 1 textData)))
                        (setq textLayer (cdr (assoc 8 textData)))
-
-                       ;; Перевірка відстані в 2D, ШАРУ та чи не був оброблений
                        (if (and textPt textVal textLayer
-                                (equal textLayer "21 ВІДМІТКИ") ; Перевірка шару
-                                ;; --- Розрахунок 2D відстані ---
-                                (<= (distance (list (car blockPt) (cadr blockPt) 0.0) ; 2D точка блоку
-                                              (list (car textPt) (cadr textPt) 0.0)   ; 2D точка тексту
-                                    )
-                                    searchDist
-                                )
-                                ;; --- Кінець зміни ---
-                                (not (member textEnt updatedTextEnts)) ; Перевірка чи не оброблено
+                                (equal textLayer "21 ВІДМІТКИ")
+                                (<= (distance (list (car blockPt) (cadr blockPt) 0.0) (list (car textPt) (cadr textPt) 0.0)) searchDist)
+                                (not (member textEnt updatedTextEnts))
                            )
                          (progn
-                           ;; Цей текст підходить
                            (setq updatedCount (1+ updatedCount))
                            (setq newTextVal otmetkaValue)
-
                            (if (not (equal textVal newTextVal))
                                (progn
                                  (setq texts_to_update_info (cons (list textEnt newTextVal enamePiket) texts_to_update_info))
                                  (setq potentialUpdateCount (1+ potentialUpdateCount))
-                                 (princ (strcat "\n   * Кандидат на оновлення (Шар: " textLayer "): <" (vl-princ-to-string textEnt) "> ('" textVal "' -> '" newTextVal "') біля блоку <" (vl-princ-to-string enamePiket) ">"))
+                                 (princ (strcat "\n   * Кандидат: <" (vl-princ-to-string textEnt) "> ('" textVal "' -> '" newTextVal "') біля <" (vl-princ-to-string enamePiket) ">"))
                                )
                            )
-
-                           (setq updatedTextEnts (cons textEnt updatedTextEnts)) ; Позначити як оброблений, щоб уникнути дублікатів від інших пікетів
-                           (setq textFoundForBlock T) ; Зупинити пошук для поточного пікета
+                           (setq updatedTextEnts (cons textEnt updatedTextEnts))
+                           (setq textFoundForBlock T)
                          )
-                       ) ; кінець if (перевірка відстані, шару та списку)
+                       )
                      )
                    )
                    (setq j (1+ j))
-                 ) ; end while (пошук тексту)
+                 )
               )
             )
           )
-        ) ; end if (entget enamePiket)
+        )
         (setq i (1+ i))
-      ) ; end repeat (по блоках PIKET)
+      ) ; end repeat
 
-      ;; --- *** ЗМІНЕНО: Виділення, Можливість Редагування та Фінальне Підтвердження *** ---
+      ;; --- *** ЗМІНЕНО: Виділення кандидатів -> Активний вибір -> Фінальне підтвердження -> Оновлення *** ---
       (if (> potentialUpdateCount 0)
         (progn
-          (princ (strcat "\n\nЗнайдено " (itoa potentialUpdateCount) " текстових полів на шарі '21 ВІДМІТКИ', які потребують оновлення значенням 'ОТМЕТКА'."))
+          (princ (strcat "\n\nЗнайдено " (itoa potentialUpdateCount) " потенційних кандидатів на оновлення."))
           ;; --- Створення набору вибірки для початкового виділення ---
           (setq ssHighlight (ssadd))
           (foreach item texts_to_update_info
@@ -1163,97 +1146,82 @@
 
           (if (and ssHighlight (> (sslength ssHighlight) 0))
             (progn
-              (princ (strcat "\nВиділено " (itoa (sslength ssHighlight)) " текстових об'єктів для перевірки."))
+              (princ (strcat "\nВиділено " (itoa (sslength ssHighlight)) " текстових об'єктів-кандидатів для перевірки."))
               (sssetfirst nil ssHighlight) ; Початкове виділення кандидатів
 
-              ;; --- Інструкція та пауза для модифікації виділення ---
-              (prompt "\n\n---> Перегляньте виділені об'єкти. Ви можете ЗНЯТИ виділення з об'єктів, які НЕ потрібно оновлювати (напр., Shift+клік).")
-              (setq continue_prompt (getstring T "\n---> Натисніть ENTER, коли завершите редагування вибору, або ESC для скасування."))
+              ;; --- *** Запит на АКТИВНИЙ вибір користувачем *** ---
+              (prompt "\n\n---> Об'єкти-кандидати підсвічено. Тепер ВИБЕРІТЬ ті з них, які ВИ ДІЙСНО бажаєте оновити:")
+              (setq final_ss (ssget '((0 . "TEXT,MTEXT") (8 . "21 ВІДМІТКИ")))) ; Активний вибір користувача з фільтром
 
-              (if continue_prompt ; Продовжуємо, якщо користувач не натиснув ESC
+              ;; --- Перевірка результату вибору та фінальне підтвердження ---
+              (if final_ss
+                  (progn ; Користувач щось вибрав
+                    (initget "Так Ні")
+                    (setq answer (getkword (strcat "\n\nОновити " (itoa (sslength final_ss)) " щойно вибраний(і) Вами текстовий(і) об'єкт(и)? [Так/Ні]: ")))
+                  )
+                  (progn ; Користувач нічого не вибрав або натиснув ESC під час ssget
+                    (princ "\nОб'єкти для оновлення не було вибрано.")
+                    (setq answer "Ні") ; Вважаємо скасуванням
+                  )
+              )
+
+              ;; --- Виконання змін для ФІНАЛЬНОГО вибору ---
+              (if (and final_ss (eq answer "Так"))
                   (progn
-                    ;; --- Отримати фінальний набір вибірки ---
-                    (setq final_ss (ssget "_I")) ; Отримати те, що ЗАРАЗ вибрано (PickFirst set після редагування)
-
-                    (if final_ss
-                        (progn ; Є об'єкти у фінальному виборі
-                          ;; --- Запит на підтвердження для ФІНАЛЬНОГО вибору ---
-                          (initget "Так Ні")
-                          (setq answer (getkword (strcat "\n\nОновити " (itoa (sslength final_ss)) " вибраний(і) текстовий(і) об'єкт(и)? [Так/Ні]: ")))
-                        )
-                        (progn ; Користувач зняв виділення з усіх об'єктів
-                          (princ "\nНе залишилось вибраних об'єктів для оновлення.")
-                          (setq answer "Ні") ; Вважаємо скасуванням
+                    ;; --- Фільтрація списку оновлення на основі фінального вибору ---
+                    (setq final_update_info nil)
+                    (setq actualUpdateCount 0)
+                    (foreach item texts_to_update_info
+                        (setq textEnt (car item))
+                        (if (ssmemb textEnt final_ss)
+                           (setq final_update_info (cons item final_update_info))
                         )
                     )
 
-                    ;; --- Виконання змін для ФІНАЛЬНОГО вибору ---
-                    (if (and final_ss (eq answer "Так")) ; <--- ПОЧАТОК ЗОВНІШНЬОГО IF
-                        (progn ; <--- THEN гілка (оновлення)
-                          ;; --- Фільтрація списку оновлення на основі фінального вибору ---
-                          (setq final_update_info nil)
-                          (setq actualUpdateCount 0) ; Скидаємо лічильник перед фінальним оновленням
-                          (foreach item texts_to_update_info
-                              (setq textEnt (car item))
-                              (if (ssmemb textEnt final_ss) ; Перевірити, чи елемент є у фінальній вибірці
-                                 (setq final_update_info (cons item final_update_info))
-                              )
-                          )
-                          ; (setq final_update_info (reverse final_update_info)) ; Не обов'язково зберігати порядок
-
-                          (if final_update_info
-                              (progn
-                                 (princ "\nВиконую оновлення для остаточно вибраних об'єктів...")
-                                 (command "_.UNDO" "_Begin")
-                                 (foreach item final_update_info ; Використовуємо ВІДФІЛЬТРОВАНИЙ список
-                                     (setq textEnt (car item))
-                                     (setq newTextVal (cadr item))
-                                     ; (setq enamePiket (caddr item)) ; Не використовується далі, можна закоментувати
-
-                                     (if (setq textData (entget textEnt))
-                                       (progn
-                                         (setq currentTextVal (cdr (assoc 1 textData))) ; Отримуємо поточне значення для звіту
-                                         (setq textData (subst (cons 1 newTextVal) (assoc 1 textData) textData))
-                                         (if (entmod textData)
-                                           (progn
-                                             (princ (strcat "\n  Оновлено: <" (vl-princ-to-string textEnt) "> ('" currentTextVal "' -> '" newTextVal "')"))
-                                             (setq actualUpdateCount (1+ actualUpdateCount)) ; Рахуємо фактично оновлені
-                                           )
-                                           (princ (strcat "\n  Помилка оновлення тексту <" (vl-princ-to-string textEnt) ">"))
-                                         )
-                                       )
-                                       (princ (strcat "\n  Помилка: Не вдалося отримати дані для тексту <" (vl-princ-to-string textEnt) "> під час спроби оновлення."))
+                    (if final_update_info
+                        (progn
+                           (princ "\nВиконую оновлення для остаточно вибраних об'єктів...")
+                           (command "_.UNDO" "_Begin")
+                           (foreach item final_update_info
+                               (setq textEnt (car item))
+                               (setq newTextVal (cadr item))
+                               (if (setq textData (entget textEnt))
+                                 (progn
+                                   (setq currentTextVal (cdr (assoc 1 textData)))
+                                   (setq textData (subst (cons 1 newTextVal) (assoc 1 textData) textData))
+                                   (if (entmod textData)
+                                     (progn
+                                       (princ (strcat "\n  Оновлено: <" (vl-princ-to-string textEnt) "> ('" currentTextVal "' -> '" newTextVal "')"))
+                                       (setq actualUpdateCount (1+ actualUpdateCount))
                                      )
+                                     (princ (strcat "\n  Помилка оновлення тексту <" (vl-princ-to-string textEnt) ">"))
+                                   )
                                  )
-                                 (command "_.UNDO" "_End")
-                                 (princ (strcat "\nУспішно оновлено " (itoa actualUpdateCount) " текстових полів."))
-                              )
-                              (princ "\nНемає об'єктів для оновлення після фільтрації (можливо, всі були відхилені).")
-                          )
-                        ) ; <--- Кінець THEN гілки (progn)
-
-                        ;; --- ELSE гілка (Об'єднана в PROGN) --- ;; *** ВИПРАВЛЕНО: Додано PROGN ***
-                        (progn ; <--- ДОДАНО PROGN
-                           (if (not (eq answer "Ні")) (princ "\nСкасовано."))
-                           (princ "\nЗміни не виконувались.")
-                           (if (ssget "_I") (sssetfirst nil nil)) ; Зняти виділення, якщо щось ще вибрано
-                        ) ; <--- ДОДАНО закриваючу дужку для PROGN
-
-                    ) ; <--- КІНЕЦЬ ЗОВНІШНЬОГО IF
+                                 (princ (strcat "\n  Помилка: Не вдалося отримати дані для тексту <" (vl-princ-to-string textEnt) "> під час спроби оновлення."))
+                               )
+                           )
+                           (command "_.UNDO" "_End")
+                           (princ (strcat "\nУспішно оновлено " (itoa actualUpdateCount) " текстових полів."))
+                        )
+                        (princ "\nНемає об'єктів для оновлення після фільтрації.")
+                    )
                   )
-                  ;; --- Якщо користувач натиснув ESC під час паузи getstring ---
-                  (princ "\nОперацію скасовано користувачем (ESC).")
+                  ;; --- Else branch: Оновлення скасовано або об'єкти не вибрано ---
+                  (progn
+                    (princ "\nОновлення скасовано або об'єкти не вибрано.")
+                    (princ "\nЗміни не виконувались.")
+                    (if ssHighlight (sssetfirst nil nil)) ; Зняти початкове виділення
+                  )
               )
             )
             ;; --- Якщо не вдалося створити початковий набір для виділення ---
-            (princ "\nНе вдалося створити набір вибірки для виділення текстів.")
+            (princ "\nНе вдалося створити набір вибірки для виділення текстів-кандидатів.")
           )
         )
-        ;; --- Якщо не знайдено текстів, що потребують оновлення ---
+        ;; --- Якщо не знайдено кандидатів на оновлення ---
         (progn
            (princ "\n\nНе знайдено текстових полів на шарі '21 ВІДМІТКИ', що потребують оновлення значенням 'ОТМЕТКА'.")
-           ; Зняти виділення, якщо щось було знайдено, але не потребувало змін
-           (if updatedTextEnts (sssetfirst nil nil))
+           (if updatedTextEnts (sssetfirst nil nil)) ; Just in case
         )
       )
       ;; --- *** Кінець зміненого блоку *** ---
@@ -1273,8 +1241,8 @@
 
   ;; --- Відновлення середовища та вихід ---
   (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-  (setq *g_last_search_result* nil) ; Завжди скидаємо результат пошуку при виході
-  (setq *error* nil) ; Скинути обробник помилок
+  (setq *g_last_search_result* nil)
+  (setq *error* nil)
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:RENAME_ZMARKER
 
