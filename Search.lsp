@@ -1255,18 +1255,20 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z (v1.0)
+;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z (v1.1)
 ;; ====================================================================
-;; Команда: CREATE_ZMARKER (v1.0 - Створює текст Z в точці PIKET, якщо його там ще немає)
+;; Команда: CREATE_ZMARKER (v1.1 - Запитує висоту, фіксує стиль/вирівнювання)
 ;; 1. Вибирає блоки PIKET (з пошуку, виділення або вручну).
-;; 2. Для кожного блоку перевіряє наявність атрибуту "ОТМЕТКА".
-;; 3. Перевіряє, чи існує текст на шарі "21 ВІДМІТКИ" ТОЧНО в точці вставки блоку.
-;; 4. Якщо текст в точці вставки відсутній, створює новий текст зі значенням "ОТМЕТКА"
-;;    в цій точці на шарі "21 ВІДМІТКИ".
+;; 2. Запитує висоту тексту (з підказками та запам'ятовуванням).
+;; 3. Для кожного блоку перевіряє наявність атрибуту "ОТМЕТКА".
+;; 4. Перевіряє, чи існує текст на шарі "21 ВІДМІТКИ" ТОЧНО в точці вставки блоку.
+;; 5. Якщо текст в точці вставки відсутній, створює новий текст зі значенням "ОТМЕТКА"
+;;    в цій точці на шарі "21 ВІДМІТКИ" з заданою висотою, стилем "Д-431" та вирівнюванням "Вліво".
 
 (defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
                             attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
                             foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
+                            userHeight prompt_str inputHeight ; <-- Змінні для висоти
                            )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
@@ -1285,6 +1287,7 @@
   (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
         attrValOtmetka nil otmetkaValue nil ssTextLayer nil j 0 textEnt nil textData nil textPt nil
         foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
+        userHeight nil prompt_str nil inputHeight nil ; <-- Ініціалізація змінних висоти
   )
   (setq oldCmdecho (getvar "CMDECHO"))
   (setvar "CMDECHO" 0) ; Вимкнути ехо команд
@@ -1302,6 +1305,25 @@
   ;; --- Основна логіка ---
   (if ss
     (progn ; Початок блоку IF ss
+      ;; --- *** ЗАПИТ ВИСОТИ ТЕКСТУ *** ---
+      ;; Ініціалізація / використання збереженого значення
+      (if (or (null (boundp '*g_create_zmarker_last_height*)) (null *g_create_zmarker_last_height*) (not (numberp *g_create_zmarker_last_height*)))
+          (setq *g_create_zmarker_last_height* 0.8) ; Значення за замовчуванням, якщо не ініціалізовано
+      )
+      ;; Формування підказки
+      (setq prompt_str (strcat "\nВведіть висоту тексту [1:1000=1.9, 1:500=0.8] <" (rtos *g_create_zmarker_last_height* 2 4) ">: "))
+      (initget (+ 1 2 4)) ; Не порожньо, не нуль, не негативне
+      (setq inputHeight (getreal prompt_str))
+
+      ;; Використання введеного значення або попереднього
+      (if inputHeight
+          (setq userHeight inputHeight) ; Використовуємо нове введене значення
+          (setq userHeight *g_create_zmarker_last_height*) ; Якщо користувач натиснув Enter, використовуємо попереднє
+      )
+      ;; Збереження використаної висоти для наступного разу
+      (setq *g_create_zmarker_last_height* userHeight)
+      ;; --- *** КІНЕЦЬ ЗАПИТУ ВИСОТИ *** ---
+
       (setq totalCount (sslength ss))
       (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET' з " ss_source " на наявність тексту відмітки в точці вставки..."))
 
@@ -1322,34 +1344,32 @@
             (setq piketPt (cdr (assoc 10 piketData))) ; Точка вставки блоку
 
             ;; Пошук атрибуту "ОТМЕТКА"
-            (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData)))) ; Перевірка наявності точки та атрибутів
+            (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData))))
               (progn (setq attEname (entnext piketEnt))
                      (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                        (setq attTag (strcase (cdr (assoc 2 attEdata))))
                        (if (eq "ОТМЕТКА" attTag)
-                         (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) ; Знайшли, виходимо
-                         (setq attEname (entnext attEname)) ; Наступний атрибут
+                         (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
+                         (setq attEname (entnext attEname))
                        ) ;_ end if "ОТМЕТКА"
                      ) ;_ end while attributes
-                     (if attrValOtmetka (setq otmetkaValue attrValOtmetka)) ; Присвоюємо значення, якщо знайшли
+                     (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
               ) ;_ end progn attribute search
             ) ;_ end if block has point and attributes
 
             ;; Перевірка наявності існуючого тексту ТОЧНО в точці вставки
-            (if (and piketPt otmetkaValue (/= "" otmetkaValue)) ; Продовжуємо, тільки якщо є точка і не порожня відмітка
+            (if (and piketPt otmetkaValue (/= "" otmetkaValue))
               (progn
-                (setq foundExactText nil) ; Скидаємо прапорець перед пошуком
-                (if ssTextLayer ; Шукаємо тільки якщо є тексти на потрібному шарі
+                (setq foundExactText nil)
+                (if ssTextLayer
                   (progn
                     (setq j 0)
-                    (while (and (< j (sslength ssTextLayer)) (not foundExactText)) ; Початок WHILE text check
+                    (while (and (< j (sslength ssTextLayer)) (not foundExactText))
                       (setq textEnt (ssname ssTextLayer j))
-                      (if (setq textData (entget textEnt)) ; Початок IF textData
+                      (if (setq textData (entget textEnt))
                         (progn
-                          (setq textPt (cdr (assoc 10 textData))) ; Точка вставки тексту
-                          (if (equal piketPt textPt fuzz) ; Порівняння точок з допуском
-                              (setq foundExactText T) ; Знайшли текст точно в точці
-                          ) ;_ end if equal points
+                          (setq textPt (cdr (assoc 10 textData)))
+                          (if (equal piketPt textPt fuzz) (setq foundExactText T))
                         ) ;_ end progn process text
                       ) ;_ end IF textData
                       (setq j (1+ j))
@@ -1364,22 +1384,20 @@
                     (setq newTextDxf (list
                                        '(0 . "TEXT")
                                        '(100 . "AcDbEntity")
-                                       '(8 . "21 ВІДМІТКИ") ; Цільовий шар
+                                       '(8 . "21 ВІДМІТКИ")      ; Цільовий шар
                                        '(100 . "AcDbText")
-                                       (cons 10 piketPt) ; Точка вставки = точка вставки блоку
-                                       (cons 40 (getvar "TEXTSIZE")) ; Поточна висота тексту
-                                       (cons 1 otmetkaValue) ; Значення тексту
-                                       (cons 7 (getvar "TEXTSTYLE")) ; Поточний стиль тексту
-                                       (cons 50 0.0) ; Кут повороту (0)
-                                       ; '(72 . 0) '(73 . 0) ; Вирівнювання (опціонально, 0=Left/Baseline)
+                                       (cons 10 piketPt)       ; Точка вставки = точка блоку
+                                       (cons 40 userHeight)    ; Висота тексту від користувача
+                                       (cons 1 otmetkaValue)   ; Значення тексту
+                                       '(7 . "Д-431")           ; Стиль тексту
+                                       '(50 . 0.0)             ; Кут повороту (0)
+                                       '(72 . 0)               ; Горизонтальне вирівнювання (0=Left)
+                                       '(73 . 0)               ; Вертикальне вирівнювання (0=Baseline)
                                      ) ;_ end list
                     ) ;_ end setq newTextDxf
                     ;; Створення сутності
                     (if (entmake newTextDxf)
-                        (progn
-                          (setq createdCount (1+ createdCount))
-                          ;(princ (strcat "\n  + Створено текст '" otmetkaValue "' для блоку <" (vl-princ-to-string piketEnt) ">")) ; Опціональне детальне повідомлення
-                        ) ;_ end progn entmake success
+                        (setq createdCount (1+ createdCount))
                         (princ (strcat "\n  ! Помилка створення тексту для блоку <" (vl-princ-to-string piketEnt) ">"))
                     ) ;_ end if entmake
                   ) ;_ end progn create text
