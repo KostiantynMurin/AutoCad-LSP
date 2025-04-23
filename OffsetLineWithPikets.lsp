@@ -1,16 +1,30 @@
-;; --- ВЕРСІЯ: ВЕРШИНА-ДО-ВЕРШИНИ (XY) + ВИБІР СТОРОНИ + ЗБЕРЕЖЕННЯ Z БЛОКУ + КОЛІР ЗМІЩЕННЯ --- ;; *** ОНОВЛЕНО ОПИС ***
+;; --- ВЕРСІЯ: ВЕРШИНА-ДО-ВЕРШИНИ (XY) + ВИБІР СТОРОНИ + ЗБЕРЕЖЕННЯ Z + КОЛІР + ЗАЛИШИТИ ВИДІЛЕНИМИ --- ;; *** ОНОВЛЕНО ОПИС ***
 ;; Призначення:
-;; 1. Зміщує вибрану Лінію (LINE) або Легку Полілінію (LWPOLYLINE) за допомогою команди OFFSET.
+;; 1. Зміщує вибрану Лінію (LINE) або Легку Полілінію (LWPOLYLINE).
 ;; 2. Дозволяє користувачу вибрати сторону зміщення.
-;; 3. Знаходить блоки "PIKET", які розташовані на вершинах ВИХІДНОЇ кривої,
-;;    порівнюючи ТІЛЬКИ X та Y координати (з допуском vertexTol).
-;; 4. Переміщує знайдені блоки на XY-координати відповідних вершин ЗМІЩЕНОЇ кривої.
-;;    При цьому Z-координата блоку ЗБЕРІГАЄТЬСЯ (НЕ змінюється на Z зміщеної кривої). ;; *** ОНОВЛЕНО ОПИС ***
-;; 5. Фарбує створену ЗМІЩЕНУ лінію/полілінію в колір RGB(39, 118, 187).
+;; 3. Знаходить блоки (ім'я: *olwp-PiketBlockName*) на вершинах ВИХІДНОЇ кривої (порівняння XY).
+;; 4. Переміщує знайдені блоки на XY-координати відповідних вершин ЗМІЩЕНОЇ кривої, зберігаючи Z блоку.
+;; 5. Фарбує ЗМІЩЕНУ криву в колір (RGB: *olwp-TargetColorR*, G, B).
+;; 6. *** Після успішного завершення залишає ПЕРЕМІЩЕНІ блоки ВИДІЛЕНИМИ. ***
 ;;
 ;; Виклик: OFFSETLINEWITHPIKETS або OLWP
+;;
+;; *** Для зміни імені блоку або кольору змініть значення глобальних змінних нижче ***
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
+
+;; ============================================================
+;; == ГЛОБАЛЬНІ НАЛАШТУВАННЯ СКРИПТА (Редагуйте ці значення) ==
+;; ============================================================
+;; -- Ім'я блоку, який шукатимемо на вершинах --
+(if (not *olwp-PiketBlockName*) ; Якщо змінна ще не визначена
+    (setq *olwp-PiketBlockName* "PIKET") ; Встановити ім'я блоку за замовчуванням
+)
+;; -- Цільовий колір для зміщеної лінії (RGB) --
+(if (not *olwp-TargetColorR*) (setq *olwp-TargetColorR* 39))   ; Червоний компонент (0-255)
+(if (not *olwp-TargetColorG*) (setq *olwp-TargetColorG* 118))  ; Зелений компонент (0-255)
+(if (not *olwp-TargetColorB*) (setq *olwp-TargetColorB* 187))  ; Синій компонент (0-255)
+;; ============================================================
 
 ;; --- Допоміжна функція для порівняння тільки X та Y координат у межах допуску ---
 (defun points-equal-2d (pt1 pt2 tol)
@@ -28,16 +42,18 @@
 ;; ============================================================
 ;; == ОСНОВНА ФУНКЦІЯ ==
 ;; ============================================================
-(defun c:OffsetLineWithPikets ( / *error* oldEcho oldOsmode oldCmdDia oldOsmodeZ ; Додано oldOsmodeZ
-                                vertexTol selEnt entData entType curveObj ssAllPikets i blkEnt blkData blkPtList_orig ssPiketsOnVertices idx vertexPt origCoords offsetDist offsetObjList newCurveObj offsetCoords targetVertexPt moveData vertCountMatch newCurveEnt entTypeExpected foundMatch colorObj acadObj acadDoc errorResult targetR targetG targetB trueColorValue newCurveData finalTargetPt ; Додано змінні
-                               )
+(defun c:OffsetLineWithPikets ( / *error* oldEcho oldOsmode oldCmdDia oldOsmodeZ
+                                  vertexTol selEnt entData entType curveObj ssAllPikets i blkEnt blkData blkPtList_orig ssPiketsOnVertices idx vertexPt origCoords offsetDist offsetObjList newCurveObj offsetCoords targetVertexPt moveData vertCountMatch newCurveEnt entTypeExpected foundMatch colorObj acadObj acadDoc errorResult trueColorValue newCurveData finalTargetPt blockNameFilter wasSuccessful ; Додано wasSuccessful
+                                 )
+  (setq wasSuccessful nil) ; Прапорець успішного завершення операцій з блоками
+
   ;; --- Локальна функція обробки помилок для відновлення налаштувань ---
   (defun *error* (msg)
     (if oldEcho (setvar "CMDECHO" oldEcho))
     (if oldOsmode (setvar "OSMODE" oldOsmode))
     (if oldCmdDia (setvar "CMDDIA" oldCmdDia)) ; Відновити діалоги
     (if oldOsmodeZ (setvar "OSNAPZ" oldOsmodeZ)) ; *** ВІДНОВИТИ OSNAPZ ***
-    (if ssPiketsOnVertices (sssetfirst nil nil)) ; Зняти виділення
+    (sssetfirst nil nil) ; *** ЗНЯТИ ВИДІЛЕННЯ ПРИ ПОМИЛЦІ АБО СКАСУВАННІ ***
     (princ "\n*** Помилка LISP або скасовано: ")
     (if msg (princ msg))
     (princ " ***")
@@ -104,18 +120,15 @@
   ;; --- Початок основної логіки ---
 
   ;; ============================================================
-  ;; == НАЛАШТУВАННЯ ПАРАМЕТРІВ СКРИПТА ==
+  ;; == НАЛАШТУВАННЯ ПАРАМЕТРІВ СКРИПТА (з глобальних змінних) ==
   ;; ============================================================
-  ;; -- Цільовий колір для зміщеної лінії (RGB) --
-  (setq targetR 39)  ; Червоний компонент (0-255)
-  (setq targetG 118) ; Зелений компонент (0-255)
-  (setq targetB 187) ; Синій компонент (0-255)
-
   ;; -- Допуск для порівняння XY координат блоку з вершиною --
   (setq vertexTol 0.01)
   ;; ============================================================
 
-  (princ (strcat "\nЦільовий колір для зміщеної лінії: RGB(" (itoa targetR) "," (itoa targetG) "," (itoa targetB) ")"))
+  ;; Використовуємо глобальні змінні для кольору та імені блоку
+  (princ (strcat "\nШукаємо блоки з іменем: '" *olwp-PiketBlockName* "'"))
+  (princ (strcat "\nЦільовий колір для зміщеної лінії: RGB(" (itoa *olwp-TargetColorR*) "," (itoa *olwp-TargetColorG*) "," (itoa *olwp-TargetColorB*) ")"))
   (princ (strcat "\nВстановлено XY-допуск пошуку блоків на вершинах (vertexTol): " (rtos vertexTol 2 8)))
 
   ;; Зберегти поточні налаштування
@@ -126,7 +139,6 @@
   (setvar "CMDECHO" 0) ; Вимикаємо ехо команд
   (setvar "CMDDIA" 0) ; Вимикаємо діалоги (для OFFSET + pause)
   (setvar "OSNAPZ" 0) ; *** Тимчасово встановлюємо OSNAPZ в 0, щоб гарантувати, що команда MOVE спрацює з 3D точками, які ми їй передамо ***
-                     ; *** Наша логіка *сама* контролюватиме Z-координату ***
 
   ;; --- 1. Вибір лінії/полілінії ---
   (setq selEnt nil)
@@ -149,10 +161,12 @@
   )
   (princ (strcat "\nВибрано: " entType " <" (vl-princ-to-string (car selEnt)) ">"))
 
-  ;; --- 2. Пошук блоків "PIKET" на ВЕРШИНАХ кривої (порівняння XY) ---
+  ;; --- 2. Пошук блоків (з іменем з *olwp-PiketBlockName*) на ВЕРШИНАХ кривої (порівняння XY) ---
   (setq ssPiketsOnVertices (ssadd)) ; Ініціалізація порожнього набору для знайдених блоків
-  (setq moveData nil)              ; Ініціалізація списку для даних переміщення
-  (setq ssAllPikets (ssget "_X" '((0 . "INSERT") (2 . "PIKET")))) ; Знайти ВСІ блоки PIKET
+  (setq moveData nil)             ; Ініціалізація списку для даних переміщення
+  ;; Створюємо фільтр для ssget, використовуючи глобальну змінну *olwp-PiketBlockName*
+  (setq blockNameFilter (list '(0 . "INSERT") (cons 2 *olwp-PiketBlockName*)))
+  (setq ssAllPikets (ssget "_X" blockNameFilter)) ; Знайти ВСІ блоки з потрібним іменем
 
   (setq origCoords (ParseRawCoords curveObj)) ; Отримуємо координати вершин ВИХІДНОЇ кривої
 
@@ -163,7 +177,7 @@
 
   (if ssAllPikets
     (progn
-      (princ (strcat "\nЗнайдено " (itoa (sslength ssAllPikets)) " блоків 'PIKET'. Перевірка положення XY на вершинах (з допуском " (rtos vertexTol 2 8) ")..."))
+      (princ (strcat "\nЗнайдено " (itoa (sslength ssAllPikets)) " блоків '" *olwp-PiketBlockName* "'. Перевірка положення XY на вершинах (з допуском " (rtos vertexTol 2 8) ")..."))
       (setq i 0)
       (repeat (sslength ssAllPikets)
         (setq blkEnt (ssname ssAllPikets i))
@@ -196,16 +210,16 @@
         (setq i (1+ i)) ; Наступний блок у ssAllPikets
       ) ; кінець repeat по блоках
       (setq moveData (reverse moveData)) ; Відновити порядок додавання
-      (princ (strcat "\nЗнайдено " (itoa (sslength ssPiketsOnVertices)) " блоків на/біля XY вершин (з допуском " (rtos vertexTol 2 8) ")."))
+      (princ (strcat "\nЗнайдено " (itoa (sslength ssPiketsOnVertices)) " блоків '" *olwp-PiketBlockName* "' на/біля XY вершин (з допуском " (rtos vertexTol 2 8) ")."))
     )
-    (princ "\nБлоки з іменем 'PIKET' не знайдені у кресленні.")
+    (princ (strcat "\nБлоки з іменем '" *olwp-PiketBlockName* "' не знайдені у кресленні.")) ; Використовуємо глобальну змінну
   )
 
   ;; --- 3. Виділення знайдених блоків та запит відстані зміщення ---
   (if (> (sslength ssPiketsOnVertices) 0)
     (progn
       (princ (strcat "\nВиділення знайдених на вершинах блоків (" (itoa (sslength ssPiketsOnVertices)) " шт.)."))
-      (sssetfirst nil ssPiketsOnVertices) ; Виділити знайдені блоки
+      (sssetfirst nil ssPiketsOnVertices) ; Виділити знайдені блоки (попередньо)
 
       (setq offsetDist (getdist "\nІванич! Введи відстань зміщення: "))
 
@@ -231,7 +245,7 @@
             (progn
               (princ "\n*** ПОМИЛКА: Не вдалося отримати коректний зміщений об'єкт після команди OFFSET.")
               (princ "\n    Можливо, команда була перервана, відстань нульова, або 'entlast' вказав не на той об'єкт.")
-              (*error* "Помилка отримання результату зміщення")
+              (*error* "Помилка отримання результату зміщення") ; Виклик *error* зніме виділення
             )
             ;; Якщо новий об'єкт коректний
             (progn
@@ -240,7 +254,7 @@
               (princ (strcat "\n[OK] Зміщення командою OFFSET виконано. Новий об'єкт: <" (vl-princ-to-string newCurveEnt) ">"))
 
               ;; ==================================================================
-              ;; ---> ПОЧАТОК: КОД ЗМІНИ КОЛЬОРУ ЗМІЩЕНОЇ ЛІНІЇ <---
+              ;; ---> ПОЧАТОК: КОД ЗМІНИ КОЛЬОРУ ЗМІЩЕНОЇ ЛІНІЇ (з глобальних змінних) <---
               ;; ==================================================================
               (princ "\nЗміна властивостей зміщеного об'єкта через entmod (DXF)...")
               (if newCurveEnt
@@ -249,8 +263,8 @@
 
                     (if newCurveData
                       (progn
-                        ;; --- Розрахунок значення TrueColor з RGB змінних ---
-                        (setq trueColorValue (+ (* targetR 65536) (* targetG 256) targetB))
+                        ;; --- Розрахунок значення TrueColor з ГЛОБАЛЬНИХ RGB змінних ---
+                        (setq trueColorValue (+ (* *olwp-TargetColorR* 65536) (* *olwp-TargetColorG* 256) *olwp-TargetColorB*))
 
                         ;; --- 1. Встановлення True Color RGB ---
                         (princ (strcat "\n  Встановлення TrueColor (DXF 420) на " (itoa trueColorValue) "..."))
@@ -284,7 +298,7 @@
               ;; Отримуємо та парсимо координати вершин ЗМІЩЕНОЇ кривої
               (setq offsetCoords (ParseRawCoords newCurveObj))
               (if (null offsetCoords)
-                  (*error* "Не вдалося отримати координати вершин зміщеної кривої!")
+                  (*error* "Не вдалося отримати координати вершин зміщеної кривої!") ; Виклик *error* зніме виділення
               )
               (princ (strcat "\nЗнайдено " (itoa (length offsetCoords)) " вершин у зміщеній кривій."))
 
@@ -294,8 +308,8 @@
                   (princ "\n!!! ПОПЕРЕДЖЕННЯ: Кількість вершин у вихідній та зміщеній кривих не співпадає! Результат переміщення блоків може бути неточним.")
               )
 
-              ;; --- 5. Переміщення блоків на відповідні вершини (Z буде ЗБЕРЕЖЕНО) --- ;; *** ОНОВЛЕНО КОМЕНТАР ***
-              (princ "\nПереміщення блоків на XY відповідних вершин зміщеної лінії (ЗБЕРІГАЮЧИ Z)...") ; *** ОНОВЛЕНО ПОВІДОМЛЕННЯ ***
+              ;; --- 5. Переміщення блоків на відповідні вершини (Z буде ЗБЕРЕЖЕНО) ---
+              (princ "\nПереміщення блоків на XY відповідних вершин зміщеної лінії (ЗБЕРІГАЮЧИ Z)...")
               (foreach dataItem moveData
                   (setq blkEnt (nth 0 dataItem))
                   (setq blkPtList_orig (nth 1 dataItem)) ; Оригінальна 3D точка блоку (Xo, Yo, Zo)
@@ -312,8 +326,8 @@
 
                       ;; ----> КОНСТРУЮВАННЯ ФІНАЛЬНОЇ ЦІЛЬОВОЇ ТОЧКИ ЗІ ЗБЕРЕЖЕНОЮ Z <----
                       (setq finalTargetPt (list
-                                            (car targetVertexPt)     ; X з нової вершини
-                                            (cadr targetVertexPt)    ; Y з нової вершини
+                                            (car targetVertexPt)    ; X з нової вершини
+                                            (cadr targetVertexPt)   ; Y з нової вершини
                                             (caddr blkPtList_orig) ; Z з ОРИГІНАЛЬНОЇ точки блоку
                                           )
                       )
@@ -321,22 +335,29 @@
 
 
                       ;; ----> ВИКОНУЄМО ПЕРЕМІЩЕННЯ НА СКОНСТРУЙОВАНУ ТОЧКУ <----
-                      ;; Переміщення з оригінальної точки блоку ПРЯМО на нову точку (Xn, Yn, Zo).
-                      ;; Z координата блоку ЗБЕРЕЖЕТЬСЯ, бо ми вказали її у finalTargetPt.
                       (command "_move" blkEnt "" "_none" blkPtList_orig "_none" finalTargetPt)
-                      (princ "\n    [INFO] Команду MOVE виконано (ЗБЕРЕЖЕНО Z блоку).") ; *** ОНОВЛЕНО ПОВІДОМЛЕННЯ ***
+                      (princ "\n    [INFO] Команду MOVE виконано (ЗБЕРЕЖЕНО Z блоку).")
                     )
                     (princ (strcat "\n    ПОМИЛКА: Індекс вершини #" (itoa idx) " недійсний для зміщеної кривої (макс: " (itoa (1- (length offsetCoords))) ") або відсутня оригінальна точка блоку. Блок не переміщено."))
                   )
               ) ; кінець foreach
-              (princ "\n[OK] Спроба переміщення блоків на вершини зі збереженням Z завершена.") ; *** ОНОВЛЕНО ПОВІДОМЛЕННЯ ***
+              (princ "\n[OK] Спроба переміщення блоків на вершини зі збереженням Z завершена.")
+              (setq wasSuccessful T) ; *** Позначити, що операції з блоками пройшли успішно ***
+
+              ;; *** ВСТАНОВИТИ ФІНАЛЬНЕ ВИДІЛЕННЯ ТІЛЬКИ ПЕРЕМІЩЕНИХ БЛОКІВ ***
+              (if wasSuccessful
+                  (progn
+                     (princ (strcat "\nЗалишення виділеними переміщених блоків (" (itoa (sslength ssPiketsOnVertices)) " шт.)..."))
+                     (sssetfirst nil ssPiketsOnVertices)
+                   )
+              )
             ) ; кінець progn успішного зміщення
           ) ; кінець if перевірки entlast
         )
-        (princ "\nВідстань не введено. Операцію скасовано.")
+        (princ "\nВідстань не введено. Операцію скасовано.") ; Тут *error* не викликається, виділення зніметься в кінці
       ) ; кінець if offsetDist
     )
-    (princ "\nНе знайдено блоків 'PIKET' на XY-координатах вершин вихідної кривої (з допуском " (rtos vertexTol 2 8) "). Нічого зміщувати.")
+    (princ (strcat "\nНе знайдено блоків '" *olwp-PiketBlockName* "' на XY-координатах вершин вихідної кривої (з допуском " (rtos vertexTol 2 8) "). Нічого зміщувати.")) ; Блоки не знайдено, виділення буде знято в кінці
   ) ; кінець if > 0 знайдених блоків
 
   ;; --- 6. Очищення та відновлення налаштувань ---
@@ -344,8 +365,14 @@
   (if oldOsmode (setvar "OSMODE" oldOsmode))
   (if oldCmdDia (setvar "CMDDIA" oldCmdDia)) ; Відновити діалоги
   (if oldOsmodeZ (setvar "OSNAPZ" oldOsmodeZ)) ; *** ВІДНОВИТИ ЗБЕРЕЖЕНИЙ OSNAPZ ***
-  (sssetfirst nil nil) ; Зняти виділення
+
+  ;; *** ЗНЯТИ ВИДІЛЕННЯ, ТІЛЬКИ ЯКЩО ОСНОВНА ОПЕРАЦІЯ З БЛОКАМИ НЕ БУЛА УСПІШНОЮ ***
+  (if (not wasSuccessful)
+      (sssetfirst nil nil)
+  )
+
   (princ "\nСкрипт завершено.")
+  (if wasSuccessful (princ " Переміщені блоки залишено виділеними."))
   (princ) ; Тихий вихід
 ) ; кінець defun c:OffsetLineWithPikets
 
@@ -354,6 +381,8 @@
 ;; ============================================================
 (defun c:OLWP () (c:OffsetLineWithPikets)) ;; OLWP - Offset Line With Pikets
 
-(princ "\nLISP 'OffsetLineWithPikets' (XY Вершина-до-Вершини + Вибір сторони + ЗБЕРЕЖЕННЯ Z блоку + Колір зміщення) завантажено.") ; *** ОНОВЛЕНО ОПИС ***
+(princ (strcat "\nLISP 'OffsetLineWithPikets' (з глоб. налаштуваннями блоку: '" *olwp-PiketBlockName* "' та кольору RGB: " (itoa *olwp-TargetColorR*) "," (itoa *olwp-TargetColorG*) "," (itoa *olwp-TargetColorB*) ") завантажено."))
 (princ "\nДля запуску введіть OLWP або OFFSETLINEWITHPIKETS.")
+(princ "\n*** Після успішного виконання переміщені блоки залишаться виділеними. ***")
+(princ "\n*** Щоб змінити ім'я блоку або колір, відредагуйте глобальні змінні на початку файлу .lsp ***")
 (princ)
