@@ -48,9 +48,9 @@
 
   ;; --- ‘ункц≥€ обробки помилок дл€ коректного скиданн€ ---
   (defun *error* (msg)
-    (if (and old_g_last_search (not *g_last_search_result*)) ; якщо пошук був скасований/невдалий, а старий результат ≥снував
+    ;; (if (and old_g_last_search (not *g_last_search_result*)) ; якщо пошук був скасований/невдалий, а старий результат ≥снував
         (setq *g_last_search_result* nil) ; явно скинути, €кщо скасовано через ESC
-    )
+    ;; )
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
