@@ -1317,8 +1317,9 @@
       ;; --- Запит висоти тексту ---
       (if (or (null (boundp '*g_create_zmarker_last_height*)) (null *g_create_zmarker_last_height*) (not (numberp *g_create_zmarker_last_height*))) ;_4
           (setq *g_create_zmarker_last_height* 0.8))
-      (setq prompt_str (strcat "\nВведіть висоту тексту [1:1000=1.9, 1:500=0.8] <" (rtos *g_create_zmarker_last_height* 2 4) ">: "))
-      (initget (+ 1 2 4))
+      (setq prompt_str (strcat "\nВведіть висоту тексту [1:1000=1.8, 1:500=0.8] <" (rtos *g_create_zmarker_last_height* 2 4) ">: "))
+      ;; (initget (+ 1 2 4))
+      (initget (+ 2 4)) ; Дозволити Enter, але заборонити 0 та негативні значення
       (setq inputHeight (getreal prompt_str))
       (if inputHeight ;_4
           (setq userHeight inputHeight)
