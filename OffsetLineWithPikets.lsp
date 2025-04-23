@@ -25,7 +25,9 @@
 (if (not *olwp-TargetColorG*) (setq *olwp-TargetColorG* 118))  ; Зелений компонент (0-255)
 (if (not *olwp-TargetColorB*) (setq *olwp-TargetColorB* 187))  ; Синій компонент (0-255)
 ;; -- Глобальна змінна для запам'ятовування останньої відстані зміщення --
-(if (not *olwp-LastOffsetDist*) (setq *olwp-LastOffsetDist* 0.8)) ; Значення за замовчуванням 1.0
+(if (or (null (boundp '*olwp-LastOffsetDist*)) (null *olwp-LastOffsetDist*) (not (numberp *olwp-LastOffsetDist*)))
+          (setq *olwp-LastOffsetDist* 0.8)
+      ) ; Значення за замовчуванням 0,8
 ;; ============================================================
 
 ;; --- Допоміжна функція для порівняння тільки X та Y координат у межах допуску ---
@@ -45,7 +47,7 @@
 ;; == ОСНОВНА ФУНКЦІЯ ==
 ;; ============================================================
 (defun c:OffsetLineWithPikets ( / *error* oldEcho oldOsmode oldCmdDia oldOsmodeZ
-                                  vertexTol selEnt entData entType curveObj ssAllPikets i blkEnt blkData blkPtList_orig ssPiketsOnVertices idx vertexPt origCoords offsetDist offsetObjList newCurveObj offsetCoords targetVertexPt moveData vertCountMatch newCurveEnt entTypeExpected foundMatch colorObj acadObj acadDoc errorResult trueColorValue newCurveData finalTargetPt blockNameFilter wasSuccessful prompt_offset_str 
+                                  vertexTol selEnt entData entType curveObj ssAllPikets i blkEnt blkData blkPtList_orig ssPiketsOnVertices idx vertexPt origCoords offsetDist offsetObjList newCurveObj offsetCoords targetVertexPt moveData vertCountMatch newCurveEnt entTypeExpected foundMatch colorObj acadObj acadDoc errorResult trueColorValue newCurveData finalTargetPt blockNameFilter wasSuccessful inputOffsetDist prompt_offset_str  
                                  )
   (setq wasSuccessful nil) ; Прапорець успішного завершення операцій з блоками
 
@@ -225,9 +227,19 @@
 
       ; Формування підказки зі збереженим значенням
       (setq prompt_offset_str (strcat "\nВведіть відстань зміщення <" (rtos *olwp-LastOffsetDist* 2 4) ">: "))
-      ; initget не потрібен, якщо дозволяємо будь-яке числове значення і обробляємо nil
-      ; Отримати відстань, передаючи значення за замовчуванням
-      (setq offsetDist (getdist prompt_offset_str *olwp-LastOffsetDist*))
+      ; (initget) ; Можна не використовувати initget тут, якщо дозволяємо будь-яке числове введення
+                ; або (initget 6) якщо хочемо заборонити 0 і негативні (але для offset це може бути потрібно)
+      ; Отримати відстань - getdist поверне nil, якщо натиснуто Enter або Esc
+      (setq inputOffsetDist (getdist prompt_offset_str)) ; ВИПРАВЛЕНО: Тільки один аргумент-рядок
+
+      ; Використання введеного значення або попереднього (якщо натиснуто Enter)
+      (if inputOffsetDist
+          (setq offsetDist inputOffsetDist) ; Користувач ввів валідне значення
+          (progn ; Користувач натиснув Enter (inputOffsetDist = nil)
+             (princ (strcat " Використовується останнє значення: " (rtos *olwp-LastOffsetDist* 2 4)))
+             (setq offsetDist *olwp-LastOffsetDist*) ; Присвоюємо збережене значення
+          )
+      )
 
       (if offsetDist
         (progn
