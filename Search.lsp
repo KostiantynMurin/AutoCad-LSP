@@ -542,9 +542,15 @@
   ;(setvar "CMDECHO" 0) ; Можна вимкнути ехо, якщо бажано
 
  ;; --- Визначення робочого набору вибірки (ss) ---
+  (setq ss nil ss_source "") ; Ініціалізація
   (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
+    ;; 1. Перевірити ПОТОЧНУ ВИБІРКУ (PickFirst) СПОЧАТКУ (з фільтром)
+    ((setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Отримати PickFirst, що є PIKET з атрибутами
+     (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
+    )
+    ;; 2. Перевірити збережений результат SEARCH (ЯКЩО ПОПЕРЕДНЄ НЕ СПРАЦЮВАЛО)
+    ((and (null ss) ; Перевіряємо, тільки якщо 'ss' ще не визначено
+          (boundp '*g_last_search_result*)
           *g_last_search_result*
           (= 'PICKSET (type *g_last_search_result*))
           (> (sslength *g_last_search_result*) 0)
@@ -552,22 +558,9 @@
      (setq ss *g_last_search_result*)
      (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
     )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ((setq ss (car (ssgetfirst)))
-     ;; Додатково фільтруємо попередню вибірку, залишаючи тільки блоки PIKET з атрибутами
-     (if ss
-       (progn
-         (setq ss (ssget "_P" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо pickfirst set
-         (if (or (null ss) (= 0 (sslength ss)))
-             (setq ss nil) ; Якщо після фільтрації нічого не залишилось
-             (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
-         )
-       )
-     )
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
+    ;; 3. Запросити користувача вибрати об'єкти (ЯКЩО НІЧОГО НЕ ЗНАЙДЕНО)
     (T
-     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
+     (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
      (princ "\nВиберіть блоки 'PIKET', в яких потрібно замінити значення атрибуту 'НОМЕРА': ")
      (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтр для PIKET з атрибутами
      (if ss
@@ -575,7 +568,7 @@
        (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
      )
     )
-  )
+  ) ; кінець cond
 
   ;; --- Основна логіка заміни ---
   (if ss
@@ -724,43 +717,33 @@
   )
 
   ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
-   (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
+  (setq ss nil ss_source "") ; Ініціалізація
+  (cond
+    ;; 1. Перевірити ПОТОЧНУ ВИБІРКУ (PickFirst) СПОЧАТКУ (з фільтром)
+    ((setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Отримати PickFirst, що є PIKET з атрибутами
+     (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
+    )
+    ;; 2. Перевірити збережений результат SEARCH (ЯКЩО ПОПЕРЕДНЄ НЕ СПРАЦЮВАЛО)
+    ((and (null ss) ; Перевіряємо, тільки якщо 'ss' ще не визначено
+          (boundp '*g_last_search_result*)
           *g_last_search_result*
           (= 'PICKSET (type *g_last_search_result*))
           (> (sslength *g_last_search_result*) 0)
      )
      (setq ss *g_last_search_result*)
-     (if (and ss (> (sslength ss) 0))
-          (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " блоків 'PIKET')"))
-          (setq ss nil ss_source "збереженого результату пошуку (але він порожній або некоректний)")
-     )
+     (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
     )
-    ;; 2. Перевірити попередню вибірку (PickFirst) - УВАГА: ssgetfirst повертає (ss name_ss), тому cadr
-    ((setq ss (cadr (ssgetfirst)))
-      (if ss
-        (progn
-          (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Перевіряємо поточний PickFirst на відповідність критеріям
-          (if (or (null ss) (= 0 (sslength ss)))
-              (setq ss nil ss_source "поточної вибірки (але вона не містить блоків 'PIKET' з атрибутами)")
-              (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
-          )
-        )
-        (setq ss nil) ; Якщо cadr(ssgetfirst) - nil
-      )
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
+    ;; 3. Запросити користувача вибрати об'єкти (ЯКЩО НІЧОГО НЕ ЗНАЙДЕНО)
     (T
-     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
+     (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
      (princ "\nВиберіть блоки 'PIKET', біля яких потрібно оновити текст: ")
-     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
+     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтр для PIKET з атрибутами
      (if ss
        (setq ss_source (strcat "щойно вибраних блоків 'PIKET' (" (itoa (sslength ss)) " об.)"))
        (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
      )
     )
-  )
+  ) ; кінець cond
 
   ;; --- Основна логіка пошуку та збору кандидатів на оновлення ---
   (if ss
@@ -948,311 +931,6 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 6: ПОШУК КАНДИДАТІВ ДЛЯ ОНОВЛЕННЯ ТЕКСТУ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.5.1)
-;; ====================================================================
-;; Команда: RENAME_ZMARKER (v1.5.1 - Виправлено зайву дужку в циклі пошуку тексту)
-;; Ця команда виконує першу частину процесу:
-;; 1. Бере набір вибірки "PIKET" (з SEARCH або вибрані).
-;; 2. Знаходить значення атрибуту "ОТМЕТКА" для кожного блоку.
-;; 3. Шукає поруч текстові об'єкти на шарі "21 ВІДМІТКИ".
-;; 4. Збирає список кандидатів на оновлення.
-;; 5. Зберігає цей список у глобальну змінну *g_rename_zmarker_candidates*.
-;; 6. Підсвічує знайдених кандидатів.
-;; 7. Повідомляє користувача про необхідність відредагувати вибір та запустити RENAME_ZMARKER_RUN.
-
-(defun c:RENAME_ZMARKER ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
-                            attrValOtmetka blockPt
-                            otmetkaValue searchDist ssTextAll j textEnt textData textPt textVal textLayer
-                            newTextVal textFoundForBlock updatedCount processedCount totalCount
-                            oldCmdecho fuzz updatedTextEnts
-                            ;; --- Змінні для кандидатів ---
-                            texts_to_update_info ssHighlight potentialUpdateCount
-                           )
-
-  ;; --- Функція обробки помилок ---
-  (defun *error* (msg)
-    (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-    ;; Очищення глобальної змінної при помилці/скасуванні
-    (setq *g_rename_zmarker_candidates* nil)
-    (cond ((not msg))
-          ((vl-string-search "Function cancelled" msg))
-          ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_ZMARKER: " msg)))
-    )
-    (setq *g_last_search_result* nil) ; Також очищаємо результат пошуку, якщо використовувався
-    (setq *error* nil)
-    (princ)
-  )
-
-  ;; --- Ініціалізація ---
-  ;; Очищення глобальної змінної перед новим пошуком кандидатів
-  (setq *g_rename_zmarker_candidates* nil)
-  (setq updatedCount 0 processedCount 0 oldCmdecho nil ss nil ss_source "" fuzz 1e-9
-        updatedTextEnts nil texts_to_update_info nil ssHighlight nil potentialUpdateCount 0
-  )
-  (setq oldCmdecho (getvar "CMDECHO"))
-  ;(setvar "CMDECHO" 0)
-
-  ;; --- Отримати радіус пошуку тексту ---
-  (setq searchDist (getdist "\nВведіть максимальну відстань для пошуку тексту біля точки PIKET (в площині XY): "))
-  (if (or (null searchDist) (<= searchDist 0))
-    (progn (princ "\nНевірна відстань пошуку. Команду скасовано.") (exit))
-  )
-
-  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
-  (cond
-    ((and (boundp '*g_last_search_result*) *g_last_search_result* (= 'PICKSET (type *g_last_search_result*)) (> (sslength *g_last_search_result*) 0))
-     (setq ss *g_last_search_result*) (setq ss_source (strcat "збереженого пошуку (" (itoa (sslength ss)) " бл.)")))
-    ((setq ss (cadr (ssgetfirst)))
-     (if ss (progn (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) (if (or (null ss) (= 0 (sslength ss))) (setq ss nil ss_source "поточної вибірки (не підходить)") (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " бл.)")))) (setq ss nil)))
-    (T (princ "\nНе знайдено збереженого пошуку...") (princ "\nВиберіть блоки 'PIKET'...") (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
-       (if ss (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " бл.)")) (progn (princ "\nБлоки 'PIKET' не вибрано.") (exit)))))
-
-  ;; --- Основна логіка пошуку та збору кандидатів ---
-  (if ss
-    (progn
-      (setq totalCount (sslength ss))
-      (princ (strcat "\nПошук текстових полів на шарі '21 ВІДМІТКИ' біля " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
-
-      (setq ssTextAll (ssget "_X" '((0 . "TEXT,MTEXT"))))
-      (if (null ssTextAll) (princ "\nПопередження: У кресленні не знайдено жодних текстових об'єктів."))
-
-      ;; --- Цикл по вибраних/знайдених блоках PIKET ---
-      (setq i 0)
-      (repeat totalCount
-        (setq enamePiket (ssname ss i))
-        (setq attrValOtmetka nil otmetkaValue nil textFoundForBlock nil)
-        (if (setq edataPiket (entget enamePiket))
-          (progn
-            (setq processedCount (1+ processedCount)) (setq blockPt (cdr (assoc 10 edataPiket)))
-            ;; Пошук атрибуту "ОТМЕТКА"
-            (if (and (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
-              (progn (setq attEname (entnext enamePiket))
-                     (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
-                       (setq attTag (strcase (cdr (assoc 2 attEdata))))
-                       (if (eq "ОТМЕТКА" attTag) (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) (setq attEname (entnext attEname)))
-                     )
-              )
-            )
-            (if attrValOtmetka (setq otmetkaValue attrValOtmetka) (princ (strcat "\n Попередження: Атрибут 'ОТМЕТКА' не знайдено/порожній: " (vl-princ-to-string enamePiket))))
-            ;; Пошук тексту
-            (if (and otmetkaValue ssTextAll blockPt)
-              (progn
-                 (setq j 0)
-                 (while (and (< j (sslength ssTextAll)) (not textFoundForBlock))
-                   (setq textEnt (ssname ssTextAll j))
-                   (if (setq textData (entget textEnt))
-                     (progn
-                       (setq textPt (cdr (assoc 10 textData))) (setq textVal (cdr (assoc 1 textData))) (setq textLayer (cdr (assoc 8 textData)))
-                       (if (and textPt textVal textLayer (equal textLayer "21 ВІДМІТКИ") (<= (distance (list (car blockPt) (cadr blockPt) 0.0) (list (car textPt) (cadr textPt) 0.0)) searchDist) (not (member textEnt updatedTextEnts))) ; Початок IF conditions met
-                         (progn
-                           (setq updatedCount (1+ updatedCount)) (setq newTextVal otmetkaValue)
-                           (if (not (equal textVal newTextVal))
-                             (progn
-                               (setq texts_to_update_info (cons (list textEnt newTextVal enamePiket) texts_to_update_info))
-                               (setq potentialUpdateCount (1+ potentialUpdateCount))
-                               (princ (strcat "\n   * Кандидат: <" (vl-princ-to-string textEnt) "> ('" textVal "' -> '" newTextVal "') біля <" (vl-princ-to-string enamePiket) ">"))
-                             )
-                           )
-                           (setq updatedTextEnts (cons textEnt updatedTextEnts))
-                           (setq textFoundForBlock T)
-                         )
-                       )
-                     )
-                   )
-                   (setq j (1+ j))
-                 )
-              )
-            )
-          )
-        )
-        (setq i (1+ i))
-      )
-
-      ;; --- Збереження результатів та підсвічування ---
-      (if (> potentialUpdateCount 0)
-        (progn
-          (princ (strcat "\n\nЗнайдено " (itoa potentialUpdateCount) " потенційних кандидатів на оновлення."))
-          ;; --- Створення набору вибірки для підсвічування ---
-          (setq ssHighlight (ssadd))
-          (foreach item texts_to_update_info
-            (if (entget (car item)) (ssadd (car item) ssHighlight)))
-
-          (if (and ssHighlight (> (sslength ssHighlight) 0))
-            (progn
-              ;; *** Збереження списку кандидатів у глобальну змінну ***
-              (setq *g_rename_zmarker_candidates* (reverse texts_to_update_info)) ; Reverse, щоб зберегти порядок знаходження (опціонально)
-
-              (princ (strcat "\nВиділено " (itoa (sslength ssHighlight)) " текстових об'єктів-кандидатів."))
-              ;; *** Підсвічування кандидатів ***
-              (sssetfirst nil ssHighlight)
-
-              ;; *** Інструкція для користувача ***
-              (princ "\n\n---> Кандидатів ВИДІЛЕНО. Будь ласка, відредагуйте вибір стандартними засобами AutoCAD (Shift+клік тощо).")
-              (princ "\n---> Потім запустіть команду RENAME_ZMARKER_RUN для підтвердження та виконання оновлення.")
-            )
-            (princ "\nНе вдалося створити набір вибірки для виділення текстів-кандидатів.")
-          )
-        )
-        ;; --- Якщо не знайдено кандидатів на оновлення ---
-        (progn
-           (princ "\n\nНе знайдено текстових полів на шарі '21 ВІДМІТКИ', що потребують оновлення.")
-           (setq *g_rename_zmarker_candidates* nil) ; Переконуємося, що глобальна змінна порожня
-           (sssetfirst nil nil) ; Знімаємо будь-яке попереднє виділення
-        )
-      )
-    ) ; end progn (ss is valid)
-    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
-  ) ; end if (ss)
-
-  ;; --- Відновлення середовища та вихід ---
-  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-  ; НЕ очищуємо *g_last_search_result* тут, він може бути потрібен RENAME_ZMARKER_RUN, якщо він базувався на пошуку
-  (setq *error* nil) ; Скинути обробник помилок
-  (princ) ;; Чистий вихід
-) ;; кінець defun c:RENAME_ZMARKER
-
-
-;; ====================================================================
-;; СКРИПТ 7: ВИКОНАННЯ ОНОВЛЕННЯ ТЕКСТУ ЗА АТРИБУТОМ "ОТМЕТКА" (v1.1)
-;; ====================================================================
-;; Команда: RENAME_ZMARKER_RUN (v1.1 - Додано очищення *g_last_search_result*)
-;; Ця команда виконує другу частину процесу:
-;; 1. Перевіряє, чи є збережений список кандидатів від RENAME_ZMARKER.
-;; 2. Отримує поточний набір вибірки (PickFirst set), який користувач мав відредагувати.
-;; 3. Фільтрує список кандидатів, залишаючи тільки ті, що є у поточній вибірці.
-;; 4. Запитує підтвердження на оновлення.
-;; 5. Якщо підтверджено, оновлює текст для відфільтрованих об'єктів.
-;; 6. Очищує збережений список кандидатів (*g_rename_zmarker_candidates*) ТА результат пошуку (*g_last_search_result*).
-
-(defun c:RENAME_ZMARKER_RUN ( / *error* retrieved_candidates final_ss final_update_info
-                                answer actualUpdateCount item textEnt newTextVal textData currentTextVal
-                                oldCmdecho user_input
-                              )
-  ;; --- Функція обробки помилок ---
-  (defun *error* (msg)
-    (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
-    ;; Очищення глобальних змінних при помилці/скасуванні
-    (setq *g_rename_zmarker_candidates* nil)
-    (setq *g_last_search_result* nil) ; <--- ДОДАНО ОЧИЩЕННЯ ТУТ
-    (cond ((not msg))
-          ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
-          ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
-          (T (princ (strcat "\nПомилка в RENAME_ZMARKER_RUN: " msg)))
-    )
-    (setq *error* nil)
-    (princ)
-  )
-
-  ;; --- Ініціалізація ---
-  (setq retrieved_candidates nil final_ss nil final_update_info nil answer nil actualUpdateCount 0 oldCmdecho nil user_input nil)
-  (setq oldCmdecho (getvar "CMDECHO"))
-  ;(setvar "CMDECHO" 0)
-
-  ;; --- Перевірка та отримання списку кандидатів ---
-  (if (and (boundp '*g_rename_zmarker_candidates*) *g_rename_zmarker_candidates* (listp *g_rename_zmarker_candidates*))
-      (setq retrieved_candidates *g_rename_zmarker_candidates*)
-      (progn
-        (princ "\nПомилка: Список кандидатів не знайдено. Спочатку запустіть команду RENAME_ZMARKER.")
-        (exit)
-      )
-  )
-
-  ;; --- Отримання фінального вибору користувача (БЕЗ ЗАПИТУ) ---
-  (setq final_ss (ssget "_I")) ; Отримуємо поточний PickFirst набір (результат редагування)
-
-  (if (null final_ss)
-      (progn
-         (princ "\nНічого не вибрано для оновлення (PickFirst порожній). Запустіть RENAME_ZMARKER знову, якщо потрібно.")
-         (setq *g_rename_zmarker_candidates* nil) ; Очищаємо глобальну змінну кандидатів
-         (setq *g_last_search_result* nil) ; <--- ДОДАНО ОЧИЩЕННЯ ТУТ
-         (exit)
-      )
-  )
-
-  ;; --- Фільтрація списку кандидатів на основі фінального вибору ---
-  (setq final_update_info nil)
-  (foreach item retrieved_candidates
-      (setq textEnt (car item))
-      (if (ssmemb textEnt final_ss) ; Перевірити, чи кандидат є у фінальній вибірці
-         (setq final_update_info (cons item final_update_info))
-      )
-  )
-
-  ;; --- Перевірка відфільтрованого списку та запит на підтвердження ---
-  (if final_update_info
-      (progn ; Є що оновлювати з вибраного
-        (setq final_update_info (reverse final_update_info)) ; Відновити порядок для звіту (опціонально)
-        (princ (strcat "\nЗ вибраних об'єктів " (itoa (length final_update_info)) " є дійсними кандидатами на оновлення."))
-
-        ;; *** ЗАПИТ НА ПІДТВЕРДЖЕННЯ (з виділенням фінального списку) ***
-        ; Спочатку підсвітимо те, що будемо оновлювати
-        (if final_ss (sssetfirst nil final_ss))
-
-        ; Використовуємо getstring для уникнення подвійної підказки
-        (setq answer nil) ; Скидаємо відповідь
-        (while (not answer)
-           (setq user_input (strcase (getstring T (strcat "\n\nОновити ці " (itoa (length final_update_info)) " об'єкт(и)? [Так/Ні]: "))))
-           (cond
-              ((member user_input '("ТАК" "Т" "ДА" "Д" "YES" "Y")) (setq answer "Так"))
-              ((member user_input '("НІ" "Н" "НЕТ" "Н" "NO" "N")) (setq answer "Ні"))
-              (T (prompt "\nБудь ласка, введіть 'Так' або 'Ні'.")))
-        )
-
-      )
-      (progn ; Вибрані об'єкти не містять дійсних кандидатів
-        (princ "\nСеред вибраних об'єктів немає дійсних кандидатів, знайдених RENAME_ZMARKER.")
-        (setq answer "Ні") ; Вважаємо скасуванням
-      )
-  )
-
-  ;; --- Виконання змін ---
-  (if (eq answer "Так")
-      (progn
-         (princ "\nВиконую оновлення...")
-         (command "_.UNDO" "_Begin")
-         (foreach item final_update_info
-             (setq textEnt (car item))
-             (setq newTextVal (cadr item))
-             (if (setq textData (entget textEnt))
-               (progn
-                 (setq currentTextVal (cdr (assoc 1 textData)))
-                 (setq textData (subst (cons 1 newTextVal) (assoc 1 textData) textData))
-                 (if (entmod textData)
-                   (progn
-                     (princ (strcat "\n  Оновлено: <" (vl-princ-to-string textEnt) "> ('" currentTextVal "' -> '" newTextVal "')"))
-                     (setq actualUpdateCount (1+ actualUpdateCount))
-                   )
-                   (princ (strcat "\n  Помилка оновлення тексту <" (vl-princ-to-string textEnt) ">"))
-                 )
-               )
-               (princ (strcat "\n  Помилка: Не вдалося отримати дані для тексту <" (vl-princ-to-string textEnt) "> під час спроби оновлення."))
-             )
-         )
-         (command "_.UNDO" "_End")
-         (if (> actualUpdateCount 0)
-             (princ (strcat "\nУспішно оновлено " (itoa actualUpdateCount) " текстових полів."))
-             (princ "\nЖодного об'єкта не було оновлено (можливо, через помилки).")
-         )
-      )
-      ;; --- Якщо користувач відповів "Ні" ---
-      (progn
-        (princ "\nОновлення скасовано користувачем.")
-        (princ "\nЗміни не виконувались.")
-      )
-  )
-
-  ;; --- Очищення та вихід ---
-  (setq *g_rename_zmarker_candidates* nil) ; Очищення глобальної змінної кандидатів
-  (setq *g_last_search_result* nil) ; <--- ДОДАНО ОЧИЩЕННЯ ТУТ
-  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-  (setq *error* nil) ; Скинути обробник помилок
-  (princ) ;; Чистий вихід
-) ;; кінець defun c:RENAME_ZMARKER_RUN
-
-
-;; ====================================================================
 ;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА СИМВОЛІВ (v1.3)
 ;; ====================================================================
 ;; Команда: Команда: CREATE_ZMARKER (v1.5 - Додано запит кута повороту)
@@ -1300,15 +978,34 @@
     )
   )
 
-  ;; --- Визначення робочого набору вибірки (ss) ---
+  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
+  (setq ss nil ss_source "") ; Ініціалізація
   (cond
-    ((and (boundp '*g_last_search_result*) *g_last_search_result* (= 'PICKSET (type *g_last_search_result*)) (> (sslength *g_last_search_result*) 0))
-     (setq ss *g_last_search_result*) (setq ss_source (strcat "збереженого пошуку (" (itoa (sslength ss)) " бл.)")))
-    ((setq ss (cadr (ssgetfirst)))
-     (if ss (progn (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) (if (or (null ss) (= 0 (sslength ss))) (setq ss nil ss_source "поточної вибірки (не підходить)") (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " бл.)")))) (setq ss nil)))
-    (T (princ "\nНе знайдено збереженого пошуку або поточної вибірки.") (princ "\nВиберіть блоки 'PIKET' для створення відсутніх відміток: ") (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
-       (if ss (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " бл.)")) (progn (princ "\nБлоки 'PIKET' не вибрано.") (exit))))
-  )
+    ;; 1. Перевірити ПОТОЧНУ ВИБІРКУ (PickFirst) СПОЧАТКУ (з фільтром)
+    ((setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Отримати PickFirst, що є PIKET з атрибутами
+     (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
+    )
+    ;; 2. Перевірити збережений результат SEARCH (ЯКЩО ПОПЕРЕДНЄ НЕ СПРАЦЮВАЛО)
+    ((and (null ss) ; Перевіряємо, тільки якщо 'ss' ще не визначено
+          (boundp '*g_last_search_result*)
+          *g_last_search_result*
+          (= 'PICKSET (type *g_last_search_result*))
+          (> (sslength *g_last_search_result*) 0)
+     )
+     (setq ss *g_last_search_result*)
+     (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
+    )
+    ;; 3. Запросити користувача вибрати об'єкти (ЯКЩО НІЧОГО НЕ ЗНАЙДЕНО)
+    (T
+     (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
+     (princ "\nВиберіть блоки 'PIKET' для створення відсутніх відміток: ")
+     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтр для PIKET з атрибутами
+     (if ss
+       (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " об.)"))
+       (progn (princ "\nБлоки 'PIKET' не вибрано.") (exit))
+     )
+    )
+  ) ; кінець cond
 
   ;; --- Основна логіка ---
   (if ss
