@@ -1255,34 +1255,36 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА ВСТАВКА СИМВОЛУ (v1.2)
+;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА СИМВОЛІВ (v1.2)
 ;; ====================================================================
-;; Команда: CREATE_ZMARKER (v1.2 - Вставляє символ з буфера разом з текстом)
-;; 1. Вибирає блоки PIKET (з пошуку, виділення або вручну).
-;; 2. Запитує висоту тексту (з підказками та запам'ятовуванням).
-;; 3. Для кожного блоку перевіряє наявність атрибуту "ОТМЕТКА".
-;; 4. Перевіряє, чи існує текст на шарі "21 ВІДМІТКИ" ТОЧНО в точці вставки блоку.
-;; 5. Якщо текст в точці вставки відсутній:
-;;    а) Створює новий текст зі значенням "ОТМЕТКА" в цій точці (стиль "Д-431", вирівн. "Вліво", задана висота).
-;;    б) Вставляє умовне позначення з буфера обміну AutoCAD у цю ж точку.
+;; Команда: CREATE_ZMARKER (v1.2 - Додано вставку символу з буфера, покращено перевірку)
+;; 1. Перевіряє буфер обміну.
+;; 2. Вибирає блоки PIKET (з пошуку, виділення або вручну).
+;; 3. Запитує висоту тексту (з підказками та запам'ятовуванням).
+;; 4. Для кожного блоку перевіряє наявність атрибуту "ОТМЕТКА".
+;; 5. Перевіряє, чи існує текст на шарі "21 ВІДМІТКИ" ТОЧНО в точці вставки блоку.
+;; 6. Якщо текст відсутній:
+;;    а. Створює новий текст зі значенням "ОТМЕТКА" в точці вставки блоку (стиль Д-431, шар 21, вирівнювання Вліво, задана висота).
+;;    б. Вставляє символ з буфера обміну в ту ж точку вставки (якщо буфер містить дані AutoCAD).
 
 (defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
                             attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
                             foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
-                            userHeight prompt_str inputHeight clipboard_ok ; <-- Додано clipboard_ok
+                            userHeight prompt_str inputHeight clipboard_ok
                            )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End")) ; Завершити UNDO, якщо активне
+    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
+    (setq *g_rename_zmarker_candidates* nil)
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
           ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
           (T (princ (strcat "\nПомилка в CREATE_ZMARKER: " msg)))
-    ) ;_ end cond
+    )
     (setq *error* nil)
     (princ)
-  ) ;_ end defun *error*
+  )
 
   ;; --- Ініціалізація ---
   (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
@@ -1291,23 +1293,24 @@
         userHeight nil prompt_str nil inputHeight nil clipboard_ok nil
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (setvar "CMDECHO" 0) ; Вимкнути ехо команд
+  (setvar "CMDECHO" 0)
 
-  ;; --- Перевірка буфера обміну ЗАЗДАЛЕГІДЬ (опціонально, для зручності) ---
-  (if (> (getvar "CLIPROPS") 0)
+  ;; --- Перевірка буфера обміну НА ПОЧАТКУ ---
+  (princ (strcat "\nДіагностика: Поточне значення CLIPROPS = " (itoa (getvar "CLIPROPS"))))
+  (if (/= 0 (getvar "CLIPROPS"))
       (setq clipboard_ok T)
-      (princ "\nПопередження: Буфер обміну порожній або не містить даних AutoCAD. Символи НЕ будуть вставлені.")
+      (princ "\nПопередження: Буфер обміну порожній...")
   )
 
   ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
   (cond
-    ((and (boundp '*g_last_search_result*) *g_last_search_result* (= 'PICKSET (type *g_last_search_result*)) (> (sslength *g_last_search_result*) 0))
-     (setq ss *g_last_search_result*) (setq ss_source (strcat "збереженого пошуку (" (itoa (sslength ss)) " бл.)")))
+    ((and (boundp '*g_last_search_result*) *g_last_search_result* (= 'PICKSET (type *g_last_search_result*)) (> (sslength *g_last_search_result*) 0)) ;_3
+     (setq ss *g_last_search_result*) (setq ss_source (strcat "збереженого пошуку (" (itoa (sslength ss)) " бл.)"))) ;_3
     ((setq ss (cadr (ssgetfirst)))
-     (if ss (progn (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) (if (or (null ss) (= 0 (sslength ss))) (setq ss nil ss_source "поточної вибірки (не підходить)") (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " бл.)")))) (setq ss nil)))
-    (T (princ "\nНе знайдено збереженого пошуку або поточної вибірки.") (princ "\nВиберіть блоки 'PIKET' для створення відсутніх відміток: ") (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
-       (if ss (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " бл.)")) (progn (princ "\nБлоки 'PIKET' не вибрано.") (exit))))
-  ) ;_ end cond
+     (if ss (progn (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) (if (or (null ss) (= 0 (sslength ss))) (setq ss nil ss_source "поточної вибірки (не підходить)") (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " бл.)")))) (setq ss nil))) ;_3
+    (T (princ "\nНе знайдено збереженого пошуку...") (princ "\nВиберіть блоки 'PIKET'...") (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ;_3
+       (if ss (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " бл.)")) (progn (princ "\nБлоки 'PIKET' не вибрано.") (exit)))) ;_3
+  )
 
   ;; --- Основна логіка ---
   (if ss
@@ -1332,13 +1335,11 @@
       ;; --- *** КІНЕЦЬ ЗАПИТУ ВИСОТИ *** ---
 
       (setq totalCount (sslength ss))
-      (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET' з " ss_source " на наявність тексту відмітки в точці вставки..."))
-
-      ;; Отримати всі тексти на цільовому шарі один раз
+      (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET'..."))
       (setq ssTextLayer (ssget "_X" '((0 . "TEXT,MTEXT") (8 . "21 ВІДМІТКИ"))))
-      (if (null ssTextLayer) (princ "\nПопередження: У кресленні не знайдено текстів на шарі '21 ВІДМІТКИ'."))
+      (if (null ssTextLayer) (princ "\nПопередження: ...текстів на шарі '21 ВІДМІТКИ' не знайдено."))
 
-      (command "_.UNDO" "_Begin") ; Почати групування UNDO
+      (command "_.UNDO" "_Begin")
 
       ;; --- Цикл по вибраних блоках PIKET ---
       (setq i 0)
@@ -1353,14 +1354,14 @@
             ;; Пошук атрибуту "ОТМЕТКА"
             (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData))))
               (progn (setq attEname (entnext piketEnt))
-                     (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
-                       (setq attTag (strcase (cdr (assoc 2 attEdata))))
-                       (if (eq "ОТМЕТКА" attTag)
-                         (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
-                         (setq attEname (entnext attEname))
+                (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
+                  (setq attTag (strcase (cdr (assoc 2 attEdata))))
+                  (if (eq "ОТМЕТКА" attTag)
+                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
+                    (setq attEname (entnext attEname))
                        ) ;_ end if "ОТМЕТКА"
                      ) ;_ end while attributes
-                     (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
+                (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
               ) ;_ end progn attribute search
             ) ;_ end if block has point and attributes
 
@@ -1382,10 +1383,10 @@
                   ) ;_ end progn ssTextLayer exists
                 ) ;_ end if ssTextLayer exists
 
-                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ, якщо не знайдено існуючий
+                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ, якщо не знайдено існуючий в точці
                 (if (not foundExactText)
                   (progn
-                    ;; Створення DXF списку для тексту
+                    ;; Створення DXF списку для нового тексту
                     (setq newTextDxf (list
                                        '(0 . "TEXT")
                                        '(100 . "AcDbEntity")
@@ -1420,24 +1421,27 @@
           ) ;_ end PROGN piketData
         ) ;_ end IF piketData
         (setq i (1+ i))
-      ) ;_ end repeat
+      ) ; repeat
 
-      (command "_.UNDO" "_End") ; Завершити групування UNDO
+      (command "_.UNDO" "_End")
 
       ;; Фінальне повідомлення
-      (if (> createdCount 0)
-        (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх пар (текст відмітки + символ) у точках вставки блоків."))
-        (princ "\nОбробку завершено. Відсутніх текстових відміток у точках вставки не знайдено або не вдалося створити.")
-      ) ;_ end if
+      (if (> createdCount 0) 
+          (if clipboard_ok 
+             (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " пар (текст + символ)..."))
+             (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " текстів (символ не вставлявся)..."))
+          ) ;_4
+          (princ "\nОбробку завершено. Відсутніх текстів не знайдено...")
+      ) ;_3_if createdCount > 0
 
-    ) ;_ end progn IF ss
-    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
-  ) ;_ end if ss
+    ) ;_2_progn IF ss
+    (princ "\nНе вдалося визначити об'єкти для обробки...") 
+  ) ;_1_if ss
 
   ;; --- Відновлення середовища та вихід ---
   (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
   (setq *error* nil)
-  (princ) ;; Чистий вихід
+  (princ)
 ) ;; кінець defun c:CREATE_ZMARKER
 
 
