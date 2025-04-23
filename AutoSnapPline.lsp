@@ -75,7 +75,7 @@
   ; --- 1. Отримати Радіус Відображення/Пошуку (з пам'яттю) ---
   ; Ініціалізація / використання збереженого значення (напр. 1.0 за замовчуванням)
   (if (or (null (boundp '*g_autosnap_last_radius*)) (null *g_autosnap_last_radius*) (not (numberp *g_autosnap_last_radius*)))
-      (setq *g_autosnap_last_radius* 1.0) ; Початкове значення за замовчуванням, якщо не задано
+      (setq *g_autosnap_last_radius* 1) ; Початкове значення за замовчуванням, якщо не задано
   )
   ; Формування підказки зі значенням за замовчуванням
   (setq prompt_radius_str (strcat "\nВведіть радіус відображення/пошуку <" (rtos *g_autosnap_last_radius* 2 4) ">: "))
