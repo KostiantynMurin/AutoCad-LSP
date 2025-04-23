@@ -24,6 +24,8 @@
 (if (not *olwp-TargetColorR*) (setq *olwp-TargetColorR* 39))   ; Червоний компонент (0-255)
 (if (not *olwp-TargetColorG*) (setq *olwp-TargetColorG* 118))  ; Зелений компонент (0-255)
 (if (not *olwp-TargetColorB*) (setq *olwp-TargetColorB* 187))  ; Синій компонент (0-255)
+;; -- Глобальна змінна для запам'ятовування останньої відстані зміщення --
+(if (not *olwp-LastOffsetDist*) (setq *olwp-LastOffsetDist* 0.8)) ; Значення за замовчуванням 1.0
 ;; ============================================================
 
 ;; --- Допоміжна функція для порівняння тільки X та Y координат у межах допуску ---
@@ -43,7 +45,7 @@
 ;; == ОСНОВНА ФУНКЦІЯ ==
 ;; ============================================================
 (defun c:OffsetLineWithPikets ( / *error* oldEcho oldOsmode oldCmdDia oldOsmodeZ
-                                  vertexTol selEnt entData entType curveObj ssAllPikets i blkEnt blkData blkPtList_orig ssPiketsOnVertices idx vertexPt origCoords offsetDist offsetObjList newCurveObj offsetCoords targetVertexPt moveData vertCountMatch newCurveEnt entTypeExpected foundMatch colorObj acadObj acadDoc errorResult trueColorValue newCurveData finalTargetPt blockNameFilter wasSuccessful ; Додано wasSuccessful
+                                  vertexTol selEnt entData entType curveObj ssAllPikets i blkEnt blkData blkPtList_orig ssPiketsOnVertices idx vertexPt origCoords offsetDist offsetObjList newCurveObj offsetCoords targetVertexPt moveData vertCountMatch newCurveEnt entTypeExpected foundMatch colorObj acadObj acadDoc errorResult trueColorValue newCurveData finalTargetPt blockNameFilter wasSuccessful prompt_offset_str 
                                  )
   (setq wasSuccessful nil) ; Прапорець успішного завершення операцій з блоками
 
@@ -143,7 +145,7 @@
   ;; --- 1. Вибір лінії/полілінії ---
   (setq selEnt nil)
   (while (not selEnt)
-    (setq selEnt (entsel "\nІванич! Вибери лінію або полілінію для зміщення: "))
+    (setq selEnt (entsel "\nВиберіть лінію або полілінію для зміщення: "))
     (if selEnt
       (progn
         (setq entData (entget (car selEnt))
@@ -221,7 +223,11 @@
       (princ (strcat "\nВиділення знайдених на вершинах блоків (" (itoa (sslength ssPiketsOnVertices)) " шт.)."))
       (sssetfirst nil ssPiketsOnVertices) ; Виділити знайдені блоки (попередньо)
 
-      (setq offsetDist (getdist "\nІванич! Введи відстань зміщення: "))
+      ; Формування підказки зі збереженим значенням
+      (setq prompt_offset_str (strcat "\nВведіть відстань зміщення <" (rtos *olwp-LastOffsetDist* 2 4) ">: "))
+      ; initget не потрібен, якщо дозволяємо будь-яке числове значення і обробляємо nil
+      ; Отримати відстань, передаючи значення за замовчуванням
+      (setq offsetDist (getdist prompt_offset_str *olwp-LastOffsetDist*))
 
       (if offsetDist
         (progn
