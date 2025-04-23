@@ -1,6 +1,9 @@
 ;; AutoSnapPline.lsp (Версія 8.8 - Додано команду FASTLINE)
 ;; Порядок: Радіус -> Об'єкт. Функціонал: Entmake полілінія, 2D Відстань.
 
+;; Глобальна змінна для запам'ятовування останнього радіусу для AutoSnapPline
+(setq *g_autosnap_last_radius* nil) ; Ініціалізуємо як nil
+
 ; --- Допоміжна функція для малювання маркерів радіусу ---
 ; (Без змін)
 (defun draw_radius_markers (center radius color size_ss / p_left p_right p_bottom p_top)
@@ -45,6 +48,7 @@
                          detection_counter detection_threshold ; Оптимізація
                          cursor_pt_2d obj_pt_2d dist_2d ; 2D відстань
                          vertices_list temp_pline_segment_color pline_dxf vertex ; Entmake
+                         prompt_radius_str 
                          )
   (vl-load-com)
 
@@ -68,11 +72,23 @@
   (setvar "OSMODE" 0)
   (setvar "BLIPMODE" 0)
 
-  ; --- 1. Отримати Радіус Відображення/Пошуку ---
-  (initget 6)
-  (setq snap_radius (getdist "\nВведіть радіус відображення/пошуку: "))
+  ; --- 1. Отримати Радіус Відображення/Пошуку (з пам'яттю) ---
+  ; Ініціалізація / використання збереженого значення (напр. 1.0 за замовчуванням)
+  (if (or (null (boundp '*g_autosnap_last_radius*)) (null *g_autosnap_last_radius*) (not (numberp *g_autosnap_last_radius*)))
+      (setq *g_autosnap_last_radius* 1.0) ; Початкове значення за замовчуванням, якщо не задано
+  )
+  ; Формування підказки зі значенням за замовчуванням
+  (setq prompt_radius_str (strcat "\nВведіть радіус відображення/пошуку <" (rtos *g_autosnap_last_radius* 2 4) ">: "))
+  (initget 6) ; Заборонити нуль та негативні значення (2+4)
+  ; Отримати відстань, передаючи значення за замовчуванням
+  ; getdist поверне *g_autosnap_last_radius*, якщо користувач натисне Enter
+  (setq snap_radius (getdist prompt_radius_str *g_autosnap_last_radius*))
+
+  ; Перевірка чи отримано валідне значення (getdist поверне nil при ESC)
   (if (or (null snap_radius) (<= snap_radius 0))
-      (*error* "Введено недійсний радіус.")
+      (*error* "Введено недійсний радіус або скасовано.")
+      ; Якщо радіус валідний, зберігаємо його для наступного разу
+      (setq *g_autosnap_last_radius* snap_radius)
   )
 
   ; --- 2. Отримати Стартовий Об'єкт та його тип ---
