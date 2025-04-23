@@ -192,8 +192,13 @@
   ;; --- Визначення робочого набору вибірки (ss) ---
   (setq ss nil ss_source "") ; Ініціалізація
   (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
+    ;; 1. Перевірити ПОТОЧНУ ВИБІРКУ (PickFirst) СПОЧАТКУ
+    ((setq ss (ssget "_I" '((0 . "INSERT")))) ; Отримати PickFirst, що є блоком/вставкою
+     (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " об.)"))
+    )
+    ;; 2. Перевірити збережений результат SEARCH (ЯКЩО ПОПЕРЕДНЄ НЕ СПРАЦЮВАЛО)
+    ((and (null ss) ; Перевіряємо, тільки якщо 'ss' ще не визначено
+          (boundp '*g_last_search_result*)
           *g_last_search_result*
           (= 'PICKSET (type *g_last_search_result*))
           (> (sslength *g_last_search_result*) 0)
@@ -201,14 +206,9 @@
      (setq ss *g_last_search_result*)
      (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
     )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ((setq ss (car (ssgetfirst))) ; Отримати попередньо вибрані об'єкти
-     (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " об.)"))
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
+    ;; 3. Запросити користувача вибрати об'єкти (ЯКЩО НІЧОГО НЕ ЗНАЙДЕНО)
     (T
-     (princ "\nНе знайдено збереженого результату пошуку або попередньої вибірки.")
-     ;; Запит на вибір блоків (INSERT)
+     (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
      (princ "\nВиберіть об'єкти (блоки), в точки вставки яких потрібно вставити з буфера: ")
      (setq ss (ssget '((0 . "INSERT")))) ; Фільтр для блоків
      (if ss
