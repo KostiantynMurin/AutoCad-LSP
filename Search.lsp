@@ -325,9 +325,15 @@
   (setvar "CMDECHO" 0) ; Тимчасово вимкнути ехо команд
 
   ;; --- Визначення робочого набору вибірки (ss) ---
+  (setq ss nil ss_source "") ; Ініціалізація
   (cond
-    ;; 1. Перевірити збережений результат SEARCH
-    ((and (boundp '*g_last_search_result*)
+    ;; 1. Перевірити ПОТОЧНУ ВИБІРКУ (PickFirst) СПОЧАТКУ (з фільтром)
+    ((setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Отримати PickFirst, що є PIKET з атрибутами
+     (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
+    )
+    ;; 2. Перевірити збережений результат SEARCH (ЯКЩО ПОПЕРЕДНЄ НЕ СПРАЦЮВАЛО)
+    ((and (null ss) ; Перевіряємо, тільки якщо 'ss' ще не визначено
+          (boundp '*g_last_search_result*)
           *g_last_search_result*
           (= 'PICKSET (type *g_last_search_result*))
           (> (sslength *g_last_search_result*) 0)
@@ -335,22 +341,9 @@
      (setq ss *g_last_search_result*)
      (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
     )
-    ;; 2. Перевірити попередню вибірку (PickFirst)
-    ((setq ss (car (ssgetfirst)))
-     ;; Додатково фільтруємо попередню вибірку, залишаючи тільки блоки PIKET з атрибутами
-     (if ss
-       (progn
-         (setq ss (ssget "_P" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтруємо pickfirst set
-         (if (or (null ss) (= 0 (sslength ss)))
-             (setq ss nil) ; Якщо після фільтрації нічого не залишилось
-             (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
-         )
-       )
-     )
-    )
-    ;; 3. Запросити користувача вибрати об'єкти
+    ;; 3. Запросити користувача вибрати об'єкти (ЯКЩО НІЧОГО НЕ ЗНАЙДЕНО)
     (T
-     (princ "\nНе знайдено збереженого результату пошуку або релевантної попередньої вибірки.")
+     (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
      (princ "\nВиберіть блоки 'PIKET' для перевірки Z-координати та атрибуту 'ОТМЕТКА': ")
      (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтр для PIKET з атрибутами
      (if ss
