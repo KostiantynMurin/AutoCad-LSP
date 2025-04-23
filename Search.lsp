@@ -1398,7 +1398,7 @@
                     ;; Створення DXF списку для нового тексту
                     (setq newTextDxf (list
                                        '(0 . "TEXT") '(100 . "AcDbEntity") '(8 . "21 ВІДМІТКИ") '(100 . "AcDbText")
-                                       (cons 10 piketPt) (cons 40 userHeight) (cons 1 otmetkaValue) '(7 . "Д-431") (cons 50 userAngle) '(72 . 0) '(73 . 0)
+                                       (cons 10 piketPt) (cons 40 userHeight) (cons 1 (strcat " " otmetkaValue)) '(7 . "Д-431") (cons 50 userAngle) '(72 . 0) '(73 . 0)
                                      )
                     )
                     ;; Створення тексту
