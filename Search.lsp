@@ -1255,14 +1255,14 @@
 
 
 ;; ====================================================================
-;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА СИМВОЛІВ (v1.2)
+;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА СИМВОЛІВ (v1.3)
 ;; ====================================================================
-;; Команда: CREATE_ZMARKER (v1.2 - Додано вставку символу з буфера, покращено перевірку)
-;; 1. Перевіряє буфер обміну.
-;; 2. Вибирає блоки PIKET (з пошуку, виділення або вручну).
-;; 3. Запитує висоту тексту (з підказками та запам'ятовуванням).
-;; 4. Для кожного блоку перевіряє наявність атрибуту "ОТМЕТКА".
-;; 5. Перевіряє, чи існує текст на шарі "21 ВІДМІТКИ" ТОЧНО в точці вставки блоку.
+;; Команда: CREATE_ZMARKER (v1.3 - Обробка буфера як у PASTEHERE: вихід при помилці)
+;; 1. Перевіряє буфер обміну. Якщо не ОК - ВИХІД.
+;; 2. Вибирає блоки PIKET.
+;; 3. Запитує висоту тексту.
+;; 4. Для кожного блоку перевіряє атрибут "ОТМЕТКА".
+;; 5. Перевіряє, чи існує текст ТОЧНО в точці вставки блоку.
 ;; 6. Якщо текст відсутній:
 ;;    а. Створює новий текст зі значенням "ОТМЕТКА" в точці вставки блоку (стиль Д-431, шар 21, вирівнювання Вліво, задана висота).
 ;;    б. Вставляє символ з буфера обміну в ту ж точку вставки (якщо буфер містить дані AutoCAD).
@@ -1270,7 +1270,7 @@
 (defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
                             attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
                             foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
-                            userHeight prompt_str inputHeight clipboard_ok
+                            userHeight prompt_str inputHeight
                            )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
@@ -1289,16 +1289,16 @@
   (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
         attrValOtmetka nil otmetkaValue nil ssTextLayer nil j 0 textEnt nil textData nil textPt nil
         foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
-        userHeight nil prompt_str nil inputHeight nil clipboard_ok nil
+        userHeight nil prompt_str nil inputHeight nil
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (setvar "CMDECHO" 0)
 
-  ;; --- Перевірка буфера обміну ---
-  (princ (strcat "\nDebug: Checking CLIPROPS, value = " (itoa (getvar "CLIPROPS")))) ; DEBUG
-  (if (/= 0 (getvar "CLIPROPS"))
-      (setq clipboard_ok T)
-      (princ "\nПопередження: Буфер обміну порожній або не містить даних AutoCAD. Символи НЕ будуть вставлені.")
+  ;; --- Перевірка буфера обміну ЯК У PASTEHERE (з виходом) ---
+  (if (= 0 (getvar "CLIPROPS"))
+    (progn ;_3
+      (alert "Буфер обміну порожній або не містить даних AutoCAD.\nСпочатку скопіюйте умовне позначення відмітки.")
+      (exit)
+    )
   )
 
   ;; --- Визначення робочого набору вибірки (ss) ---
@@ -1315,28 +1315,23 @@
   (if ss
     (progn ; Початок блоку IF ss
       ;; --- Запит висоти тексту ---
-      (if (or (null (boundp '*g_create_zmarker_last_height*)) (null *g_create_zmarker_last_height*) (not (numberp *g_create_zmarker_last_height*)))
+      (if (or (null (boundp '*g_create_zmarker_last_height*)) (null *g_create_zmarker_last_height*) (not (numberp *g_create_zmarker_last_height*))) ;_4
           (setq *g_create_zmarker_last_height* 0.8))
       (setq prompt_str (strcat "\nВведіть висоту тексту [1:1000=1.9, 1:500=0.8] <" (rtos *g_create_zmarker_last_height* 2 4) ">: "))
       (initget (+ 1 2 4))
       (setq inputHeight (getreal prompt_str))
-      (if inputHeight (setq userHeight inputHeight) (setq userHeight *g_create_zmarker_last_height*))
+      (if inputHeight ;_4
+          (setq userHeight inputHeight)
+          (setq userHeight *g_create_zmarker_last_height*))
       (setq *g_create_zmarker_last_height* userHeight)
       ;; --- Кінець запиту висоти ---
 
-      (setq totalCount (sslength ss))
-      ;; *** DEBUG: Перевірка totalCount перед циклом ***
-      (princ (strcat "\nDebug: Starting main loop. totalCount = " (vl-princ-to-string totalCount)))
-      (if (not (integerp totalCount)) (princ " <<< ПОМИЛКА ТИПУ totalCount!"))
+      (setvar "CMDECHO" 0) ; Вимкнути ехо команд тепер
 
+      (setq totalCount (sslength ss))
       (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
 
       (setq ssTextLayer (ssget "_X" '((0 . "TEXT,MTEXT") (8 . "21 ВІДМІТКИ"))))
-      ;; *** DEBUG: Перевірка ssTextLayer та його довжини ***
-      (princ (strcat "\nDebug: ssTextLayer = " (vl-princ-to-string ssTextLayer)))
-      (if ssTextLayer (princ (strcat ", Length = " (itoa (sslength ssTextLayer)))) (princ ", Length = N/A"))
-      (if (and ssTextLayer (not (integerp (sslength ssTextLayer)))) (princ " <<< ПОМИЛКА ТИПУ sslength!"))
-
       (if (null ssTextLayer) (princ "\nПопередження: У кресленні не знайдено текстів на шарі '21 ВІДМІТКИ'."))
 
       (command "_.UNDO" "_Begin")
@@ -1344,63 +1339,47 @@
       ;; --- Цикл по вибраних блоках PIKET ---
       (setq i 0)
       (repeat totalCount
-        ;; *** DEBUG: Перевірка індексу i перед ssname ***
-        (princ (strcat "\nDebug: Outer loop index i = " (vl-princ-to-string i)))
-        (if (not (integerp i)) (princ " <<< ПОМИЛКА ТИПУ i!"))
-
         (setq piketEnt (ssname ss i))
         (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactText nil)
 
         (if (setq piketData (entget piketEnt))
           (progn
             (setq piketPt (cdr (assoc 10 piketData)))
-            ;; Пошук атрибуту "ОТМЕТКА"
             (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData))))
-              (progn (setq attEname (entnext piketEnt))
-                     (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
-                       (setq attTag (strcase (cdr (assoc 2 attEdata))))
-                       (if (eq "ОТМЕТКА" attTag)
-                         (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
-                         (setq attEname (entnext attEname))
-                       ) ;_ end if "ОТМЕТКА"
-                     ) ;_ end while attributes
-                     (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
-              ) ;_ end progn attribute search
-            ) ;_ end if block has point and attributes
+              (progn 
+                (setq attEname (entnext piketEnt))
+                (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
+                  (setq attTag (strcase (cdr (assoc 2 attEdata))))
+                  (if (eq "ОТМЕТКА" attTag)
+                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
+                    (setq attEname (entnext attEname))
+                  ) 
+                )
+                (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
+              )
+            )
 
-            ;; Перевірка наявності існуючого тексту ТОЧНО в точці вставки
             (if (and piketPt otmetkaValue (/= "" otmetkaValue))
               (progn
                 (setq foundExactText nil)
-                (if ssTextLayer ; Шукаємо тільки якщо є тексти на потрібному шарі
+                (if ssTextLayer 
                   (progn
                     (setq j 0)
-                    ;; *** DEBUG: Перевірка умови внутрішнього циклу ***
-                    (princ (strcat "\nDebug: Starting inner loop check. j = " (vl-princ-to-string j) ", sslength = " (vl-princ-to-string (sslength ssTextLayer))))
-                    (if (not (integerp j)) (princ " <<< ПОМИЛКА ТИПУ j!"))
-                    (if (not (integerp (sslength ssTextLayer))) (princ " <<< ПОМИЛКА ТИПУ sslength!"))
-
                     (while (and (< j (sslength ssTextLayer)) (not foundExactText))
-                      ;; *** DEBUG: Перевірка індексу j перед ssname ***
-                      (princ (strcat "\nDebug: Inner loop index j = " (vl-princ-to-string j)))
-                      (if (not (integerp j)) (princ " <<< ПОМИЛКА ТИПУ j!"))
-
                       (setq textEnt (ssname ssTextLayer j))
                       (if (setq textData (entget textEnt))
                         (progn
                           (setq textPt (cdr (assoc 10 textData)))
                           (if (equal piketPt textPt fuzz) (setq foundExactText T))
-                        ) ;_ end progn process text
-                      ) ;_ end IF textData
+                        )
+                      )
                       (setq j (1+ j))
-                    ) ;_ end WHILE text check
-                  ) ;_ end progn ssTextLayer exists
-                ) ;_ end if ssTextLayer exists
+                    )
+                  )
+                )
 
-                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ, якщо не знайдено існуючий в точці
                 (if (not foundExactText) ;_9
                   (progn ;_10
-                    ;; Створення DXF списку для нового тексту
                     (setq newTextDxf (list
                                        '(0 . "TEXT")
                                        '(100 . "AcDbEntity")
@@ -1417,42 +1396,37 @@
                     ) ;_ end setq newTextDxf
                     ;; Створення сутності
                     (if (entmake newTextDxf) ;_11
-                        (progn ;_12
-                          (setq createdCount (1+ createdCount))
-                          (if clipboard_ok (command "_.PASTECLIP" piketPt))
-                        ) ; end progn entmake success
-                        (princ (strcat "\n  ! Помилка створення тексту для блоку <" (vl-princ-to-string piketEnt) ">"))
-                    ) ;_ end if entmake
-                  ) ;_ end progn create text + paste symbol
-                ) ;_ end if not foundExactText
-              ) ;_ end progn piketPt and otmetkaValue valid
-            ) ;_ end if piketPt and otmetkaValue valid
-          ) ;_ end PROGN piketData
-        ) ;_ end IF piketData
+                      (progn ;_12
+                        (setq createdCount (1+ createdCount))
+                        (command "_.PASTECLIP" piketPt)
+                      )
+                      (princ (strcat "\n  ! Помилка створення тексту для блоку <" (vl-princ-to-string piketEnt) ">"))
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
         (setq i (1+ i))
-      ) ;_ end repeat
+      )
 
       (command "_.UNDO" "_End")
 
       ;; Фінальне повідомлення
       (if (> createdCount 0)
-          (if clipboard_ok
-             (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх пар (текст відмітки + символ)..."))
-             (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх текстових відміток (символ не вставлявся)..."))
-          )
+          (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх пар (текст відмітки + символ)..."))
           (princ "\nОбробку завершено. Відсутніх текстових відміток у точках вставки не знайдено...")
-      ) ;_ end if
+      )
 
-    ) ;_ end progn IF ss
-    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
-  ) ;_ end if ss
+    ) 
+    (princ "\nНе вдалося визначити об'єкти для обробки...")
+  ) 
 
-  ;; --- Відновлення середовища та вихід ---
-  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+  (setvar "CMDECHO" oldCmdecho)
   (setq *error* nil)
-  (princ) ;; Чистий вихід
+  (princ)
 ) ;; кінець defun c:CREATE_ZMARKER
-
 
 ;; --- Повідомлення про завантаження ---
 (princ "\nLISP-скрипти (v5.5 + CREATE_ZMARKER v1.0) завантажено.") ; Оновлено версію
