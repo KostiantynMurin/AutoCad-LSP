@@ -4,12 +4,17 @@
 ;; --- Модифіковано PASTEHERE, CHECKPOINTS, REPLACENAME для роботи з ручним вибором (v4) ---
 ;; --- Додано функцію RENAME_OKM (v5) ---
 ;; --- Додано функцію RENAME_ZMARKER (v1.3 - Дозволено редагування вибору перед підтвердженням) ---
+;; --- Додано функцію CREATE_ZMARKER (v1.5 - Додано запит кута повороту) ---
 
 ;; Глобальна змінна для зберігання результату пошуку
 (setq *g_last_search_result* nil)
 
 ;; Глобальна змінна для зберігання кандидатів на оновлення текстом відмітки Z
 (setq *g_rename_zmarker_candidates* nil)
+;; Глобальна змінна для запам'ятовування останньої висоти тексту для CREATE_ZMARKER
+(setq *g_create_zmarker_last_height* nil)
+;; Глобальна змінна для запам'ятовування останнього кута повороту тексту для CREATE_ZMARKER
+(setq *g_create_zmarker_last_angle* nil) ; Ініціалізуємо як nil
 
 ;; --- Допоміжна функція: Заміна всіх входжень підрядка (чутлива до регістру) ---
 ;; Замінює всі входження рядка 'find' на рядок 'replace' у рядку 'source'.
@@ -1257,7 +1262,7 @@
 ;; ====================================================================
 ;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА СИМВОЛІВ (v1.3)
 ;; ====================================================================
-;; Команда: CREATE_ZMARKER (v1.3 - Обробка буфера як у PASTEHERE: вихід при помилці)
+;; Команда: Команда: CREATE_ZMARKER (v1.5 - Додано запит кута повороту)
 ;; 1. Перевіряє буфер обміну. Якщо не ОК - ВИХІД.
 ;; 2. Вибирає блоки PIKET.
 ;; 3. Запитує висоту тексту.
@@ -1270,7 +1275,7 @@
 (defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
                             attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
                             foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
-                            userHeight prompt_str inputHeight
+                            userHeight prompt_str inputHeight userAngle prompt_angle_str inputAngle
                            )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
@@ -1280,22 +1285,23 @@
           ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
           ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
           (T (princ (strcat "\nПомилка в CREATE_ZMARKER: " msg)))
-    ) ;_ end cond
+    )
     (setq *error* nil)
     (princ)
-  ) ;_ end defun *error*
+  )
 
   ;; --- Ініціалізація ---
   (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
         attrValOtmetka nil otmetkaValue nil ssTextLayer nil j 0 textEnt nil textData nil textPt nil
         foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
         userHeight nil prompt_str nil inputHeight nil
+        userAngle nil prompt_angle_str nil inputAngle nil
   )
   (setq oldCmdecho (getvar "CMDECHO"))
 
-  ;; --- Перевірка буфера обміну ЯК У PASTEHERE (з виходом) ---
+  ;; --- Перевірка буфера обміну ---
   (if (= 0 (getvar "CLIPROPS"))
-    (progn ;_3
+    (progn
       (alert "Буфер обміну порожній або не містить даних AutoCAD.\nСпочатку скопіюйте умовне позначення відмітки.")
       (exit)
     )
@@ -1309,23 +1315,28 @@
      (if ss (progn (setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) (if (or (null ss) (= 0 (sslength ss))) (setq ss nil ss_source "поточної вибірки (не підходить)") (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " бл.)")))) (setq ss nil)))
     (T (princ "\nНе знайдено збереженого пошуку або поточної вибірки.") (princ "\nВиберіть блоки 'PIKET' для створення відсутніх відміток: ") (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
        (if ss (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " бл.)")) (progn (princ "\nБлоки 'PIKET' не вибрано.") (exit))))
-  ) ;_ end cond
+  )
 
   ;; --- Основна логіка ---
   (if ss
-    (progn ; Початок блоку IF ss
-      ;; --- Запит висоти тексту ---
-      (if (or (null (boundp '*g_create_zmarker_last_height*)) (null *g_create_zmarker_last_height*) (not (numberp *g_create_zmarker_last_height*))) ;_4
+    (progn
+      ;; --- Запит ВИСОТИ тексту ---
+      (if (or (null (boundp '*g_create_zmarker_last_height*)) (null *g_create_zmarker_last_height*) (not (numberp *g_create_zmarker_last_height*)))
           (setq *g_create_zmarker_last_height* 0.8))
       (setq prompt_str (strcat "\nВведіть висоту тексту [1:1000=1.8, 1:500=0.8] <" (rtos *g_create_zmarker_last_height* 2 4) ">: "))
-      ;; (initget (+ 1 2 4))
-      (initget (+ 2 4)) ; Дозволити Enter, але заборонити 0 та негативні значення
+      (initget (+ 2 4)) ; Дозволити Enter, заборонити 0 та негативні
       (setq inputHeight (getreal prompt_str))
-      (if inputHeight ;_4
-          (setq userHeight inputHeight)
-          (setq userHeight *g_create_zmarker_last_height*))
+      (if inputHeight (setq userHeight inputHeight) (setq userHeight *g_create_zmarker_last_height*))
       (setq *g_create_zmarker_last_height* userHeight)
-      ;; --- Кінець запиту висоти ---
+
+      ;; --- Запит КУТА ПОВОРОТУ тексту ---
+      (if (or (null (boundp '*g_create_zmarker_last_angle*)) (null *g_create_zmarker_last_angle*) (not (numberp *g_create_zmarker_last_angle*)))
+          (setq *g_create_zmarker_last_angle* 0.0))
+      (setq prompt_angle_str (strcat "\nВведіть кут повороту тексту (градуси) <" (angtos *g_create_zmarker_last_angle* 0 4) ">: "))
+      ;; (initget) ; Не обмежуємо, щоб Enter повернув nil
+      (setq inputAngle (getangle prompt_angle_str))
+      (if inputAngle (setq userAngle inputAngle) (setq userAngle *g_create_zmarker_last_angle*))
+      (setq *g_create_zmarker_last_angle* userAngle)
 
       (setvar "CMDECHO" 0) ; Вимкнути ехо команд тепер
 
@@ -1346,24 +1357,26 @@
         (if (setq piketData (entget piketEnt))
           (progn
             (setq piketPt (cdr (assoc 10 piketData)))
+            ;; Пошук атрибуту "ОТМЕТКА"
             (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData))))
-              (progn 
+              (progn
                 (setq attEname (entnext piketEnt))
                 (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                   (setq attTag (strcase (cdr (assoc 2 attEdata))))
                   (if (eq "ОТМЕТКА" attTag)
                     (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
                     (setq attEname (entnext attEname))
-                  ) 
+                  )
                 )
                 (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
               )
             )
 
+            ;; Перевірка наявності існуючого тексту ТОЧНО в точці вставки
             (if (and piketPt otmetkaValue (/= "" otmetkaValue))
               (progn
                 (setq foundExactText nil)
-                (if ssTextLayer 
+                (if ssTextLayer
                   (progn
                     (setq j 0)
                     (while (and (< j (sslength ssTextLayer)) (not foundExactText))
@@ -1379,25 +1392,18 @@
                   )
                 )
 
-                (if (not foundExactText) ;_9
-                  (progn ;_10
+                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ, якщо не знайдено існуючий в точці
+                (if (not foundExactText)
+                  (progn
+                    ;; Створення DXF списку для нового тексту
                     (setq newTextDxf (list
-                                       '(0 . "TEXT")
-                                       '(100 . "AcDbEntity")
-                                       '(8 . "21 ВІДМІТКИ")      ; Цільовий шар
-                                       '(100 . "AcDbText")
-                                       (cons 10 piketPt)       ; Точка вставки = точка блоку
-                                       (cons 40 userHeight)    ; Висота тексту від користувача
-                                       (cons 1 otmetkaValue)   ; Значення тексту
-                                       '(7 . "Д-431")           ; Стиль тексту
-                                       '(50 . 0.0)             ; Кут повороту (0)
-                                       '(72 . 0)               ; Горизонтальне вирівнювання (0=Left)
-                                       '(73 . 0)               ; Вертикальне вирівнювання (0=Baseline)
-                                     ) ;_ end list
-                    ) ;_ end setq newTextDxf
-                    ;; Створення сутності
-                    (if (entmake newTextDxf) ;_11
-                      (progn ;_12
+                                       '(0 . "TEXT") '(100 . "AcDbEntity") '(8 . "21 ВІДМІТКИ") '(100 . "AcDbText")
+                                       (cons 10 piketPt) (cons 40 userHeight) (cons 1 otmetkaValue) '(7 . "Д-431") (cons 50 userAngle) '(72 . 0) '(73 . 0)
+                                     )
+                    )
+                    ;; Створення тексту
+                    (if (entmake newTextDxf)
+                      (progn
                         (setq createdCount (1+ createdCount))
                         (command "_.PASTECLIP" piketPt)
                       )
@@ -1410,7 +1416,7 @@
           )
         )
         (setq i (1+ i))
-      )
+      ) ; end repeat
 
       (command "_.UNDO" "_End")
 
@@ -1420,17 +1426,19 @@
           (princ "\nОбробку завершено. Відсутніх текстових відміток у точках вставки не знайдено...")
       )
 
-    ) 
-    (princ "\nНе вдалося визначити об'єкти для обробки...")
-  ) 
+    ) ; end progn IF ss
+    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
+  ) ; end if ss
 
+  ;; --- Відновлення середовища та вихід ---
   (setvar "CMDECHO" oldCmdecho)
   (setq *error* nil)
-  (princ)
+  (princ) ;; Чистий вихід
 ) ;; кінець defun c:CREATE_ZMARKER
 
+
 ;; --- Повідомлення про завантаження ---
-(princ "\nLISP-скрипти (v5.5 + CREATE_ZMARKER v1.0) завантажено.") ; Оновлено версію
+(princ "\nLISP-скрипти (v5.8 + CREATE_ZMARKER v1.5) завантажено.") ; Оновлено версію
 
 (princ "\nКоманди:")
 (princ "\n  SEARCH              - Пошук блоків 'PIKET' за атрибутом 'НОМЕРА'.")
@@ -1440,6 +1448,6 @@
 (princ "\n  RENAME_OKM          - Оновлення тексту ('№...') біля блоків 'PIKET'.")
 (princ "\n  RENAME_ZMARKER      - Крок 1: Знаходить/підсвічує тексти для оновлення значенням 'ОТМЕТКА'.")
 (princ "\n  RENAME_ZMARKER_RUN  - Крок 2: Виконує оновлення для вибраних текстів Z.")
-(princ "\n  CREATE_ZMARKER      - Створює відсутні тексти 'ОТМЕТКА' в точках вставки блоків 'PIKET'.") ; <-- Нова команда
+(princ "\n  CREATE_ZMARKER      - Створює відсутні тексти 'ОТМЕТКА' в точках PIKET (з запитом висоти/кута).") ; <-- Оновлено опис
 
 (princ) ;; Чистий вихід
