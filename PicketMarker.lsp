@@ -108,14 +108,14 @@
   )
 )
 
-;; Головна функція - ЗМІНЕНО НАЗВУ
+;; Головна функція
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len
                              first_picket_val last_picket_val current_picket_val dist_on_pline
                              pt_on_pline vec_tangent vec_perp vec_perp_final block_angle piket_str
                              target_layer block_name text_style text_height block_def_layer
-                             fuzz mspace inserted_block atts att)
+                             fuzz mspace inserted_block atts att entmake_result) ; Додано entmake_result
 
   ;; Налаштування констант
   (setq target_layer "Pickets"    ; Шар для вставки маркерів
@@ -132,7 +132,7 @@
       (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)) ; Відновити старі змінні
     )
     (if (not (member msg '("Function cancelled" "quit / exit abort")))
-      (princ (strcat "\nПомилка: " msg))
+      (princ (strcat "\nПомилка виконання: " msg)) ; Змінено текст повідомлення
     )
     (princ) ; Тихий вихід
   )
@@ -163,26 +163,26 @@
       (setq pt_ref_on_pline (vlax-curve-getClosestPointTo pline_obj (trans pt_ref 1 0))) ; Перетворюємо в WCS, якщо потрібно
       (setq dist_ref_on_pline (vlax-curve-getDistAtPoint pline_obj pt_ref_on_pline))
     )
-    (progn (princ "\nТочку не вказано. Вихід.") (exit))
+    (progn (princ "\nТочку не вказано. Вихід.") (*error* "Відміна користувачем")) ; Вихід через *error*
   )
   (princ (strcat "\nВідстань до точки прив'язки від початку полілінії: " (rtos dist_ref_on_pline 2 4) " м."))
 
   ;; 3. Значення пікету
   (setq val_ref (getdist pt_ref_on_pline (strcat "\nВведіть значення пікету для цієї точки (в метрах): ")))
   (if (not val_ref)
-     (progn (princ "\nЗначення пікету не введено. Вихід.") (exit))
+     (progn (princ "\nЗначення пікету не введено. Вихід.") (*error* "Відміна користувачем"))
   )
 
   ;; 4. Напрямок збільшення пікетажу
   (setq pt_dir (getpoint pt_ref_on_pline "\nВкажіть точку в напрямку ЗБІЛЬШЕННЯ пікетажу: "))
   (if (not pt_dir)
-     (progn (princ "\nНапрямок не вказано. Вихід.") (exit))
+     (progn (princ "\nНапрямок не вказано. Вихід.") (*error* "Відміна користувачем"))
   )
 
   ;; 5. Сторона для маркерів (ОДИН РАЗ)
   (setq pt_side_ref (getpoint pt_ref_on_pline "\nВкажіть сторону для розміщення всіх маркерів (T-засічки/тексту): "))
    (if (not pt_side_ref)
-     (progn (princ "\nСторону не вказано. Вихід.") (exit))
+     (progn (princ "\nСторону не вказано. Вихід.") (*error* "Відміна користувачем"))
   )
 
   ;; --- Розрахунки ---
@@ -191,7 +191,11 @@
 
   ;; Визначення напрямку (dir_factor)
   (setq vec_dir (mapcar '- (trans pt_dir 1 0) pt_ref_on_pline)) ; Вектор вказаного напрямку
+  (princ "\nDebug: Обчислення дотичної в точці прив'язки...") ; DEBUG
   (setq vec_tangent_ref (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtPoint pline_obj pt_ref_on_pline))) ; Дотична в точці прив'язки
+  (princ (strcat "\nDebug: vec_tangent_ref = " (vl-princ-to-string vec_tangent_ref))) ; DEBUG
+  (if (not vec_tangent_ref) (progn (princ "\n*** Помилка: Не вдалося отримати дотичну в точці прив'язки!") (*error* "Tangent calculation failed"))) ; Check
+
   (setq dot_prod_dir (apply '+ (mapcar '* vec_dir vec_tangent_ref))) ; Скалярний добуток
   (setq dir_factor (if (< dot_prod_dir 0.0) -1.0 1.0)) ; Якщо < 0, напрямки протилежні
   (princ (strcat "\nФактор напрямку: " (rtos dir_factor)))
@@ -212,7 +216,10 @@
   (princ (strcat "\nРозрахункове значення пікету на початку полілінії: " (rtos picket_at_start 2 4) " м."))
 
   ;; Загальна довжина полілінії
+  (princ "\nDebug: Обчислення довжини полілінії...") ; DEBUG
   (setq pline_len (vlax-curve-getDistAtParam pline_obj (vlax-curve-getEndParam pline_obj)))
+  (princ (strcat "\nDebug: pline_len = " (rtos pline_len))) ; DEBUG
+  (if (not pline_len) (progn (princ "\n*** Помилка: Не вдалося отримати довжину полілінії!") (*error* "Length calculation failed"))) ; Check
   (princ (strcat "\nЗагальна довжина полілінії: " (rtos pline_len 2 4) " м."))
 
   ;; Визначення діапазону 100-метрових пікетів
@@ -231,117 +238,126 @@
   (princ (strcat "\nШукаємо пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
 
   ;; Перевірка/створення шару для маркерів
+  (princ "\nDebug: Перевірка/створення шару...") ; DEBUG
   (if (not (EnsureLayer target_layer 7 "Continuous" -3 T T)) ; Колір 7 (білий/чорний), лінія Continuous, вага за замовчуванням, друкувати
     (progn (princ (strcat "\n*** Помилка: Не вдалося створити/знайти шар '" target_layer "'.")) (*error* "Layer creation failed"))
   )
+  (princ (strcat "\nDebug: Шар '" target_layer "' готовий. Встановлення поточним.")) ; DEBUG
   (setvar "CLAYER" target_layer) ; Зробити шар поточним для вставки блоків
 
   ;; Перевірка/створення блоку
+  (princ "\nDebug: Перевірка/створення блоку...") ; DEBUG
   (if (not (MakePicketBlock block_name text_style text_height block_def_layer))
-      (progn (princ (strcat "\n*** Помилка: Не вдалося створити/знайти блок '" block_name "'.")) (*error* "Block creation failed"))
+      (progn (princ (strcat "\n*** Помилка: Не вдалося створити/знайти блок '" block_name "'.")) (*error* "Block creation/check failed"))
   )
+   (princ (strcat "\nDebug: Блок '" block_name "' OK.")) ; DEBUG
 
   ;; Отримання об'єкту простору моделі
+  (princ "\nDebug: Отримання Modelspace...") ; DEBUG
   (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))
+   (princ (strcat "\nDebug: Об'єкт Modelspace: " (vl-princ-to-string mspace))) ; DEBUG
+   (if (not mspace) (progn (princ "\n*** Помилка: Не вдалося отримати Modelspace!") (*error* "Modelspace failed"))) ; Check
+
+  (princ "\nDebug: Вхід у цикл розстановки...") ; DEBUG
 
   ;; --- Цикл розстановки пікетів ---
   (setq current_picket_val first_picket_val)
   (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz)))
     ;; Розрахунок відстані вздовж полілінії
-  (if (= dir_factor 1.0)
-    (setq dist_on_pline (- current_picket_val picket_at_start))
-    (setq dist_on_pline (- picket_at_start current_picket_val))
-  )
+    (if (= dir_factor 1.0)
+      (setq dist_on_pline (- current_picket_val picket_at_start))
+      (setq dist_on_pline (- picket_at_start current_picket_val))
+    )
 
-  ;; Перевірка, чи точка в межах полілінії
-  (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
-    (progn
-      ;; Отримання точки та дотичної
-      (princ (strcat "\nDebug: dist_on_pline = " (rtos dist_on_pline))) ; DEBUG
-      (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
-      (princ (strcat "\nDebug: pt_on_pline = " (vl-princ-to-string pt_on_pline))) ; DEBUG
-      (if (not pt_on_pline) (princ "\n*** Error: Не вдалося отримати точку на відстані!")) ; DEBUG Check
+    ;; Перевірка, чи точка в межах полілінії
+    (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
+      (progn
+        ;; Отримання точки та дотичної
+        (princ (strcat "\nDebug: dist_on_pline = " (rtos dist_on_pline))) ; DEBUG
+        (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
+        (princ (strcat "\nDebug: pt_on_pline = " (vl-princ-to-string pt_on_pline))) ; DEBUG
+        (if (not pt_on_pline) (princ "\n*** Error: Не вдалося отримати точку на відстані!")) ; DEBUG Check
 
-      (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
-      (princ (strcat "\nDebug: vec_tangent = " (vl-princ-to-string vec_tangent))) ; DEBUG
-      (if (not vec_tangent) (princ "\n*** Error: Не вдалося отримати дотичну!")) ; DEBUG Check
+        (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
+        (princ (strcat "\nDebug: vec_tangent = " (vl-princ-to-string vec_tangent))) ; DEBUG
+        (if (not vec_tangent) (princ "\n*** Error: Не вдалося отримати дотичну!")) ; DEBUG Check
 
-      ;; --- Додаткова перевірка на нульовий вектор дотичної ---
-      (if (and pt_on_pline vec_tangent (< (distance '(0 0 0) vec_tangent) fuzz))
-          (princ (strcat "\n*** Попередження: Нульовий вектор дотичної на відстані " (rtos dist_on_pline) ". Пропуск пікету."))
-          ;; --- Якщо дотична не нульова, продовжуємо ---
-          (if (and pt_on_pline vec_tangent) ; Переконатись, що попередні функції спрацювали
-            (progn
-              ;; Розрахунок перпендикуляру та кута повороту
-              (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0)) ; Номінальний перпендикуляр (+90 град)
-              (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp))) ; Застосування фактору сторони
-              (princ (strcat "\nDebug: vec_perp_final = " (vl-princ-to-string vec_perp_final))) ; DEBUG
+        ;; --- Додаткова перевірка на нульовий вектор дотичної ---
+        (if (and pt_on_pline vec_tangent (< (distance '(0 0 0) vec_tangent) fuzz))
+            (princ (strcat "\n*** Попередження: Нульовий вектор дотичної на відстані " (rtos dist_on_pline) ". Пропуск пікету."))
+            ;; --- Якщо дотична не нульова, продовжуємо ---
+            (if (and pt_on_pline vec_tangent) ; Переконатись, що попередні функції спрацювали
+              (progn
+                ;; Розрахунок перпендикуляру та кута повороту
+                (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0)) ; Номінальний перпендикуляр (+90 град)
+                (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp))) ; Застосування фактору сторони
+                (princ (strcat "\nDebug: vec_perp_final = " (vl-princ-to-string vec_perp_final))) ; DEBUG
 
-              (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут для вставки блоку
-              (princ (strcat "\nDebug: block_angle = " (rtos block_angle))) ; DEBUG
+                (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут для вставки блоку
+                (princ (strcat "\nDebug: block_angle = " (rtos block_angle))) ; DEBUG
 
-              ;; Формування тексту пікету
-              (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz))))) ; Fix для коректного цілого числа
-              (princ (strcat "\nDebug: piket_str = " piket_str)) ; DEBUG
+                ;; Формування тексту пікету
+                (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz))))) ; Fix для коректного цілого числа
+                (princ (strcat "\nDebug: piket_str = " piket_str)) ; DEBUG
 
-              ;; Вставка блоку
-              (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2)))
-              (princ "\nDebug: Виклик vla-InsertBlock...") ; DEBUG
-              (setq inserted_block (vl-catch-all-apply
-                                    'vla-InsertBlock
-                                    (list mspace (vlax-3d-point pt_on_pline) block_name 1.0 1.0 1.0 block_angle)
-                                   )
-              )
-              (princ "\nDebug: vla-InsertBlock завершено.") ; DEBUG
+                ;; Вставка блоку
+                (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2)))
+                (princ "\nDebug: Виклик vla-InsertBlock...") ; DEBUG
+                (setq inserted_block (vl-catch-all-apply
+                                      'vla-InsertBlock
+                                      (list mspace (vlax-3d-point pt_on_pline) block_name 1.0 1.0 1.0 block_angle)
+                                     )
+                )
+                (princ "\nDebug: vla-InsertBlock завершено.") ; DEBUG
 
-              ;; --- Додаткова перевірка результату вставки ---
-              (if (vl-catch-all-error-p inserted_block)
-                  (princ (strcat "\n*** Помилка під час vla-InsertBlock: " (vl-catch-all-error-message inserted_block)))
-                  (if (not inserted_block)
-                     (princ "\n*** Помилка: vla-InsertBlock повернув nil!")
-                     (progn ; Вставка успішна, обробляємо атрибути
-                       (princ (strcat "\nDebug: Вставлений об'єкт блоку: " (vl-princ-to-string inserted_block))) ; DEBUG
-                       ;; Встановлення значення атрибуту
-                       (if (= (vla-get-HasAttributes inserted_block) :vlax_true)
-                         (progn
-                           (princ "\nDebug: Блок має атрибути. Отримання...") ; DEBUG
-                           (setq atts (vl-catch-all-apply 'vlax-invoke (list inserted_block 'GetAttributes)))
-                           (if (vl-catch-all-error-p atts)
-                              (princ (strcat "\n*** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
-                              (if atts
-                                  (progn
-                                     (princ "\nDebug: Обробка атрибутів...") ; DEBUG
-                                     (foreach att atts
-                                       (princ (strcat "\n  Debug: Перевірка тегу атрибуту: " (vla-get-TagString att))) ; DEBUG
-                                       (if (= (strcase (vla-get-TagString att)) (strcase att_tag))
-                                         (progn
-                                            (princ (strcat "\n    Debug: Встановлення атрибуту '" att_tag "' в '" piket_str "'")) ; DEBUG
-                                            (vl-catch-all-apply 'vla-put-TextString (list att piket_str))
+                ;; --- Додаткова перевірка результату вставки ---
+                (if (vl-catch-all-error-p inserted_block)
+                    (princ (strcat "\n*** Помилка під час vla-InsertBlock: " (vl-catch-all-error-message inserted_block)))
+                    (if (not inserted_block)
+                       (princ "\n*** Помилка: vla-InsertBlock повернув nil!")
+                       (progn ; Вставка успішна, обробляємо атрибути
+                         (princ (strcat "\nDebug: Вставлений об'єкт блоку: " (vl-princ-to-string inserted_block))) ; DEBUG
+                         ;; Встановлення значення атрибуту
+                         (if (= (vla-get-HasAttributes inserted_block) :vlax_true)
+                           (progn
+                             (princ "\nDebug: Блок має атрибути. Отримання...") ; DEBUG
+                             (setq atts (vl-catch-all-apply 'vlax-invoke (list inserted_block 'GetAttributes)))
+                             (if (vl-catch-all-error-p atts)
+                                (princ (strcat "\n*** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
+                                (if atts
+                                    (progn
+                                       (princ "\nDebug: Обробка атрибутів...") ; DEBUG
+                                       (foreach att atts
+                                         (princ (strcat "\n  Debug: Перевірка тегу атрибуту: " (vla-get-TagString att))) ; DEBUG
+                                         (if (= (strcase (vla-get-TagString att)) (strcase att_tag))
+                                           (progn
+                                              (princ (strcat "\n    Debug: Встановлення атрибуту '" att_tag "' в '" piket_str "'")) ; DEBUG
+                                              (vl-catch-all-apply 'vla-put-TextString (list att piket_str))
+                                           )
                                          )
                                        )
-                                     )
-                                     (princ "\nDebug: Оновлення блоку...") ; DEBUG
-                                     (vl-catch-all-apply 'vlax-invoke (list inserted_block 'Update)) ; Оновити відображення атрибутів
-                                     (princ "\nDebug: Оновлення блоку завершено.") ; DEBUG
-                                  )
-                                  (princ "\nDebug: GetAttributes повернув nil або порожній список.") ; DEBUG
-                              )
+                                       (princ "\nDebug: Оновлення блоку...") ; DEBUG
+                                       (vl-catch-all-apply 'vlax-invoke (list inserted_block 'Update)) ; Оновити відображення атрибутів
+                                       (princ "\nDebug: Оновлення блоку завершено.") ; DEBUG
+                                    )
+                                    (princ "\nDebug: GetAttributes повернув nil або порожній список.") ; DEBUG
+                                )
+                             )
                            )
+                           (princ "\nDebug: Блок не має атрибутів.") ; DEBUG
                          )
-                         (princ "\nDebug: Блок не має атрибутів.") ; DEBUG
-                       )
-                     ) ; progn block inserted successfully
-                  ) ; endif block inserted successfully
-              ) ; endif check vla-InsertBlock error
-            ) ; progn if point and tangent are valid
-            (princ "\n*** Пропуск пікету через недійсну точку або дотичну.") ; else point or tangent invalid
-          ) ; endif zero tangent check
-      ) ; endif point and tangent exist check
-    ) ; progn if point on polyline
-  ) ; if point on polyline
+                       ) ; progn block inserted successfully
+                    ) ; endif block inserted successfully
+                ) ; endif check vla-InsertBlock error
+              ) ; progn if point and tangent are valid
+              (princ "\n*** Пропуск пікету через недійсну точку або дотичну.") ; else point or tangent invalid
+            ) ; endif zero tangent check
+        ) ; endif point and tangent exist check
+      ) ; progn if point on polyline
+    ) ; if point on polyline
 
-  ;; Перехід до наступного пікету
-  (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
+    ;; Перехід до наступного пікету
+    (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
   ) ; while loop
 
   ;; --- Завершення ---
