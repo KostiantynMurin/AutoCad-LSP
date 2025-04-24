@@ -117,14 +117,14 @@
   )
 )
 
-;; Головна функція (оновлена для використання my-floor)
+;; Головна функція (оновлена для використання FIX замість floor/ceiling)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len
                              first_picket_val last_picket_val current_picket_val dist_on_pline
                              pt_on_pline vec_tangent vec_perp vec_perp_final block_angle piket_str
                              target_layer block_name text_style text_height block_def_layer
-                             fuzz mspace inserted_block atts att entmake_result num_fix) ; Додано num_fix для my-floor
+                             fuzz mspace inserted_block atts att entmake_result)
 
   ;; Налаштування констант
   (setq target_layer "Pickets"    ; Шар для вставки маркерів
@@ -140,9 +140,6 @@
     (if old_vars
       (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)) ; Відновити старі змінні
     )
-    ;; (if (and pline_obj (not (vlax-object-released-p pline_obj))) ; ВИДАЛЕНО HIGHLIGHT
-    ;;     (vlax-invoke pline_obj 'Highlight :vlax_false)
-    ;; )
     (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем")))
       (princ (strcat "\nПомилка виконання: " msg))
     )
@@ -172,10 +169,10 @@
   (setq pt_ref (getpoint "\nВкажіть точку прив'язки на полілінії або біля неї: "))
   (if pt_ref
     (progn
-      (setq pt_ref_on_pline (vlax-curve-getClosestPointTo pline_obj (trans pt_ref 1 0))) ; Перетворюємо в WCS, якщо потрібно
+      (setq pt_ref_on_pline (vlax-curve-getClosestPointTo pline_obj (trans pt_ref 1 0)))
       (setq dist_ref_on_pline (vlax-curve-getDistAtPoint pline_obj pt_ref_on_pline))
     )
-    (progn (princ "\nТочку не вказано. Вихід.") (*error* "Відміна користувачем")) ; Вихід через *error*
+    (progn (princ "\nТочку не вказано. Вихід.") (*error* "Відміна користувачем"))
   )
   (princ (strcat "\nВідстань до точки прив'язки від початку полілінії: " (rtos dist_ref_on_pline 2 4) " м."))
 
@@ -206,14 +203,12 @@
   )
 
   ;; --- Розрахунки ---
-  ;; (vlax-invoke pline_obj 'Highlight :vlax_true) ; ВИДАЛЕНО HIGHLIGHT
   (command "_REGEN") ; Оновити екран
 
   ;; Визначення напрямку (dir_factor)
   (setq vec_dir (mapcar '- (trans pt_dir 1 0) pt_ref_on_pline))
   (setq vec_tangent_ref (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtPoint pline_obj pt_ref_on_pline)))
   (if (not vec_tangent_ref) (progn (princ "\n*** Помилка: Не вдалося отримати дотичну в точці прив'язки!") (*error* "Tangent calculation failed")))
-
   (setq dot_prod_dir (apply '+ (mapcar '* vec_dir vec_tangent_ref)))
   (setq dir_factor (if (< dot_prod_dir 0.0) -1.0 1.0))
 
@@ -234,18 +229,27 @@
   (if (not pline_len) (progn (princ "\n*** Помилка: Не вдалося отримати довжину полілінії!") (*error* "Length calculation failed")))
   (princ (strcat "\nЗагальна довжина полілінії: " (rtos pline_len 2 4) " м."))
 
-  ;; Визначення діапазону 100-метрових пікетів --- ВИКОРИСТАННЯ MY-FLOOR ---
+  ;; Визначення діапазону 100-метрових пікетів --- ВИКОРИСТАННЯ FIX (УВАГА: МОЖЛИВА НЕЗНАЧНА НЕТОЧНІСТЬ!) ---
+  (princ "\n*** Увага: Використовується FIX замість CEILING/FLOOR через помилки середовища LISP. Можлива неточність у першому/останньому пікеті.")
   (if (= dir_factor 1.0)
     (progn
-      (setq first_picket_val (* (ceiling (/ (+ picket_at_start fuzz) 100.0)) 100.0))
-      (setq last_picket_val (* (my-floor (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0)) ; <--- ЗМІНЕНО
+      ;; Заміна ceiling на fix (може почати на 100м раніше, якщо picket_at_start близький до N*100)
+      ;; Намагаємося імітувати ceiling для позитивних чисел: fix(x + (1-fuzz)) -> Якщо x ціле, лишається x. Якщо x=10.1, стане fix(11.1-fuzz)=11. Якщо x=10.9, стане fix(11.9-fuzz)=11.
+      (setq first_picket_val (* (fix (+ (/ (+ picket_at_start fuzz) 100.0) (- 1.0 fuzz))) 100.0))
+      ;; Заміна floor на fix (має бути ОК для позитивних значень кінцевого пікету)
+      (setq last_picket_val (* (fix (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0))
     )
     (progn ; Зворотній напрямок
-      (setq first_picket_val (* (my-floor (/ (- picket_at_start fuzz) 100.0)) 100.0)) ; <--- ЗМІНЕНО
-      (setq last_picket_val (* (ceiling (/ (+ (- picket_at_start pline_len) fuzz) 100.0)) 100.0))
+       ;; Заміна floor на fix (може бути неточно для від'ємних picket_at_start)
+      (setq first_picket_val (* (fix (/ (- picket_at_start fuzz) 100.0)) 100.0))
+      ;; Заміна ceiling на fix (може закінчити на 100м раніше)
+      ;; Намагаємося імітувати ceiling: fix(x + (1-fuzz))
+      (setq last_picket_val (* (fix (+ (/ (+ (- picket_at_start pline_len) fuzz) 100.0) (- 1.0 fuzz))) 100.0))
     )
   )
+  (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos first_picket_val) " до " (rtos last_picket_val))) ; DEBUG
   ;; ------------------------------------------------------------------
+
 
   ;; --- Підготовка до розстановки ---
   (princ (strcat "\nШукаємо пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
@@ -342,7 +346,6 @@
   ) ; while loop
 
   ;; --- Завершення ---
-  ;; (vlax-invoke pline_obj 'Highlight :vlax_false) ; ВИДАЛЕНО HIGHLIGHT
   (command "_REGEN") ; Оновити екран для відображення атрибутів
   (princ "\nРозстановка пікетажу завершена.")
 
@@ -353,5 +356,5 @@
 )
 
 ;; Повідомлення про завантаження - ЗМІНЕНО
-(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v6 для запуску.")
+(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v7 для запуску.")
 (princ)
