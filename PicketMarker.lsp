@@ -46,7 +46,7 @@
         line_len_main  38.0
         line_len_tcap  5.0
         text_style     "Д-431"
-        text_height    1.8
+        text_height    0.9
         fuzz           1e-9
   )
   (setq half_line_main (/ line_len_main 2.0))
