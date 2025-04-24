@@ -108,14 +108,23 @@
   )
 )
 
-;; Головна функція
+;; Допоміжна функція для заміни стандартної floor (якщо вона недоступна)
+(defun my-floor (num / num_fix) ; Додано локальну змінну num_fix
+  (setq num_fix (fix num))
+  (if (and (< num 0.0) (/= num num_fix))
+    (- num_fix 1.0)
+    num_fix
+  )
+)
+
+;; Головна функція (оновлена для використання my-floor)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len
                              first_picket_val last_picket_val current_picket_val dist_on_pline
                              pt_on_pline vec_tangent vec_perp vec_perp_final block_angle piket_str
                              target_layer block_name text_style text_height block_def_layer
-                             fuzz mspace inserted_block atts att entmake_result)
+                             fuzz mspace inserted_block atts att entmake_result num_fix) ; Додано num_fix для my-floor
 
   ;; Налаштування констант
   (setq target_layer "Pickets"    ; Шар для вставки маркерів
@@ -188,7 +197,7 @@
      (progn (princ "\nСторону не вказано. Вихід.") (*error* "Відміна користувачем"))
   )
 
-  ;; Перевірка валідності даних одразу після введення (можна залишити для діагностики)
+  ;; Перевірка валідності даних одразу після введення
   (if (not (and pt_ref_on_pline (= (type pt_ref_on_pline) 'LIST) (= (length pt_ref_on_pline) 3)))
       (progn (princ "\n*** Помилка: Недійсна точка прив'язки на полілінії!") (*error* "Reference point on polyline invalid"))
   )
@@ -198,20 +207,20 @@
 
   ;; --- Розрахунки ---
   ;; (vlax-invoke pline_obj 'Highlight :vlax_true) ; ВИДАЛЕНО HIGHLIGHT
-  (command "_REGEN") ; Оновити екран (можна залишити, не заважає)
+  (command "_REGEN") ; Оновити екран
 
   ;; Визначення напрямку (dir_factor)
-  (setq vec_dir (mapcar '- (trans pt_dir 1 0) pt_ref_on_pline)) ; Вектор вказаного напрямку
-  (setq vec_tangent_ref (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtPoint pline_obj pt_ref_on_pline))) ; Дотична в точці прив'язки
+  (setq vec_dir (mapcar '- (trans pt_dir 1 0) pt_ref_on_pline))
+  (setq vec_tangent_ref (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtPoint pline_obj pt_ref_on_pline)))
   (if (not vec_tangent_ref) (progn (princ "\n*** Помилка: Не вдалося отримати дотичну в точці прив'язки!") (*error* "Tangent calculation failed")))
 
-  (setq dot_prod_dir (apply '+ (mapcar '* vec_dir vec_tangent_ref))) ; Скалярний добуток
-  (setq dir_factor (if (< dot_prod_dir 0.0) -1.0 1.0)) ; Якщо < 0, напрямки протилежні
+  (setq dot_prod_dir (apply '+ (mapcar '* vec_dir vec_tangent_ref)))
+  (setq dir_factor (if (< dot_prod_dir 0.0) -1.0 1.0))
 
   ;; Визначення сторони (side_factor)
-  (setq vec_side_ref (mapcar '- (trans pt_side_ref 1 0) pt_ref_on_pline)) ; Вектор вказаної сторони
+  (setq vec_side_ref (mapcar '- (trans pt_side_ref 1 0) pt_ref_on_pline))
   (setq vec_perp_ref (list (- (cadr vec_tangent_ref)) (car vec_tangent_ref) 0.0))
-  (setq dot_prod_side (apply '+ (mapcar '* vec_side_ref vec_perp_ref))) ; Скалярний добуток
+  (setq dot_prod_side (apply '+ (mapcar '* vec_side_ref vec_perp_ref)))
   (setq side_factor (if (< dot_prod_side 0.0) -1.0 1.0))
 
   ;; Розрахунок пікету на початку полілінії
@@ -225,17 +234,18 @@
   (if (not pline_len) (progn (princ "\n*** Помилка: Не вдалося отримати довжину полілінії!") (*error* "Length calculation failed")))
   (princ (strcat "\nЗагальна довжина полілінії: " (rtos pline_len 2 4) " м."))
 
-  ;; Визначення діапазону 100-метрових пікетів
+  ;; Визначення діапазону 100-метрових пікетів --- ВИКОРИСТАННЯ MY-FLOOR ---
   (if (= dir_factor 1.0)
     (progn
       (setq first_picket_val (* (ceiling (/ (+ picket_at_start fuzz) 100.0)) 100.0))
-      (setq last_picket_val (* (floor (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0))
+      (setq last_picket_val (* (my-floor (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0)) ; <--- ЗМІНЕНО
     )
     (progn ; Зворотній напрямок
-      (setq first_picket_val (* (floor (/ (- picket_at_start fuzz) 100.0)) 100.0))
+      (setq first_picket_val (* (my-floor (/ (- picket_at_start fuzz) 100.0)) 100.0)) ; <--- ЗМІНЕНО
       (setq last_picket_val (* (ceiling (/ (+ (- picket_at_start pline_len) fuzz) 100.0)) 100.0))
     )
   )
+  ;; ------------------------------------------------------------------
 
   ;; --- Підготовка до розстановки ---
   (princ (strcat "\nШукаємо пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
@@ -278,12 +288,12 @@
             (if (and pt_on_pline vec_tangent) ; Переконатись, що попередні функції спрацювали
               (progn
                 ;; Розрахунок перпендикуляру та кута повороту
-                (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0)) ; Номінальний перпендикуляр (+90 град)
-                (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp))) ; Застосування фактору сторони
-                (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут для вставки блоку
+                (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
+                (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
+                (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
 
                 ;; Формування тексту пікету
-                (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz))))) ; Fix для коректного цілого числа
+                (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
 
                 ;; Вставка блоку
                 (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2)))
@@ -343,5 +353,5 @@
 )
 
 ;; Повідомлення про завантаження - ЗМІНЕНО
-(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v5 для запуску.")
+(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v6 для запуску.")
 (princ)
