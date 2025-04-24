@@ -44,7 +44,7 @@
   ;; Налаштування констант
   (setq target_layer   "0"
         line_len_main  38.0
-        line_len_tcap  5.0
+        line_len_tcap  3.0
         text_style     "Д-431"
         text_height    0.9
         fuzz           1e-9
