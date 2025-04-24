@@ -35,9 +35,9 @@
   )
 )
 
-;; Функція для створення блоку маркера пікету (з використанням COMMAND та опції Previous)
+;; Функція для створення блоку маркера пікету (з дод. перевірками)
 ;; Повертає ім'я блоку у разі успіху, nil у разі помилки
-(defun MakePicketBlock (blkname stylename txtheight layer_for_def / base_pt line_len cap_len half_line half_cap txt_h att_tag att_prompt att_default att_ins_pt temp_ents old_layer old_osmode old_cmdecho line1 line2 attdef) ; Додано локальні змінні
+(defun MakePicketBlock (blkname stylename txtheight layer_for_def / base_pt line_len cap_len half_line half_cap txt_h att_tag att_prompt att_default att_ins_pt temp_ents old_layer old_osmode old_cmdecho line1 line2 attdef final_stylename) ; Додано final_stylename
   (if (tblsearch "BLOCK" blkname)
     blkname ; Блок вже існує
     (progn
@@ -46,84 +46,75 @@
             line_len 38.0 cap_len 5.0 half_line (/ line_len 2.0) half_cap (/ cap_len 2.0)
             txt_h txtheight att_tag "PIKET_NO" att_prompt "Номер пікету:" att_default "ПКXX"
             att_ins_pt (list 0.0 (+ half_line (/ txt_h 2.0)) 0.0)
-            ;; Важливо: Створюємо ПОРОЖНІЙ selection set перед створенням геометрії
-            ;; Щоб саме наша геометрія стала "Previous" для команди BLOCK
             temp_ents (ssadd)
-            old_layer (getvar "CLAYER")
-            old_osmode (getvar "OSMODE")
-            old_cmdecho (getvar "CMDECHO")
+            old_layer (getvar "CLAYER") old_osmode (getvar "OSMODE") old_cmdecho (getvar "CMDECHO")
+            final_stylename stylename ; Початкове значення стилю
       )
-      (setvar "OSMODE" 0)
-      (setvar "CMDECHO" 0)
-      (setvar "CLAYER" "0") ; Тимчасово створюємо геометрію на Шарі 0
+      (setvar "OSMODE" 0) (setvar "CMDECHO" 0)
+      (setvar "CLAYER" "0") ; Явно створюємо на шарі 0
 
       ;; Перевірка наявності текстового стилю
-      (if (not (tblsearch "STYLE" stylename))
+      (if (not (tblsearch "STYLE" final_stylename))
         (progn
-          (princ (strcat "\n*** Попередження: Текстовий стиль '" stylename "' не знайдено."))
-          (setq stylename (getvar "TEXTSTYLE"))
-          (princ (strcat " Буде використано поточний стиль '" stylename "'."))
+          (princ (strcat "\n*** Попередження: Текстовий стиль '" final_stylename "' не знайдено."))
+          (setq final_stylename (getvar "TEXTSTYLE")) ; Використовуємо поточний стиль
+          (princ (strcat " Спроба використати поточний стиль '" final_stylename "'."))
+          ;; Додаткова перевірка поточного стилю
+          (if (not (tblsearch "STYLE" final_stylename))
+              (progn
+                 (princ (strcat "\n*** Попередження: Поточний стиль '" final_stylename "' також не знайдено!"))
+                 (setq final_stylename "Standard") ; Запасний варіант - Standard
+                 (princ (strcat " Спроба використати стиль 'Standard'."))
+                 (if (not (tblsearch "STYLE" final_stylename))
+                     (progn
+                        (princ (strcat "\n*** Помилка: Стиль 'Standard' не знайдено! Неможливо створити атрибут."))
+                        (setq blkname nil) ; Позначка помилки
+                     )
+                 )
+              )
+          )
         )
       )
 
-      ;; Створення тимчасової геометрії за допомогою entmakex
-      (setq line1 (entmakex (list '(0 . "LINE") (cons 10 (list 0.0 (- half_line) 0.0)) (cons 11 (list 0.0 half_line 0.0)))))
-      (setq line2 (entmakex (list '(0 . "LINE") (cons 10 (list (- half_cap) half_line 0.0)) (cons 11 (list half_cap half_line 0.0)))))
-      (setq attdef (entmakex (list '(0 . "ATTDEF") (cons 10 att_ins_pt) (cons 40 txt_h) (cons 1 att_default) (cons 2 att_tag) (cons 3 att_prompt) (cons 7 stylename) '(71 . 0) '(72 . 4) '(74 . 1))))
-
-      ;; Перевірка чи об'єкти створено
-      (if (or (not line1) (not line2) (not attdef))
+      ;; Продовжуємо тільки якщо стиль знайдено/визначено
+      (if blkname
           (progn
-             (princ "\n*** Помилка: Не вдалося створити всю геометрію для блоку.")
-             ;; Спробувати видалити частково створені об'єкти, якщо вони є
-             (if line1 (entdel (entlast)))
-             (if line2 (entdel (entlast)))
-             (if attdef (entdel (entlast)))
-             (setq blkname nil) ; Позначити помилку
-          )
-          (progn ; Геометрію створено, можна визначати блок
-              ;; Створюємо selection set з ОСТАННІХ створених об'єктів
-              ;; Це важливо для опції "P" (Previous)
-              (setq temp_ents (ssadd))
-              (ssadd (entlast) temp_ents) ; Додати ATTDEF
-              (ssadd (entnext (entlast)) temp_ents) ; Додати LINE2 (може бути небезпечно, якщо щось ще створилось)
-              (ssadd (entnext (entnext (entlast))) temp_ents) ; Додати LINE1 (ще більш небезпечно)
-              ;; ----- БЕЗПЕЧНІШИЙ СПОСІБ -> Використати entlast 3 рази -----
-              (setq temp_ents (ssadd))
-              (setq ent3 (entlast)) ; ATTDEF
-              (setq ent2 (entprev ent3)) ; LINE2
-              (setq ent1 (entprev ent2)) ; LINE1
-              (if (and ent1 ent2 ent3) ; Перевірка, чи всі три об'єкти отримано
-                  (progn
-                    (ssadd ent1 temp_ents)
-                    (ssadd ent2 temp_ents)
-                    (ssadd ent3 temp_ents)
+            ;; Створення тимчасової геометрії за допомогою entmakex з явним шаром 0
+            (setq line1 (entmakex (list '(0 . "LINE") '(8 . "0") (cons 10 (list 0.0 (- half_line) 0.0)) (cons 11 (list 0.0 half_line 0.0)))))
+            (setq line2 (entmakex (list '(0 . "LINE") '(8 . "0") (cons 10 (list (- half_cap) half_line 0.0)) (cons 11 (list half_cap half_line 0.0)))))
+            ;; Використовуємо перевірений final_stylename
+            (setq attdef (entmakex (list '(0 . "ATTDEF") '(8 . "0") (cons 10 att_ins_pt) (cons 40 txt_h) (cons 1 att_default) (cons 2 att_tag) (cons 3 att_prompt) (cons 7 final_stylename) '(71 . 0) '(72 . 4) '(74 . 1))))
 
-                    ;; Використання команди BLOCK з опцією вибору "P" (Previous)
-                    (command "_.-BLOCK" blkname ; Ім'я блоку
-                             base_pt ; Базова точка вставки блоку
-                             temp_ents ; <--- ВИКОРИСТОВУЄМО НАБІР ВИБОРУ ЯВНО
-                             "" ; Завершити вибір об'єктів
+            ;; Перевірка чи об'єкти створено
+            (if (or (not line1) (not line2) (not attdef))
+                (progn
+                   (princ "\n*** Помилка: Не вдалося створити всю геометрію для блоку (entmakex повернув nil).")
+                   (if line1 (entdel (entlast))) (if line2 (entdel (entlast))) (if attdef (entdel (entlast))) ; Спроба видалити
+                   (setq blkname nil) ; Позначити помилку
+                )
+                (progn ; Геометрію створено, можна визначати блок
+                    (setq temp_ents (ssadd))
+                    (setq ent3 (entlast)) (setq ent2 (entprev ent3)) (setq ent1 (entprev ent2)) ; Отримати останні 3 об'єкти
+                    (if (and ent1 ent2 ent3)
+                        (progn
+                          (ssadd ent1 temp_ents) (ssadd ent2 temp_ents) (ssadd ent3 temp_ents)
+                          ;; Використання команди BLOCK
+                          (command "_.-BLOCK" blkname base_pt temp_ents "")
+                          (if (tblsearch "BLOCK" blkname)
+                              (progn (princ (strcat "\nБлок '" blkname "' успішно створено.")) blkname)
+                              (progn (princ (strcat "\n*** Помилка: Не вдалося створити блок '" blkname "' командою BLOCK.")) (setq blkname nil))
+                          )
+                        )
+                        (progn (princ "\n*** Помилка: Не вдалося отримати створену геометрію.") (setq blkname nil))
                     )
-                    ;; Перевірка чи блок дійсно створено після команди
-                    (if (tblsearch "BLOCK" blkname)
-                        (progn (princ (strcat "\nБлок '" blkname "' успішно створено.")) blkname) ; Успіх
-                        (progn (princ (strcat "\n*** Помилка: Не вдалося створити блок '" blkname "' за допомогою команди BLOCK.")) (setq blkname nil)) ; Невдача
-                    )
-                  )
-                  (progn ; Не вдалося отримати останні 3 об'єкти
-                     (princ "\n*** Помилка: Не вдалося ідентифікувати створену геометрію для блоку.")
-                     (if ent1 (entdel ent1)) (if ent2 (entdel ent2)) (if ent3 (entdel ent3))
-                     (setq blkname nil)
-                  )
-              )
-          )
-      )
+                )
+            )
+          ) ; progn if blkname still valid after style check
+      ) ; if blkname
+
       ;; Відновлення попередніх налаштувань AutoCAD
-      (setvar "CLAYER" old_layer)
-      (setvar "OSMODE" old_osmode)
-      (setvar "CMDECHO" old_cmdecho)
-      blkname ; Повернути ім'я блоку або nil у разі помилки
+      (setvar "CLAYER" old_layer) (setvar "OSMODE" old_osmode) (setvar "CMDECHO" old_cmdecho)
+      blkname ; Повернути ім'я блоку або nil
     ) ; progn if block needs creation
   ) ; if tblsearch
 )
@@ -137,30 +128,31 @@
   )
 )
 
-;; Головна функція (оновлена для використання FIX, вставки на шар 0, та COMMAND для блоку)
+;; Головна функція (оновлена для зупинки при помилці та контролю шару)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len
                              first_picket_val last_picket_val current_picket_val dist_on_pline
                              pt_on_pline vec_tangent vec_perp vec_perp_final block_angle piket_str
                              target_layer block_name text_style text_height block_def_layer
-                             fuzz mspace inserted_block atts att old_layer old_osmode old_cmdecho) ; Видалено entmake_result, додано змінні для MakeBlock
+                             fuzz mspace inserted_block atts att old_layer old_osmode old_cmdecho
+                             final_stylename ent1 ent2 ent3) ; Додано змінні з MakeBlock
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-24_FIX_Layer0_CmdBlock ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-24_FIX_Layer0_CmdBlock_StopFix ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
-  (setq target_layer "0"         ; <--- ЗМІНЕНО: Шар для вставки маркерів = 0
+  (setq target_layer "0"
         block_name   "PicketMarker"
         text_style   "Д-431"
         text_height  1.8
-        block_def_layer "0"       ; Шар для геометрії визначення блоку (використовується в MakeBlock)
+        block_def_layer "0"
         fuzz         1e-9
   )
 
   ;; Перевизначення обробника помилок
   (defun *error* (msg)
     (if old_vars (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)))
-    (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем")))
+    (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем" "Block creation/check failed"))) ; Додано "Block creation/check failed"
       (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ)
@@ -216,79 +208,86 @@
   ;; Визначення діапазону 100-метрових пікетів --- ВИКОРИСТАННЯ FIX ---
   (princ "\n*** Увага: Використовується FIX замість CEILING/FLOOR через помилки середовища LISP. Можлива неточність у першому/останньому пікеті.")
   (if (= dir_factor 1.0)
-    (progn (setq first_picket_val (* (fix (+ (/ (+ picket_at_start fuzz) 100.0) (- 1.0 fuzz))) 100.0)) ; Імітація ceiling
-           (setq last_picket_val (* (fix (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0)))      ; Імітація floor (для +)
-    (progn (setq first_picket_val (* (fix (/ (- picket_at_start fuzz) 100.0)) 100.0)) ; Імітація floor (може бути неточно для -)
-           (setq last_picket_val (* (fix (+ (/ (+ (- picket_at_start pline_len) fuzz) 100.0) (- 1.0 fuzz))) 100.0))) ; Імітація ceiling
+    (progn (setq first_picket_val (* (fix (+ (/ (+ picket_at_start fuzz) 100.0) (- 1.0 fuzz))) 100.0))
+           (setq last_picket_val (* (fix (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0)))
+    (progn (setq first_picket_val (* (fix (/ (- picket_at_start fuzz) 100.0)) 100.0))
+           (setq last_picket_val (* (fix (+ (/ (+ (- picket_at_start pline_len) fuzz) 100.0) (- 1.0 fuzz))) 100.0)))
   )
   (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos first_picket_val) " до " (rtos last_picket_val)))
   ;; ------------------------------------------------------------------
 
   (princ (strcat "\nШукаємо пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
 
-  ;; Перевірка/створення шару - НЕ ПОТРІБНО, шар "0" завжди існує
-  ;; (if (not (EnsureLayer target_layer ...)) (*error* "Layer creation failed"))
-  (setvar "CLAYER" target_layer) ; <--- Встановлюємо поточний шар в "0"
-
   ;; Перевірка/створення блоку
-  (if (not (MakePicketBlock block_name text_style text_height block_def_layer)) ; Виклик оновленої MakePicketBlock
-      (*error* "Block creation/check failed")
-  )
-
-  ;; Отримання об'єкту простору моделі
-  (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))
-  (if (not mspace) (*error* "Modelspace failed"))
-
-  ;; --- Цикл розстановки пікетів ---
-  (setq current_picket_val first_picket_val)
-  (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz)))
-    (if (= dir_factor 1.0) (setq dist_on_pline (- current_picket_val picket_at_start)) (setq dist_on_pline (- picket_at_start current_picket_val)))
-    (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
-      (progn
-        (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
-        (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
-        (if (and pt_on_pline vec_tangent (< (distance '(0 0 0) vec_tangent) fuzz))
-            (princ (strcat "\n*** Попередження: Нульовий вектор дотичної на відстані " (rtos dist_on_pline) ". Пропуск пікету."))
-            (if (and pt_on_pline vec_tangent)
-              (progn
-                (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
-                (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-                (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
-                (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
-                (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2) " на шар " (getvar "CLAYER"))) ; Перевірка поточного шару
-                (setq inserted_block (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name 1.0 1.0 1.0 block_angle)))
-                (if (vl-catch-all-error-p inserted_block) (princ (strcat "\n*** Помилка під час vla-InsertBlock: " (vl-catch-all-error-message inserted_block)))
-                    (if inserted_block
-                       (if (= :vlax_true (vla-get-HasAttributes inserted_block))
-                          (progn
-                            (setq atts (vl-catch-all-apply 'vlax-invoke (list inserted_block 'GetAttributes)))
-                            (if (not (vl-catch-all-error-p atts))
-                              (if atts (foreach att atts (if (= (strcase (vla-get-TagString att)) (strcase att_tag)) (vl-catch-all-apply 'vla-put-TextString (list att piket_str)))))
-                            )
-                            (vl-catch-all-apply 'vlax-invoke (list inserted_block 'Update))
-                          )
-                       )
-                       (princ "\n*** Помилка: vla-InsertBlock повернув nil!")
-                    )
-                )
-              )
-            )
-        )
-      )
+  (if (not (MakePicketBlock block_name text_style text_height block_def_layer))
+    ;; Якщо блок не створено - ВИХІД
+    (progn
+      (princ "\n*** Критична помилка: Блок не створено. Робота скрипту припинена.")
+      (*error* "Block creation/check failed") ; Викликаємо обробник помилок
+      (exit) ; Додатково явно виходимо (про всяк випадок)
     )
-    (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
-  ) ; while loop
+    ;; Якщо блок існує або створений - продовжуємо
+    (progn
+      (princ (strcat "\nБлок '" block_name "' готовий до використання.")) ; Повідомлення про успіх
+      ;; Отримання об'єкту простору моделі
+      (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))
+      (if (not mspace) (*error* "Modelspace failed"))
+
+      ;; Встановлення поточного шару ЯВНО ПЕРЕД ЦИКЛОМ
+      (setvar "CLAYER" target_layer)
+      (princ (strcat "\nВстановлено поточний шар: " (getvar "CLAYER"))) ; Перевірка
+
+      ;; --- Цикл розстановки пікетів ---
+      (setq current_picket_val first_picket_val)
+      (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz)))
+        (if (= dir_factor 1.0) (setq dist_on_pline (- current_picket_val picket_at_start)) (setq dist_on_pline (- picket_at_start current_picket_val)))
+        (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
+          (progn
+            (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
+            (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
+            (if (and pt_on_pline vec_tangent (< (distance '(0 0 0) vec_tangent) fuzz))
+                (princ (strcat "\n*** Попередження: Нульовий вектор дотичної на відстані " (rtos dist_on_pline) ". Пропуск пікету."))
+                (if (and pt_on_pline vec_tangent)
+                  (progn
+                    (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
+                    (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
+                    (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
+                    (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
+                    (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2) " на шар " (getvar "CLAYER")))
+                    (setq inserted_block (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name 1.0 1.0 1.0 block_angle)))
+                    (if (vl-catch-all-error-p inserted_block) (princ (strcat "\n*** Помилка під час vla-InsertBlock: " (vl-catch-all-error-message inserted_block)))
+                        (if inserted_block
+                           (if (= :vlax_true (vla-get-HasAttributes inserted_block))
+                              (progn
+                                (setq atts (vl-catch-all-apply 'vlax-invoke (list inserted_block 'GetAttributes)))
+                                (if (not (vl-catch-all-error-p atts))
+                                  (if atts (foreach att atts (if (= (strcase (vla-get-TagString att)) (strcase att_tag)) (vl-catch-all-apply 'vla-put-TextString (list att piket_str)))))
+                                )
+                                (vl-catch-all-apply 'vlax-invoke (list inserted_block 'Update))
+                              )
+                           )
+                           (princ "\n*** Помилка: vla-InsertBlock повернув nil!")
+                        )
+                    )
+                  )
+                )
+            )
+          )
+        )
+        (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
+      ) ; while loop
+      (princ "\nЦикл розстановки завершено.") ; Повідомлення після циклу
+    ) ; progn if block check successful
+  ) ; if block check
 
   ;; --- Завершення ---
-  (command "_REGEN") ; Оновити екран для відображення атрибутів
+  (command "_REGEN")
   (princ "\nРозстановка пікетажу завершена.")
-
-  ;; Відновлення системних змінних та стандартного обробника помилок
   (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))
-  (setq *error* nil) ; Відновити стандартний обробник
-  (princ) ; Тихий вихід
+  (setq *error* nil)
+  (princ)
 )
 
 ;; Повідомлення про завантаження - ЗМІНЕНО
-(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v9 для запуску.")
+(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v10 для запуску.")
 (princ)
