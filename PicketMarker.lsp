@@ -248,47 +248,100 @@
   (setq current_picket_val first_picket_val)
   (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz)))
     ;; Розрахунок відстані вздовж полілінії
-    (if (= dir_factor 1.0)
-      (setq dist_on_pline (- current_picket_val picket_at_start))
-      (setq dist_on_pline (- picket_at_start current_picket_val))
-    )
+  (if (= dir_factor 1.0)
+    (setq dist_on_pline (- current_picket_val picket_at_start))
+    (setq dist_on_pline (- picket_at_start current_picket_val))
+  )
 
-    ;; Перевірка, чи точка в межах полілінії
-    (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
-      (progn
-        ;; Отримання точки та дотичної
-        (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
-        (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
+  ;; Перевірка, чи точка в межах полілінії
+  (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
+    (progn
+      ;; Отримання точки та дотичної
+      (princ (strcat "\nDebug: dist_on_pline = " (rtos dist_on_pline))) ; DEBUG
+      (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
+      (princ (strcat "\nDebug: pt_on_pline = " (vl-princ-to-string pt_on_pline))) ; DEBUG
+      (if (not pt_on_pline) (princ "\n*** Error: Не вдалося отримати точку на відстані!")) ; DEBUG Check
 
-        ;; Розрахунок перпендикуляру та кута повороту
-        (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0)) ; Номінальний перпендикуляр (+90 град)
-        (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp))) ; Застосування фактору сторони
-        (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут для вставки блоку
+      (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
+      (princ (strcat "\nDebug: vec_tangent = " (vl-princ-to-string vec_tangent))) ; DEBUG
+      (if (not vec_tangent) (princ "\n*** Error: Не вдалося отримати дотичну!")) ; DEBUG Check
 
-        ;; Формування тексту пікету
-        (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz))))) ; Fix для коректного цілого числа
+      ;; --- Додаткова перевірка на нульовий вектор дотичної ---
+      (if (and pt_on_pline vec_tangent (< (distance '(0 0 0) vec_tangent) fuzz))
+          (princ (strcat "\n*** Попередження: Нульовий вектор дотичної на відстані " (rtos dist_on_pline) ". Пропуск пікету."))
+          ;; --- Якщо дотична не нульова, продовжуємо ---
+          (if (and pt_on_pline vec_tangent) ; Переконатись, що попередні функції спрацювали
+            (progn
+              ;; Розрахунок перпендикуляру та кута повороту
+              (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0)) ; Номінальний перпендикуляр (+90 град)
+              (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp))) ; Застосування фактору сторони
+              (princ (strcat "\nDebug: vec_perp_final = " (vl-princ-to-string vec_perp_final))) ; DEBUG
 
-        ;; Вставка блоку
-        (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2)))
-        (setq inserted_block (vla-InsertBlock mspace (vlax-3d-point pt_on_pline) block_name 1.0 1.0 1.0 block_angle))
+              (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут для вставки блоку
+              (princ (strcat "\nDebug: block_angle = " (rtos block_angle))) ; DEBUG
 
-        ;; Встановлення значення атрибуту (якщо блок має атрибути і ATTREQ=1)
-        (if (and inserted_block (= (vla-get-HasAttributes inserted_block) :vlax_true))
-           (progn
-             (setq atts (vlax-invoke inserted_block 'GetAttributes))
-             (foreach att atts
-               (if (= (strcase (vla-get-TagString att)) (strcase att_tag))
-                 (vla-put-TextString att piket_str)
-               )
-             )
-             (vlax-invoke inserted_block 'Update) ; Оновити відображення атрибутів
-           )
-        )
-      ) ; progn if point on polyline
-    ) ; if point on polyline
+              ;; Формування тексту пікету
+              (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz))))) ; Fix для коректного цілого числа
+              (princ (strcat "\nDebug: piket_str = " piket_str)) ; DEBUG
 
-    ;; Перехід до наступного пікету
-    (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
+              ;; Вставка блоку
+              (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2)))
+              (princ "\nDebug: Виклик vla-InsertBlock...") ; DEBUG
+              (setq inserted_block (vl-catch-all-apply
+                                    'vla-InsertBlock
+                                    (list mspace (vlax-3d-point pt_on_pline) block_name 1.0 1.0 1.0 block_angle)
+                                   )
+              )
+              (princ "\nDebug: vla-InsertBlock завершено.") ; DEBUG
+
+              ;; --- Додаткова перевірка результату вставки ---
+              (if (vl-catch-all-error-p inserted_block)
+                  (princ (strcat "\n*** Помилка під час vla-InsertBlock: " (vl-catch-all-error-message inserted_block)))
+                  (if (not inserted_block)
+                     (princ "\n*** Помилка: vla-InsertBlock повернув nil!")
+                     (progn ; Вставка успішна, обробляємо атрибути
+                       (princ (strcat "\nDebug: Вставлений об'єкт блоку: " (vl-princ-to-string inserted_block))) ; DEBUG
+                       ;; Встановлення значення атрибуту
+                       (if (= (vla-get-HasAttributes inserted_block) :vlax_true)
+                         (progn
+                           (princ "\nDebug: Блок має атрибути. Отримання...") ; DEBUG
+                           (setq atts (vl-catch-all-apply 'vlax-invoke (list inserted_block 'GetAttributes)))
+                           (if (vl-catch-all-error-p atts)
+                              (princ (strcat "\n*** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
+                              (if atts
+                                  (progn
+                                     (princ "\nDebug: Обробка атрибутів...") ; DEBUG
+                                     (foreach att atts
+                                       (princ (strcat "\n  Debug: Перевірка тегу атрибуту: " (vla-get-TagString att))) ; DEBUG
+                                       (if (= (strcase (vla-get-TagString att)) (strcase att_tag))
+                                         (progn
+                                            (princ (strcat "\n    Debug: Встановлення атрибуту '" att_tag "' в '" piket_str "'")) ; DEBUG
+                                            (vl-catch-all-apply 'vla-put-TextString (list att piket_str))
+                                         )
+                                       )
+                                     )
+                                     (princ "\nDebug: Оновлення блоку...") ; DEBUG
+                                     (vl-catch-all-apply 'vlax-invoke (list inserted_block 'Update)) ; Оновити відображення атрибутів
+                                     (princ "\nDebug: Оновлення блоку завершено.") ; DEBUG
+                                  )
+                                  (princ "\nDebug: GetAttributes повернув nil або порожній список.") ; DEBUG
+                              )
+                           )
+                         )
+                         (princ "\nDebug: Блок не має атрибутів.") ; DEBUG
+                       )
+                     ) ; progn block inserted successfully
+                  ) ; endif block inserted successfully
+              ) ; endif check vla-InsertBlock error
+            ) ; progn if point and tangent are valid
+            (princ "\n*** Пропуск пікету через недійсну точку або дотичну.") ; else point or tangent invalid
+          ) ; endif zero tangent check
+      ) ; endif point and tangent exist check
+    ) ; progn if point on polyline
+  ) ; if point on polyline
+
+  ;; Перехід до наступного пікету
+  (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
   ) ; while loop
 
   ;; --- Завершення ---
