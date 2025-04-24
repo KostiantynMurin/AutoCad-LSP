@@ -115,7 +115,7 @@
                              first_picket_val last_picket_val current_picket_val dist_on_pline
                              pt_on_pline vec_tangent vec_perp vec_perp_final block_angle piket_str
                              target_layer block_name text_style text_height block_def_layer
-                             fuzz mspace inserted_block atts att entmake_result) ; Додано entmake_result
+                             fuzz mspace inserted_block atts att entmake_result)
 
   ;; Налаштування констант
   (setq target_layer "Pickets"    ; Шар для вставки маркерів
@@ -131,10 +131,10 @@
     (if old_vars
       (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)) ; Відновити старі змінні
     )
-    (if (and pline_obj (not (vlax-object-released-p pline_obj)))
-        (vlax-invoke pline_obj 'Highlight :vlax_false) ; Зняти підсвічування при помилці
-    )
-    (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем"))) ; Додано "Відміна користувачем"
+    ;; (if (and pline_obj (not (vlax-object-released-p pline_obj))) ; ВИДАЛЕНО HIGHLIGHT
+    ;;     (vlax-invoke pline_obj 'Highlight :vlax_false)
+    ;; )
+    (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем")))
       (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ) ; Тихий вихід
@@ -188,67 +188,41 @@
      (progn (princ "\nСторону не вказано. Вихід.") (*error* "Відміна користувачем"))
   )
 
-  ;; --- ДОДАНІ ПЕРЕВІРКИ ОДРАЗУ ПІСЛЯ ВВЕДЕННЯ ---
-  (princ "\nDebug: Завершено фазу введення.") ; DEBUG
-  (princ (strcat "\nDebug: pt_ref_on_pline = " (vl-princ-to-string pt_ref_on_pline))) ; DEBUG
-  (princ (strcat "\nDebug: val_ref = " (rtos val_ref))) ; DEBUG
-  (princ (strcat "\nDebug: pt_dir = " (vl-princ-to-string pt_dir))) ; DEBUG
-  (princ (strcat "\nDebug: pt_side_ref = " (vl-princ-to-string pt_side_ref))) ; DEBUG
-  (if (and pline_obj (not (vlax-object-released-p pline_obj)))
-      (princ (strcat "\nDebug: pline_obj валідний: " (vl-princ-to-string pline_obj))) ; DEBUG
-      (progn (princ "\nDebug: *** pline_obj НЕ валідний або звільнений! ***") (*error* "Polyline object invalid")) ; DEBUG
+  ;; Перевірка валідності даних одразу після введення (можна залишити для діагностики)
+  (if (not (and pt_ref_on_pline (= (type pt_ref_on_pline) 'LIST) (= (length pt_ref_on_pline) 3)))
+      (progn (princ "\n*** Помилка: Недійсна точка прив'язки на полілінії!") (*error* "Reference point on polyline invalid"))
   )
-  (if (and pt_ref_on_pline (= (type pt_ref_on_pline) 'LIST) (= (length pt_ref_on_pline) 3))
-      (princ "\nDebug: pt_ref_on_pline виглядає як валідна точка.") ; DEBUG
-      (progn (princ "\nDebug: *** pt_ref_on_pline НЕ є валідною точкою! ***") (*error* "Reference point on polyline invalid")) ; DEBUG
-  )
-   (if (and pt_dir (= (type pt_dir) 'LIST) (= (length pt_dir) 3))
-      (princ "\nDebug: pt_dir виглядає як валідна точка.") ; DEBUG
-      (progn (princ "\nDebug: *** pt_dir НЕ є валідною точкою! ***") (*error* "Direction point invalid")) ; DEBUG
-  )
-   (if (and pt_side_ref (= (type pt_side_ref) 'LIST) (= (length pt_side_ref) 3))
-      (princ "\nDebug: pt_side_ref виглядає як валідна точка.") ; DEBUG
-      (progn (princ "\nDebug: *** pt_side_ref НЕ є валідною точкою! ***") (*error* "Side point invalid")) ; DEBUG
+  (if (not (and pt_dir (= (type pt_dir) 'LIST) (= (length pt_dir) 3)))
+      (progn (princ "\n*** Помилка: Недійсна точка напрямку!") (*error* "Direction point invalid"))
   )
 
   ;; --- Розрахунки ---
-  (princ "\nDebug: Спроба Highlight...") ; DEBUG
-  (vlax-invoke pline_obj 'Highlight :vlax_true) ; Підсвітити полілінію
-  (princ "\nDebug: Highlight успішно. Виклик Regen...") ; DEBUG
-  (command "_REGEN") ; Оновити екран
-  (princ "\nDebug: Regen успішно. Обчислення vec_dir...") ; DEBUG
+  ;; (vlax-invoke pline_obj 'Highlight :vlax_true) ; ВИДАЛЕНО HIGHLIGHT
+  (command "_REGEN") ; Оновити екран (можна залишити, не заважає)
+
   ;; Визначення напрямку (dir_factor)
   (setq vec_dir (mapcar '- (trans pt_dir 1 0) pt_ref_on_pline)) ; Вектор вказаного напрямку
-  (princ (strcat "\nDebug: vec_dir = " (vl-princ-to-string vec_dir))) ; DEBUG
-  (princ "\nDebug: Обчислення дотичної в точці прив'язки...") ; DEBUG
   (setq vec_tangent_ref (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtPoint pline_obj pt_ref_on_pline))) ; Дотична в точці прив'язки
-  (princ (strcat "\nDebug: vec_tangent_ref = " (vl-princ-to-string vec_tangent_ref))) ; DEBUG
-  (if (not vec_tangent_ref) (progn (princ "\n*** Помилка: Не вдалося отримати дотичну в точці прив'язки!") (*error* "Tangent calculation failed"))) ; Check
+  (if (not vec_tangent_ref) (progn (princ "\n*** Помилка: Не вдалося отримати дотичну в точці прив'язки!") (*error* "Tangent calculation failed")))
 
   (setq dot_prod_dir (apply '+ (mapcar '* vec_dir vec_tangent_ref))) ; Скалярний добуток
   (setq dir_factor (if (< dot_prod_dir 0.0) -1.0 1.0)) ; Якщо < 0, напрямки протилежні
-  (princ (strcat "\nФактор напрямку: " (rtos dir_factor)))
 
   ;; Визначення сторони (side_factor)
   (setq vec_side_ref (mapcar '- (trans pt_side_ref 1 0) pt_ref_on_pline)) ; Вектор вказаної сторони
-  ;; Розрахунок номінального перпендикуляру (обертання дотичної на +90 градусів)
   (setq vec_perp_ref (list (- (cadr vec_tangent_ref)) (car vec_tangent_ref) 0.0))
   (setq dot_prod_side (apply '+ (mapcar '* vec_side_ref vec_perp_ref))) ; Скалярний добуток
-  (setq side_factor (if (< dot_prod_side 0.0) -1.0 1.0)) ; Якщо < 0, вказано протилежну сторону від номінальної
-  (princ (strcat "\nФактор сторони: " (rtos side_factor)))
+  (setq side_factor (if (< dot_prod_side 0.0) -1.0 1.0))
 
   ;; Розрахунок пікету на початку полілінії
   (if (= dir_factor 1.0)
       (setq picket_at_start (- val_ref dist_ref_on_pline))
       (setq picket_at_start (+ val_ref dist_ref_on_pline))
   )
-  (princ (strcat "\nРозрахункове значення пікету на початку полілінії: " (rtos picket_at_start 2 4) " м."))
 
   ;; Загальна довжина полілінії
-  (princ "\nDebug: Обчислення довжини полілінії...") ; DEBUG
   (setq pline_len (vlax-curve-getDistAtParam pline_obj (vlax-curve-getEndParam pline_obj)))
-  (princ (strcat "\nDebug: pline_len = " (rtos pline_len))) ; DEBUG
-  (if (not pline_len) (progn (princ "\n*** Помилка: Не вдалося отримати довжину полілінії!") (*error* "Length calculation failed"))) ; Check
+  (if (not pline_len) (progn (princ "\n*** Помилка: Не вдалося отримати довжину полілінії!") (*error* "Length calculation failed")))
   (princ (strcat "\nЗагальна довжина полілінії: " (rtos pline_len 2 4) " м."))
 
   ;; Визначення діапазону 100-метрових пікетів
@@ -258,8 +232,8 @@
       (setq last_picket_val (* (floor (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0))
     )
     (progn ; Зворотній напрямок
-      (setq first_picket_val (* (floor (/ (- picket_at_start fuzz) 100.0)) 100.0)) ; Найбільше значення пікету
-      (setq last_picket_val (* (ceiling (/ (+ (- picket_at_start pline_len) fuzz) 100.0)) 100.0)) ; Найменше значення пікету
+      (setq first_picket_val (* (floor (/ (- picket_at_start fuzz) 100.0)) 100.0))
+      (setq last_picket_val (* (ceiling (/ (+ (- picket_at_start pline_len) fuzz) 100.0)) 100.0))
     )
   )
 
@@ -267,27 +241,19 @@
   (princ (strcat "\nШукаємо пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
 
   ;; Перевірка/створення шару для маркерів
-  (princ "\nDebug: Перевірка/створення шару...") ; DEBUG
-  (if (not (EnsureLayer target_layer 7 "Continuous" -3 T T)) ; Колір 7 (білий/чорний), лінія Continuous, вага за замовчуванням, друкувати
+  (if (not (EnsureLayer target_layer 7 "Continuous" -3 T T))
     (progn (princ (strcat "\n*** Помилка: Не вдалося створити/знайти шар '" target_layer "'.")) (*error* "Layer creation failed"))
   )
-  (princ (strcat "\nDebug: Шар '" target_layer "' готовий. Встановлення поточним.")) ; DEBUG
-  (setvar "CLAYER" target_layer) ; Зробити шар поточним для вставки блоків
+  (setvar "CLAYER" target_layer)
 
   ;; Перевірка/створення блоку
-  (princ "\nDebug: Перевірка/створення блоку...") ; DEBUG
   (if (not (MakePicketBlock block_name text_style text_height block_def_layer))
       (progn (princ (strcat "\n*** Помилка: Не вдалося створити/знайти блок '" block_name "'.")) (*error* "Block creation/check failed"))
   )
-   (princ (strcat "\nDebug: Блок '" block_name "' OK.")) ; DEBUG
 
   ;; Отримання об'єкту простору моделі
-  (princ "\nDebug: Отримання Modelspace...") ; DEBUG
   (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))
-   (princ (strcat "\nDebug: Об'єкт Modelspace: " (vl-princ-to-string mspace))) ; DEBUG
-   (if (not mspace) (progn (princ "\n*** Помилка: Не вдалося отримати Modelspace!") (*error* "Modelspace failed"))) ; Check
-
-  (princ "\nDebug: Вхід у цикл розстановки...") ; DEBUG
+  (if (not mspace) (progn (princ "\n*** Помилка: Не вдалося отримати Modelspace!") (*error* "Modelspace failed")))
 
   ;; --- Цикл розстановки пікетів ---
   (setq current_picket_val first_picket_val)
@@ -302,14 +268,8 @@
     (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
       (progn
         ;; Отримання точки та дотичної
-        (princ (strcat "\nDebug: dist_on_pline = " (rtos dist_on_pline))) ; DEBUG
         (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
-        (princ (strcat "\nDebug: pt_on_pline = " (vl-princ-to-string pt_on_pline))) ; DEBUG
-        (if (not pt_on_pline) (princ "\n*** Error: Не вдалося отримати точку на відстані!")) ; DEBUG Check
-
         (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
-        (princ (strcat "\nDebug: vec_tangent = " (vl-princ-to-string vec_tangent))) ; DEBUG
-        (if (not vec_tangent) (princ "\n*** Error: Не вдалося отримати дотичну!")) ; DEBUG Check
 
         ;; --- Додаткова перевірка на нульовий вектор дотичної ---
         (if (and pt_on_pline vec_tangent (< (distance '(0 0 0) vec_tangent) fuzz))
@@ -320,24 +280,18 @@
                 ;; Розрахунок перпендикуляру та кута повороту
                 (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0)) ; Номінальний перпендикуляр (+90 град)
                 (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp))) ; Застосування фактору сторони
-                (princ (strcat "\nDebug: vec_perp_final = " (vl-princ-to-string vec_perp_final))) ; DEBUG
-
                 (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут для вставки блоку
-                (princ (strcat "\nDebug: block_angle = " (rtos block_angle))) ; DEBUG
 
                 ;; Формування тексту пікету
                 (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz))))) ; Fix для коректного цілого числа
-                (princ (strcat "\nDebug: piket_str = " piket_str)) ; DEBUG
 
                 ;; Вставка блоку
                 (princ (strcat "\n Вставка маркера: " piket_str " на відстані " (rtos dist_on_pline 2 2)))
-                (princ "\nDebug: Виклик vla-InsertBlock...") ; DEBUG
                 (setq inserted_block (vl-catch-all-apply
                                       'vla-InsertBlock
                                       (list mspace (vlax-3d-point pt_on_pline) block_name 1.0 1.0 1.0 block_angle)
                                      )
                 )
-                (princ "\nDebug: vla-InsertBlock завершено.") ; DEBUG
 
                 ;; --- Додаткова перевірка результату вставки ---
                 (if (vl-catch-all-error-p inserted_block)
@@ -345,41 +299,29 @@
                     (if (not inserted_block)
                        (princ "\n*** Помилка: vla-InsertBlock повернув nil!")
                        (progn ; Вставка успішна, обробляємо атрибути
-                         (princ (strcat "\nDebug: Вставлений об'єкт блоку: " (vl-princ-to-string inserted_block))) ; DEBUG
                          ;; Встановлення значення атрибуту
                          (if (= (vla-get-HasAttributes inserted_block) :vlax_true)
                            (progn
-                             (princ "\nDebug: Блок має атрибути. Отримання...") ; DEBUG
                              (setq atts (vl-catch-all-apply 'vlax-invoke (list inserted_block 'GetAttributes)))
                              (if (vl-catch-all-error-p atts)
                                 (princ (strcat "\n*** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
                                 (if atts
                                     (progn
-                                       (princ "\nDebug: Обробка атрибутів...") ; DEBUG
                                        (foreach att atts
-                                         (princ (strcat "\n  Debug: Перевірка тегу атрибуту: " (vla-get-TagString att))) ; DEBUG
                                          (if (= (strcase (vla-get-TagString att)) (strcase att_tag))
-                                           (progn
-                                              (princ (strcat "\n    Debug: Встановлення атрибуту '" att_tag "' в '" piket_str "'")) ; DEBUG
-                                              (vl-catch-all-apply 'vla-put-TextString (list att piket_str))
-                                           )
+                                           (vl-catch-all-apply 'vla-put-TextString (list att piket_str))
                                          )
                                        )
-                                       (princ "\nDebug: Оновлення блоку...") ; DEBUG
                                        (vl-catch-all-apply 'vlax-invoke (list inserted_block 'Update)) ; Оновити відображення атрибутів
-                                       (princ "\nDebug: Оновлення блоку завершено.") ; DEBUG
                                     )
-                                    (princ "\nDebug: GetAttributes повернув nil або порожній список.") ; DEBUG
                                 )
                              )
                            )
-                           (princ "\nDebug: Блок не має атрибутів.") ; DEBUG
                          )
                        ) ; progn block inserted successfully
                     ) ; endif block inserted successfully
                 ) ; endif check vla-InsertBlock error
               ) ; progn if point and tangent are valid
-              (princ "\n*** Пропуск пікету через недійсну точку або дотичну.") ; else point or tangent invalid
             ) ; endif zero tangent check
         ) ; endif point and tangent exist check
       ) ; progn if point on polyline
@@ -390,7 +332,7 @@
   ) ; while loop
 
   ;; --- Завершення ---
-  (vlax-invoke pline_obj 'Highlight :vlax_false) ; Зняти підсвічування
+  ;; (vlax-invoke pline_obj 'Highlight :vlax_false) ; ВИДАЛЕНО HIGHLIGHT
   (command "_REGEN") ; Оновити екран для відображення атрибутів
   (princ "\nРозстановка пікетажу завершена.")
 
@@ -401,5 +343,5 @@
 )
 
 ;; Повідомлення про завантаження - ЗМІНЕНО
-(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v4 для запуску.")
+(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v5 для запуску.")
 (princ)
