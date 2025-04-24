@@ -35,7 +35,7 @@
   )
 )
 
-;; Функція для створення блоку маркера пікету (з використанням COMMAND)
+;; Функція для створення блоку маркера пікету (з використанням COMMAND та опції Previous)
 ;; Повертає ім'я блоку у разі успіху, nil у разі помилки
 (defun MakePicketBlock (blkname stylename txtheight layer_for_def / base_pt line_len cap_len half_line half_cap txt_h att_tag att_prompt att_default att_ins_pt temp_ents old_layer old_osmode old_cmdecho line1 line2 attdef) ; Додано локальні змінні
   (if (tblsearch "BLOCK" blkname)
@@ -46,8 +46,10 @@
             line_len 38.0 cap_len 5.0 half_line (/ line_len 2.0) half_cap (/ cap_len 2.0)
             txt_h txtheight att_tag "PIKET_NO" att_prompt "Номер пікету:" att_default "ПКXX"
             att_ins_pt (list 0.0 (+ half_line (/ txt_h 2.0)) 0.0)
-            temp_ents (ssadd) ; Selection set for temporary entities
-            old_layer (getvar "CLAYER") ; Save current layer
+            ;; Важливо: Створюємо ПОРОЖНІЙ selection set перед створенням геометрії
+            ;; Щоб саме наша геометрія стала "Previous" для команди BLOCK
+            temp_ents (ssadd)
+            old_layer (getvar "CLAYER")
             old_osmode (getvar "OSMODE")
             old_cmdecho (getvar "CMDECHO")
       )
@@ -59,44 +61,69 @@
       (if (not (tblsearch "STYLE" stylename))
         (progn
           (princ (strcat "\n*** Попередження: Текстовий стиль '" stylename "' не знайдено."))
-          (setq stylename (getvar "TEXTSTYLE")) ; Використовуємо поточний стиль
+          (setq stylename (getvar "TEXTSTYLE"))
           (princ (strcat " Буде використано поточний стиль '" stylename "'."))
         )
       )
 
-      ;; Створення тимчасової геометрії за допомогою entmakex (безпечніше за entmake)
-      ;; Об'єкти створюються на поточному шарі (який ми встановили як "0")
+      ;; Створення тимчасової геометрії за допомогою entmakex
       (setq line1 (entmakex (list '(0 . "LINE") (cons 10 (list 0.0 (- half_line) 0.0)) (cons 11 (list 0.0 half_line 0.0)))))
       (setq line2 (entmakex (list '(0 . "LINE") (cons 10 (list (- half_cap) half_line 0.0)) (cons 11 (list half_cap half_line 0.0)))))
       (setq attdef (entmakex (list '(0 . "ATTDEF") (cons 10 att_ins_pt) (cons 40 txt_h) (cons 1 att_default) (cons 2 att_tag) (cons 3 att_prompt) (cons 7 stylename) '(71 . 0) '(72 . 4) '(74 . 1))))
 
-      ;; Перевірка чи об'єкти створено і додавання їх до набору
-      ;; entlast використовується тому що entmakex не повертає ім'я об'єкта напряму
-      (if line1 (ssadd (entlast) temp_ents))
-      (if line2 (ssadd (entlast) temp_ents))
-      (if attdef (ssadd (entlast) temp_ents))
-
-      (if (> (sslength temp_ents) 0) ; Продовжуємо тільки якщо геометрію створено
+      ;; Перевірка чи об'єкти створено
+      (if (or (not line1) (not line2) (not attdef))
           (progn
-            ;; Використання команди BLOCK для визначення блоку з тимчасових об'єктів
-            (command "_.-BLOCK" blkname ; Ім'я блоку
-                     "_Y" ; Перезаписати, якщо існує (безпека, хоча tblsearch вже перевірив)
-                     base_pt ; Базова точка вставки блоку
-                     temp_ents ; Вибір об'єктів, що увійдуть у блок
-                     "" ; Завершити вибір об'єктів
-            )
-            ;; Перевірка чи блок дійсно створено після команди
-            (if (tblsearch "BLOCK" blkname)
-                (progn (princ (strcat "\nБлок '" blkname "' успішно створено.")) blkname) ; Успіх
-                (progn (princ (strcat "\n*** Помилка: Не вдалося створити блок '" blkname "' за допомогою команди BLOCK.")) nil) ; Невдача
-            )
+             (princ "\n*** Помилка: Не вдалося створити всю геометрію для блоку.")
+             ;; Спробувати видалити частково створені об'єкти, якщо вони є
+             (if line1 (entdel (entlast)))
+             (if line2 (entdel (entlast)))
+             (if attdef (entdel (entlast)))
+             (setq blkname nil) ; Позначити помилку
           )
-          (progn (princ "\n*** Помилка: Не вдалося створити геометрію для блоку.") nil) ; Невдача створення геометрії
+          (progn ; Геометрію створено, можна визначати блок
+              ;; Створюємо selection set з ОСТАННІХ створених об'єктів
+              ;; Це важливо для опції "P" (Previous)
+              (setq temp_ents (ssadd))
+              (ssadd (entlast) temp_ents) ; Додати ATTDEF
+              (ssadd (entnext (entlast)) temp_ents) ; Додати LINE2 (може бути небезпечно, якщо щось ще створилось)
+              (ssadd (entnext (entnext (entlast))) temp_ents) ; Додати LINE1 (ще більш небезпечно)
+              ;; ----- БЕЗПЕЧНІШИЙ СПОСІБ -> Використати entlast 3 рази -----
+              (setq temp_ents (ssadd))
+              (setq ent3 (entlast)) ; ATTDEF
+              (setq ent2 (entprev ent3)) ; LINE2
+              (setq ent1 (entprev ent2)) ; LINE1
+              (if (and ent1 ent2 ent3) ; Перевірка, чи всі три об'єкти отримано
+                  (progn
+                    (ssadd ent1 temp_ents)
+                    (ssadd ent2 temp_ents)
+                    (ssadd ent3 temp_ents)
+
+                    ;; Використання команди BLOCK з опцією вибору "P" (Previous)
+                    (command "_.-BLOCK" blkname ; Ім'я блоку
+                             base_pt ; Базова точка вставки блоку
+                             temp_ents ; <--- ВИКОРИСТОВУЄМО НАБІР ВИБОРУ ЯВНО
+                             "" ; Завершити вибір об'єктів
+                    )
+                    ;; Перевірка чи блок дійсно створено після команди
+                    (if (tblsearch "BLOCK" blkname)
+                        (progn (princ (strcat "\nБлок '" blkname "' успішно створено.")) blkname) ; Успіх
+                        (progn (princ (strcat "\n*** Помилка: Не вдалося створити блок '" blkname "' за допомогою команди BLOCK.")) (setq blkname nil)) ; Невдача
+                    )
+                  )
+                  (progn ; Не вдалося отримати останні 3 об'єкти
+                     (princ "\n*** Помилка: Не вдалося ідентифікувати створену геометрію для блоку.")
+                     (if ent1 (entdel ent1)) (if ent2 (entdel ent2)) (if ent3 (entdel ent3))
+                     (setq blkname nil)
+                  )
+              )
+          )
       )
       ;; Відновлення попередніх налаштувань AutoCAD
       (setvar "CLAYER" old_layer)
       (setvar "OSMODE" old_osmode)
       (setvar "CMDECHO" old_cmdecho)
+      blkname ; Повернути ім'я блоку або nil у разі помилки
     ) ; progn if block needs creation
   ) ; if tblsearch
 )
@@ -263,5 +290,5 @@
 )
 
 ;; Повідомлення про завантаження - ЗМІНЕНО
-(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v8 для запуску.")
+(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v9 для запуску.")
 (princ)
