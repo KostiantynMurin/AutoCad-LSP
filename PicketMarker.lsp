@@ -131,8 +131,11 @@
     (if old_vars
       (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)) ; Відновити старі змінні
     )
-    (if (not (member msg '("Function cancelled" "quit / exit abort")))
-      (princ (strcat "\nПомилка виконання: " msg)) ; Змінено текст повідомлення
+    (if (and pline_obj (not (vlax-object-released-p pline_obj)))
+        (vlax-invoke pline_obj 'Highlight :vlax_false) ; Зняти підсвічування при помилці
+    )
+    (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем"))) ; Додано "Відміна користувачем"
+      (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ) ; Тихий вихід
   )
@@ -185,12 +188,38 @@
      (progn (princ "\nСторону не вказано. Вихід.") (*error* "Відміна користувачем"))
   )
 
-  ;; --- Розрахунки ---
-  (vlax-invoke pline_obj 'Highlight :vlax_true) ; Підсвітити полілінію
-  (command "_REGEN") ; Оновити екран
+  ;; --- ДОДАНІ ПЕРЕВІРКИ ОДРАЗУ ПІСЛЯ ВВЕДЕННЯ ---
+  (princ "\nDebug: Завершено фазу введення.") ; DEBUG
+  (princ (strcat "\nDebug: pt_ref_on_pline = " (vl-princ-to-string pt_ref_on_pline))) ; DEBUG
+  (princ (strcat "\nDebug: val_ref = " (rtos val_ref))) ; DEBUG
+  (princ (strcat "\nDebug: pt_dir = " (vl-princ-to-string pt_dir))) ; DEBUG
+  (princ (strcat "\nDebug: pt_side_ref = " (vl-princ-to-string pt_side_ref))) ; DEBUG
+  (if (and pline_obj (not (vlax-object-released-p pline_obj)))
+      (princ (strcat "\nDebug: pline_obj валідний: " (vl-princ-to-string pline_obj))) ; DEBUG
+      (progn (princ "\nDebug: *** pline_obj НЕ валідний або звільнений! ***") (*error* "Polyline object invalid")) ; DEBUG
+  )
+  (if (and pt_ref_on_pline (= (type pt_ref_on_pline) 'LIST) (= (length pt_ref_on_pline) 3))
+      (princ "\nDebug: pt_ref_on_pline виглядає як валідна точка.") ; DEBUG
+      (progn (princ "\nDebug: *** pt_ref_on_pline НЕ є валідною точкою! ***") (*error* "Reference point on polyline invalid")) ; DEBUG
+  )
+   (if (and pt_dir (= (type pt_dir) 'LIST) (= (length pt_dir) 3))
+      (princ "\nDebug: pt_dir виглядає як валідна точка.") ; DEBUG
+      (progn (princ "\nDebug: *** pt_dir НЕ є валідною точкою! ***") (*error* "Direction point invalid")) ; DEBUG
+  )
+   (if (and pt_side_ref (= (type pt_side_ref) 'LIST) (= (length pt_side_ref) 3))
+      (princ "\nDebug: pt_side_ref виглядає як валідна точка.") ; DEBUG
+      (progn (princ "\nDebug: *** pt_side_ref НЕ є валідною точкою! ***") (*error* "Side point invalid")) ; DEBUG
+  )
 
+  ;; --- Розрахунки ---
+  (princ "\nDebug: Спроба Highlight...") ; DEBUG
+  (vlax-invoke pline_obj 'Highlight :vlax_true) ; Підсвітити полілінію
+  (princ "\nDebug: Highlight успішно. Виклик Regen...") ; DEBUG
+  (command "_REGEN") ; Оновити екран
+  (princ "\nDebug: Regen успішно. Обчислення vec_dir...") ; DEBUG
   ;; Визначення напрямку (dir_factor)
   (setq vec_dir (mapcar '- (trans pt_dir 1 0) pt_ref_on_pline)) ; Вектор вказаного напрямку
+  (princ (strcat "\nDebug: vec_dir = " (vl-princ-to-string vec_dir))) ; DEBUG
   (princ "\nDebug: Обчислення дотичної в точці прив'язки...") ; DEBUG
   (setq vec_tangent_ref (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtPoint pline_obj pt_ref_on_pline))) ; Дотична в точці прив'язки
   (princ (strcat "\nDebug: vec_tangent_ref = " (vl-princ-to-string vec_tangent_ref))) ; DEBUG
@@ -372,5 +401,5 @@
 )
 
 ;; Повідомлення про завантаження - ЗМІНЕНО
-(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v3 для запуску.")
+(princ "\nСкрипт для розстановки пікетажу завантажено. Введіть 'CREATE_PICKETMARKER' v4 для запуску.")
 (princ)
