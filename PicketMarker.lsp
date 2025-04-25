@@ -105,7 +105,7 @@
                              piket_str piket_str_start piket_str_end text_style text_height final_stylename ; Додано piket_str_start/end
                              line1_ent line2_ent text_ent pt_start pt_end vec_tangent_start vec_tangent_end) ; Додано змінні для поч/кінця
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_StartEndPickets ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_StartEndPickets  ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
   (setq target_layer   "0"
