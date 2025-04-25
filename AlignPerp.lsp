@@ -1,25 +1,25 @@
-;; LISP Скрипт для AutoCAD: Вирівнювання Об'єкта Перпендикулярно в Точці Перетину
-;; Ім'я команди: AlignPerp
-;; Автор: AI Assistant (Gemini)
-;; Дата: 2025-04-14
-;; Версія: 2.1 (Українська локалізація, підтримка Блоків, Ліній, Поліліній)
-;; Опис:
-;;   1. Користувач ВИБИРАЄ ОДИН БЛОК, ЛІНІЮ або ПОЛІЛІНІЮ.
-;;   2. Користувач запускає команду AlignPerp.
-;;   3. Скрипт шукає інші лінії або полілінії, що перетинають вибраний об'єкт.
-;;   4. Якщо перетин знайдено:
-;;      - Для БЛОКІВ та ЛІНІЙ: скрипт повертає об'єкт навколо точки перетину
-;;        так, щоб він став перпендикулярним до іншої лінії/полілінії в цій точці.
-;;        Об'єкт НЕ переміщується, лише повертається.
-;;      - Для ПОЛІЛІНІЙ: поворот НЕ виконується (видається попередження),
-;;        оскільки результат може бути непередбачуваним.
+;; LISP РЎРєСЂРёРїС‚ РґР»СЏ AutoCAD: Р’РёСЂС–РІРЅСЋРІР°РЅРЅСЏ РћР±'С”РєС‚Р° РџРµСЂРїРµРЅРґРёРєСѓР»СЏСЂРЅРѕ РІ РўРѕС‡С†С– РџРµСЂРµС‚РёРЅСѓ
+;; Р†Рј'СЏ РєРѕРјР°РЅРґРё: AlignPerp
+;; РђРІС‚РѕСЂ: AI Assistant (Gemini)
+;; Р”Р°С‚Р°: 2025-04-14
+;; Р’РµСЂСЃС–СЏ: 2.1 (РЈРєСЂР°С—РЅСЃСЊРєР° Р»РѕРєР°Р»С–Р·Р°С†С–СЏ, РїС–РґС‚СЂРёРјРєР° Р‘Р»РѕРєС–РІ, Р›С–РЅС–Р№, РџРѕР»С–Р»С–РЅС–Р№)
+;; РћРїРёСЃ:
+;;   1. РљРѕСЂРёСЃС‚СѓРІР°С‡ Р’РР‘РР РђР„ РћР”РРќ Р‘Р›РћРљ, Р›Р†РќР†Р® Р°Р±Рѕ РџРћР›Р†Р›Р†РќР†Р®.
+;;   2. РљРѕСЂРёСЃС‚СѓРІР°С‡ Р·Р°РїСѓСЃРєР°С” РєРѕРјР°РЅРґСѓ AlignPerp.
+;;   3. РЎРєСЂРёРїС‚ С€СѓРєР°С” С–РЅС€С– Р»С–РЅС–С— Р°Р±Рѕ РїРѕР»С–Р»С–РЅС–С—, С‰Рѕ РїРµСЂРµС‚РёРЅР°СЋС‚СЊ РІРёР±СЂР°РЅРёР№ РѕР±'С”РєС‚.
+;;   4. РЇРєС‰Рѕ РїРµСЂРµС‚РёРЅ Р·РЅР°Р№РґРµРЅРѕ:
+;;      - Р”Р»СЏ Р‘Р›РћРљР†Р’ С‚Р° Р›Р†РќР†Р™: СЃРєСЂРёРїС‚ РїРѕРІРµСЂС‚Р°С” РѕР±'С”РєС‚ РЅР°РІРєРѕР»Рѕ С‚РѕС‡РєРё РїРµСЂРµС‚РёРЅСѓ
+;;        С‚Р°Рє, С‰РѕР± РІС–РЅ СЃС‚Р°РІ РїРµСЂРїРµРЅРґРёРєСѓР»СЏСЂРЅРёРј РґРѕ С–РЅС€РѕС— Р»С–РЅС–С—/РїРѕР»С–Р»С–РЅС–С— РІ С†С–Р№ С‚РѕС‡С†С–.
+;;        РћР±'С”РєС‚ РќР• РїРµСЂРµРјС–С‰СѓС”С‚СЊСЃСЏ, Р»РёС€Рµ РїРѕРІРµСЂС‚Р°С”С‚СЊСЃСЏ.
+;;      - Р”Р»СЏ РџРћР›Р†Р›Р†РќР†Р™: РїРѕРІРѕСЂРѕС‚ РќР• РІРёРєРѕРЅСѓС”С‚СЊСЃСЏ (РІРёРґР°С”С‚СЊСЃСЏ РїРѕРїРµСЂРµРґР¶РµРЅРЅСЏ),
+;;        РѕСЃРєС–Р»СЊРєРё СЂРµР·СѓР»СЊС‚Р°С‚ РјРѕР¶Рµ Р±СѓС‚Рё РЅРµРїРµСЂРµРґР±Р°С‡СѓРІР°РЅРёРј.
 ;;
 
-(vl-load-com) ; Переконуємось, що VLA функції доступні
+(vl-load-com) ; РџРµСЂРµРєРѕРЅСѓС”РјРѕСЃСЊ, С‰Рѕ VLA С„СѓРЅРєС†С–С— РґРѕСЃС‚СѓРїРЅС–
 
 (defun c:AlignPerp (/ *error* oldCmdEcho oldOsmode selSet objEnt objVla objType minPt maxPt expFactor p1 p2 ssCandidates i candEnt candVla intPoints intPtArr intPt param tangentVec tangentAng perpAng currentAng rotAngleRad rotAngleDegrees foundIntersection intersectionProcessed)
 
-  ;; --- Обробник помилок ---
+  ;; --- РћР±СЂРѕР±РЅРёРє РїРѕРјРёР»РѕРє ---
   (defun *error* (msg)
     (if oldCmdEcho (setvar "CMDECHO" oldCmdEcho))
     (if oldOsmode (setvar "OSMODE" oldOsmode))
@@ -27,14 +27,14 @@
         (vla-EndUndoMark *acadDoc*)
     )
     (if (and msg (not (wcmatch (strcase msg) "*BREAK,*CANCEL*,*EXIT*")))
-        (princ (strcat "\nПомилка: " msg))
+        (princ (strcat "\nРџРѕРјРёР»РєР°: " msg))
     )
-    (princ (strcat "\nВиконання " command-name " скасовано."))
-    (princ) ; Тихий вихід
+    (princ (strcat "\nР’РёРєРѕРЅР°РЅРЅСЏ " command-name " СЃРєР°СЃРѕРІР°РЅРѕ."))
+    (princ) ; РўРёС…РёР№ РІРёС…С–Рґ
   )
 
-  ;; --- Основна Функція ---
-  (setq command-name "AlignPerp") ; Зберігаємо ім'я команди для повідомлень
+  ;; --- РћСЃРЅРѕРІРЅР° Р¤СѓРЅРєС†С–СЏ ---
+  (setq command-name "AlignPerp") ; Р—Р±РµСЂС–РіР°С”РјРѕ С–Рј'СЏ РєРѕРјР°РЅРґРё РґР»СЏ РїРѕРІС–РґРѕРјР»РµРЅСЊ
   (setq oldCmdEcho (getvar "CMDECHO"))
   (setq oldOsmode (getvar "OSMODE"))
   (setvar "CMDECHO" 0)
@@ -42,38 +42,38 @@
   (setq *acadDoc* (vla-get-ActiveDocument (vlax-get-acad-object)))
   (vla-StartUndoMark *acadDoc*)
 
-  (setq foundIntersection nil)     ; Прапорець, що знайдено хоча б один перетин
-  (setq intersectionProcessed nil) ; Прапорець, що перетин було оброблено (з поворотом або попередженням)
+  (setq foundIntersection nil)     ; РџСЂР°РїРѕСЂРµС†СЊ, С‰Рѕ Р·РЅР°Р№РґРµРЅРѕ С…РѕС‡Р° Р± РѕРґРёРЅ РїРµСЂРµС‚РёРЅ
+  (setq intersectionProcessed nil) ; РџСЂР°РїРѕСЂРµС†СЊ, С‰Рѕ РїРµСЂРµС‚РёРЅ Р±СѓР»Рѕ РѕР±СЂРѕР±Р»РµРЅРѕ (Р· РїРѕРІРѕСЂРѕС‚РѕРј Р°Р±Рѕ РїРѕРїРµСЂРµРґР¶РµРЅРЅСЏРј)
 
-  ;; --- Отримання попередньо вибраного об'єкта ---
-  (prompt (strcat "\nОчікується ОДИН попередньо вибраний БЛОК, ЛІНІЯ або ПОЛІЛІНІЯ... Запустіть " command-name))
+  ;; --- РћС‚СЂРёРјР°РЅРЅСЏ РїРѕРїРµСЂРµРґРЅСЊРѕ РІРёР±СЂР°РЅРѕРіРѕ РѕР±'С”РєС‚Р° ---
+  (prompt (strcat "\nРћС‡С–РєСѓС”С‚СЊСЃСЏ РћР”РРќ РїРѕРїРµСЂРµРґРЅСЊРѕ РІРёР±СЂР°РЅРёР№ Р‘Р›РћРљ, Р›Р†РќР†РЇ Р°Р±Рѕ РџРћР›Р†Р›Р†РќР†РЇ... Р—Р°РїСѓСЃС‚С–С‚СЊ " command-name))
   (setq selSet (ssget "_P"))
 
-  ;; --- Перевірка вибору ---
+  ;; --- РџРµСЂРµРІС–СЂРєР° РІРёР±РѕСЂСѓ ---
   (if (or (not selSet) (/= (sslength selSet) 1))
-    (progn (princ "\nБудь ласка, виберіть РІВНО ОДИН об'єкт (Блок, Лінію або Полілінію) перед запуском команди.") (*error* nil))
+    (progn (princ "\nР‘СѓРґСЊ Р»Р°СЃРєР°, РІРёР±РµСЂС–С‚СЊ Р Р†Р’РќРћ РћР”РРќ РѕР±'С”РєС‚ (Р‘Р»РѕРє, Р›С–РЅС–СЋ Р°Р±Рѕ РџРѕР»С–Р»С–РЅС–СЋ) РїРµСЂРµРґ Р·Р°РїСѓСЃРєРѕРј РєРѕРјР°РЅРґРё.") (*error* nil))
   )
 
   (setq objEnt (ssname selSet 0))
   (setq objVla (vlax-ename->vla-object objEnt))
-  (setq objType (strcase (vla-get-ObjectName objVla))) ; Отримуємо тип об'єкта в верхньому регістрі
+  (setq objType (strcase (vla-get-ObjectName objVla))) ; РћС‚СЂРёРјСѓС”РјРѕ С‚РёРї РѕР±'С”РєС‚Р° РІ РІРµСЂС…РЅСЊРѕРјСѓ СЂРµРіС–СЃС‚СЂС–
 
-  ;; Перевірка типу об'єкта
-  (if (not (wcmatch objType "*BLOCK*,*LINE*")) ; *LINE* включає LINE та LWPOLYLINE
-      (progn (princ "\nВибраний об'єкт не є Блоком, Лінією або Полілінією.") (*error* nil))
+  ;; РџРµСЂРµРІС–СЂРєР° С‚РёРїСѓ РѕР±'С”РєС‚Р°
+  (if (not (wcmatch objType "*BLOCK*,*LINE*")) ; *LINE* РІРєР»СЋС‡Р°С” LINE С‚Р° LWPOLYLINE
+      (progn (princ "\nР’РёР±СЂР°РЅРёР№ РѕР±'С”РєС‚ РЅРµ С” Р‘Р»РѕРєРѕРј, Р›С–РЅС–С”СЋ Р°Р±Рѕ РџРѕР»С–Р»С–РЅС–С”СЋ.") (*error* nil))
   )
 
-  (princ (strcat "\nОбробка об'єкта: " (vl-princ-to-string objType)))
+  (princ (strcat "\nРћР±СЂРѕР±РєР° РѕР±'С”РєС‚Р°: " (vl-princ-to-string objType)))
 
-  ;; --- Отримання габаритного контейнера об'єкта для пошуку ліній поруч ---
+  ;; --- РћС‚СЂРёРјР°РЅРЅСЏ РіР°Р±Р°СЂРёС‚РЅРѕРіРѕ РєРѕРЅС‚РµР№РЅРµСЂР° РѕР±'С”РєС‚Р° РґР»СЏ РїРѕС€СѓРєСѓ Р»С–РЅС–Р№ РїРѕСЂСѓС‡ ---
   (vl-catch-all-apply 'vla-GetBoundingBox (list objVla 'minPt 'maxPt))
   (if (or (not minPt) (not maxPt))
-      ;; Спроба отримати координати для ліній/поліліній, якщо GetBoundingBox не спрацював
+      ;; РЎРїСЂРѕР±Р° РѕС‚СЂРёРјР°С‚Рё РєРѕРѕСЂРґРёРЅР°С‚Рё РґР»СЏ Р»С–РЅС–Р№/РїРѕР»С–Р»С–РЅС–Р№, СЏРєС‰Рѕ GetBoundingBox РЅРµ СЃРїСЂР°С†СЋРІР°РІ
       (if (wcmatch objType "*LINE*")
           (progn
             (setq minPt (vlax-get objVla (if (wcmatch objType "*POLYLINE*") 'Coordinates 'StartPoint)))
             (setq maxPt (vlax-get objVla (if (wcmatch objType "*POLYLINE*") 'Coordinates 'EndPoint)))
-            ;; Для поліліній координати - це список, треба знайти min/max
+            ;; Р”Р»СЏ РїРѕР»С–Р»С–РЅС–Р№ РєРѕРѕСЂРґРёРЅР°С‚Рё - С†Рµ СЃРїРёСЃРѕРє, С‚СЂРµР±Р° Р·РЅР°Р№С‚Рё min/max
             (if (wcmatch objType "*POLYLINE*")
                 (let ((coords (vlax-safearray->list (vlax-variant-value minPt))) x y minx miny maxx maxy)
                      (setq minx (car coords) miny (cadr coords) maxx minx maxy miny)
@@ -85,121 +85,121 @@
                        (if (> y maxy) (setq maxy y))
                        (setq coords (cddr coords))
                      )
-                     (setq minPt (list minx miny 0.0) maxPt (list maxx maxy 0.0)) ; Припускаємо 2D
+                     (setq minPt (list minx miny 0.0) maxPt (list maxx maxy 0.0)) ; РџСЂРёРїСѓСЃРєР°С”РјРѕ 2D
                 )
-                ;; Для лінії StartPoint/EndPoint вже є точками
+                ;; Р”Р»СЏ Р»С–РЅС–С— StartPoint/EndPoint РІР¶Рµ С” С‚РѕС‡РєР°РјРё
                 (setq minPt (list (apply 'min (list (car minPt) (car maxPt))) (apply 'min (list (cadr minPt) (cadr maxPt))) 0.0))
                 (setq maxPt (list (apply 'max (list (car minPt) (car maxPt))) (apply 'max (list (cadr minPt) (cadr maxPt))) 0.0))
             )
           )
-          (progn (princ "\nНе вдалося отримати габаритний контейнер або координати об'єкта.") (*error* nil))
+          (progn (princ "\nРќРµ РІРґР°Р»РѕСЃСЏ РѕС‚СЂРёРјР°С‚Рё РіР°Р±Р°СЂРёС‚РЅРёР№ РєРѕРЅС‚РµР№РЅРµСЂ Р°Р±Рѕ РєРѕРѕСЂРґРёРЅР°С‚Рё РѕР±'С”РєС‚Р°.") (*error* nil))
       )
   )
 
 
-  ;; Розширюємо область пошуку трохи за межі габаритів
+  ;; Р РѕР·С€РёСЂСЋС”РјРѕ РѕР±Р»Р°СЃС‚СЊ РїРѕС€СѓРєСѓ С‚СЂРѕС…Рё Р·Р° РјРµР¶С– РіР°Р±Р°СЂРёС‚С–РІ
   (setq expFactor 1.0)
   (setq p1 (list (- (car minPt) expFactor) (- (cadr minPt) expFactor) (caddr minPt)))
   (setq p2 (list (+ (car maxPt) expFactor) (+ (cadr maxPt) expFactor) (caddr maxPt)))
 
-  ;; --- Пошук ЛІНІЙ та ПОЛІЛІНІЙ у розширеній області ---
-  (princ "\nПошук ліній/поліліній, що перетинають вибраний об'єкт...")
-  (setq ssCandidates (ssget "_C" p1 p2 '((0 . "*LINE")))) ; Вибираємо LINE та LWPOLYLINE
+  ;; --- РџРѕС€СѓРє Р›Р†РќР†Р™ С‚Р° РџРћР›Р†Р›Р†РќР†Р™ Сѓ СЂРѕР·С€РёСЂРµРЅС–Р№ РѕР±Р»Р°СЃС‚С– ---
+  (princ "\nРџРѕС€СѓРє Р»С–РЅС–Р№/РїРѕР»С–Р»С–РЅС–Р№, С‰Рѕ РїРµСЂРµС‚РёРЅР°СЋС‚СЊ РІРёР±СЂР°РЅРёР№ РѕР±'С”РєС‚...")
+  (setq ssCandidates (ssget "_C" p1 p2 '((0 . "*LINE")))) ; Р’РёР±РёСЂР°С”РјРѕ LINE С‚Р° LWPOLYLINE
 
   (if (not ssCandidates)
-    (progn (princ "\nПоблизу вибраного об'єкта не знайдено ліній або поліліній для перевірки перетину.") (*error* nil))
+    (progn (princ "\nРџРѕР±Р»РёР·Сѓ РІРёР±СЂР°РЅРѕРіРѕ РѕР±'С”РєС‚Р° РЅРµ Р·РЅР°Р№РґРµРЅРѕ Р»С–РЅС–Р№ Р°Р±Рѕ РїРѕР»С–Р»С–РЅС–Р№ РґР»СЏ РїРµСЂРµРІС–СЂРєРё РїРµСЂРµС‚РёРЅСѓ.") (*error* nil))
   )
 
-  ;; --- Ітерація по знайдених лініях/полілініях для пошуку перетину ---
+  ;; --- Р†С‚РµСЂР°С†С–СЏ РїРѕ Р·РЅР°Р№РґРµРЅРёС… Р»С–РЅС–СЏС…/РїРѕР»С–Р»С–РЅС–СЏС… РґР»СЏ РїРѕС€СѓРєСѓ РїРµСЂРµС‚РёРЅСѓ ---
   (setq i 0)
-  (while (and (< i (sslength ssCandidates)) (not intersectionProcessed)) ; Зупиняємось після першої успішної обробки
+  (while (and (< i (sslength ssCandidates)) (not intersectionProcessed)) ; Р—СѓРїРёРЅСЏС”РјРѕСЃСЊ РїС–СЃР»СЏ РїРµСЂС€РѕС— СѓСЃРїС–С€РЅРѕС— РѕР±СЂРѕР±РєРё
     (setq candEnt (ssname ssCandidates i))
     (setq i (1+ i))
 
-    ;; Пропускаємо сам вибраний об'єкт
+    ;; РџСЂРѕРїСѓСЃРєР°С”РјРѕ СЃР°Рј РІРёР±СЂР°РЅРёР№ РѕР±'С”РєС‚
     (if (/= objEnt candEnt)
       (progn
         (setq candVla (vlax-ename->vla-object candEnt))
-        (princ (strcat "\n  Перевірка перетину з: " (vla-get-ObjectName candVla)))
+        (princ (strcat "\n  РџРµСЂРµРІС–СЂРєР° РїРµСЂРµС‚РёРЅСѓ Р·: " (vla-get-ObjectName candVla)))
 
         (setq intPoints (vl-catch-all-apply 'vlax-invoke-method (list objVla 'IntersectWith candVla acExtendNone)))
 
         (if (vl-catch-all-error-p intPoints)
-            (princ (strcat "\n    Помилка при перетині: " (vl-catch-all-error-message intPoints)))
+            (princ (strcat "\n    РџРѕРјРёР»РєР° РїСЂРё РїРµСЂРµС‚РёРЅС–: " (vl-catch-all-error-message intPoints)))
           (if (and intPoints (not (vl-catch-all-error-p intPoints)) (= (vlax-variant-type intPoints) (+ vlax-vbArray vlax-vbDouble)))
              (progn
                 (setq intPtArr (vlax-safearray->list (vlax-variant-value intPoints)))
                 (if (> (length intPtArr) 0)
                   (progn
                     (setq intPt (list (car intPtArr) (cadr intPtArr) (caddr intPtArr)))
-                    (princ (strcat "\n    Знайдено перетин в точці: " (vl-princ-to-string intPt)))
-                    (setq foundIntersection T) ; Позначка, що перетин існує
+                    (princ (strcat "\n    Р—РЅР°Р№РґРµРЅРѕ РїРµСЂРµС‚РёРЅ РІ С‚РѕС‡С†С–: " (vl-princ-to-string intPt)))
+                    (setq foundIntersection T) ; РџРѕР·РЅР°С‡РєР°, С‰Рѕ РїРµСЂРµС‚РёРЅ С–СЃРЅСѓС”
 
-                    ;; --- Отримання дотичної та перпендикуляра КАНДИДАТА в точці перетину ---
+                    ;; --- РћС‚СЂРёРјР°РЅРЅСЏ РґРѕС‚РёС‡РЅРѕС— С‚Р° РїРµСЂРїРµРЅРґРёРєСѓР»СЏСЂР° РљРђРќР”РР”РђРўРђ РІ С‚РѕС‡С†С– РїРµСЂРµС‚РёРЅСѓ ---
                     (setq param (vl-catch-all-apply 'vlax-curve-getParamAtPoint (list candVla intPt)))
                     (if (vl-catch-all-error-p param)
-                      (princ (strcat "\n      Помилка отримання параметра кривої-кандидата: " (vl-catch-all-error-message param)))
+                      (princ (strcat "\n      РџРѕРјРёР»РєР° РѕС‚СЂРёРјР°РЅРЅСЏ РїР°СЂР°РјРµС‚СЂР° РєСЂРёРІРѕС—-РєР°РЅРґРёРґР°С‚Р°: " (vl-catch-all-error-message param)))
                       (progn
                         (setq tangentVec (vl-catch-all-apply 'vlax-curve-getFirstDeriv (list candVla param)))
                         (if (vl-catch-all-error-p tangentVec)
-                          (princ (strcat "\n      Помилка отримання вектора дотичної кандидата: " (vl-catch-all-error-message tangentVec)))
+                          (princ (strcat "\n      РџРѕРјРёР»РєР° РѕС‚СЂРёРјР°РЅРЅСЏ РІРµРєС‚РѕСЂР° РґРѕС‚РёС‡РЅРѕС— РєР°РЅРґРёРґР°С‚Р°: " (vl-catch-all-error-message tangentVec)))
                           (if (< (distance '(0 0 0) tangentVec) 1e-9)
-                            (princ "\n      Неможливо визначити дотичну кандидата в цій точці.")
+                            (princ "\n      РќРµРјРѕР¶Р»РёРІРѕ РІРёР·РЅР°С‡РёС‚Рё РґРѕС‚РёС‡РЅСѓ РєР°РЅРґРёРґР°С‚Р° РІ С†С–Р№ С‚РѕС‡С†С–.")
                             (progn
-                              ;; --- Розрахунок перпендикулярного кута ---
+                              ;; --- Р РѕР·СЂР°С…СѓРЅРѕРє РїРµСЂРїРµРЅРґРёРєСѓР»СЏСЂРЅРѕРіРѕ РєСѓС‚Р° ---
                               (setq tangentAng (angle '(0 0 0) tangentVec))
                               (setq perpAng (+ tangentAng (/ pi 2.0)))
 
-                              ;; --- Обробка повороту в залежності від типу ВИБРАНОГО об'єкта ---
+                              ;; --- РћР±СЂРѕР±РєР° РїРѕРІРѕСЂРѕС‚Сѓ РІ Р·Р°Р»РµР¶РЅРѕСЃС‚С– РІС–Рґ С‚РёРїСѓ Р’РР‘Р РђРќРћР“Рћ РѕР±'С”РєС‚Р° ---
                               (cond
                                 ((wcmatch objType "*BLOCK*")
-                                 (setq currentAng (vla-get-Rotation objVla)) ; Кут блоку (радіани)
+                                 (setq currentAng (vla-get-Rotation objVla)) ; РљСѓС‚ Р±Р»РѕРєСѓ (СЂР°РґС–Р°РЅРё)
                                  (setq rotAngleRad (- perpAng currentAng))
                                  (setq rotAngleDegrees (/ (* rotAngleRad 180.0) pi))
-                                 (princ (strcat "\n    Поворот БЛОКУ навколо точки перетину на " (rtos rotAngleDegrees 2 4) " градусів."))
+                                 (princ (strcat "\n    РџРѕРІРѕСЂРѕС‚ Р‘Р›РћРљРЈ РЅР°РІРєРѕР»Рѕ С‚РѕС‡РєРё РїРµСЂРµС‚РёРЅСѓ РЅР° " (rtos rotAngleDegrees 2 4) " РіСЂР°РґСѓСЃС–РІ."))
                                  (command "_.ROTATE" objEnt "" "_non" intPt rotAngleDegrees)
-                                 (setq intersectionProcessed T) ; Позначаємо, що обробили
+                                 (setq intersectionProcessed T) ; РџРѕР·РЅР°С‡Р°С”РјРѕ, С‰Рѕ РѕР±СЂРѕР±РёР»Рё
                                 )
-                                ((wcmatch objType "ACDBLINE") ; Тільки для LINE (не LWPOLYLINE)
-                                 (setq currentAng (vla-get-Angle objVla)) ; Кут лінії (радіани)
+                                ((wcmatch objType "ACDBLINE") ; РўС–Р»СЊРєРё РґР»СЏ LINE (РЅРµ LWPOLYLINE)
+                                 (setq currentAng (vla-get-Angle objVla)) ; РљСѓС‚ Р»С–РЅС–С— (СЂР°РґС–Р°РЅРё)
                                  (setq rotAngleRad (- perpAng currentAng))
                                  (setq rotAngleDegrees (/ (* rotAngleRad 180.0) pi))
-                                 (princ (strcat "\n    Поворот ЛІНІЇ навколо точки перетину на " (rtos rotAngleDegrees 2 4) " градусів."))
+                                 (princ (strcat "\n    РџРѕРІРѕСЂРѕС‚ Р›Р†РќР†Р‡ РЅР°РІРєРѕР»Рѕ С‚РѕС‡РєРё РїРµСЂРµС‚РёРЅСѓ РЅР° " (rtos rotAngleDegrees 2 4) " РіСЂР°РґСѓСЃС–РІ."))
                                  (command "_.ROTATE" objEnt "" "_non" intPt rotAngleDegrees)
-                                 (setq intersectionProcessed T) ; Позначаємо, що обробили
+                                 (setq intersectionProcessed T) ; РџРѕР·РЅР°С‡Р°С”РјРѕ, С‰Рѕ РѕР±СЂРѕР±РёР»Рё
                                 )
-                                ((wcmatch objType "*POLYLINE*") ; Для LWPOLYLINE
-                                 (princ "\n    ПОПЕРЕДЖЕННЯ: Вибраний об'єкт - Полілінія. Поворот поліліній не виконується цим скриптом.")
-                                 (setq intersectionProcessed T) ; Позначаємо, що обробили (попередженням)
+                                ((wcmatch objType "*POLYLINE*") ; Р”Р»СЏ LWPOLYLINE
+                                 (princ "\n    РџРћРџР•Р Р•Р”Р–Р•РќРќРЇ: Р’РёР±СЂР°РЅРёР№ РѕР±'С”РєС‚ - РџРѕР»С–Р»С–РЅС–СЏ. РџРѕРІРѕСЂРѕС‚ РїРѕР»С–Р»С–РЅС–Р№ РЅРµ РІРёРєРѕРЅСѓС”С‚СЊСЃСЏ С†РёРј СЃРєСЂРёРїС‚РѕРј.")
+                                 (setq intersectionProcessed T) ; РџРѕР·РЅР°С‡Р°С”РјРѕ, С‰Рѕ РѕР±СЂРѕР±РёР»Рё (РїРѕРїРµСЂРµРґР¶РµРЅРЅСЏРј)
                                 )
-                                (T ; Інші можливі типи (малоймовірно через фільтр)
-                                 (princ (strcat "\n    Невідомий тип об'єкта для повороту: " objType))
-                                 (setq intersectionProcessed T) ; Позначаємо, щоб вийти з циклу
+                                (T ; Р†РЅС€С– РјРѕР¶Р»РёРІС– С‚РёРїРё (РјР°Р»РѕР№РјРѕРІС–СЂРЅРѕ С‡РµСЂРµР· С„С–Р»СЊС‚СЂ)
+                                 (princ (strcat "\n    РќРµРІС–РґРѕРјРёР№ С‚РёРї РѕР±'С”РєС‚Р° РґР»СЏ РїРѕРІРѕСЂРѕС‚Сѓ: " objType))
+                                 (setq intersectionProcessed T) ; РџРѕР·РЅР°С‡Р°С”РјРѕ, С‰РѕР± РІРёР№С‚Рё Р· С†РёРєР»Сѓ
                                 )
                               );; cond
-                            ) ; progn - розрахунок кутів і поворот/попередження
-                          ) ; if - перевірка довжини вектора дотичної
-                        ) ; if - помилка отримання вектора дотичної
-                      ) ; progn - отримання вектора дотичної
-                    ) ; if - помилка отримання параметра
+                            ) ; progn - СЂРѕР·СЂР°С…СѓРЅРѕРє РєСѓС‚С–РІ С– РїРѕРІРѕСЂРѕС‚/РїРѕРїРµСЂРµРґР¶РµРЅРЅСЏ
+                          ) ; if - РїРµСЂРµРІС–СЂРєР° РґРѕРІР¶РёРЅРё РІРµРєС‚РѕСЂР° РґРѕС‚РёС‡РЅРѕС—
+                        ) ; if - РїРѕРјРёР»РєР° РѕС‚СЂРёРјР°РЅРЅСЏ РІРµРєС‚РѕСЂР° РґРѕС‚РёС‡РЅРѕС—
+                      ) ; progn - РѕС‚СЂРёРјР°РЅРЅСЏ РІРµРєС‚РѕСЂР° РґРѕС‚РёС‡РЅРѕС—
+                    ) ; if - РїРѕРјРёР»РєР° РѕС‚СЂРёРјР°РЅРЅСЏ РїР°СЂР°РјРµС‚СЂР°
 
-                  ) ; progn - обробка точки перетину
-                  (princ "\n    Масив точок перетину порожній.")
+                  ) ; progn - РѕР±СЂРѕР±РєР° С‚РѕС‡РєРё РїРµСЂРµС‚РёРЅСѓ
+                  (princ "\n    РњР°СЃРёРІ С‚РѕС‡РѕРє РїРµСЂРµС‚РёРЅСѓ РїРѕСЂРѕР¶РЅС–Р№.")
                 ) ; if length > 0
-             ) ; progn - перевірка типу variant
-             (princ "\n    Перетин не знайдено або повернуто некоректний тип даних.")
-          ) ; if - перевірка типу variant/помилки
-        ) ; if - помилка методу IntersectWith
-      ) ; progn - обробка кандидата
-    ) ; if - пропускаємо сам об'єкт
+             ) ; progn - РїРµСЂРµРІС–СЂРєР° С‚РёРїСѓ variant
+             (princ "\n    РџРµСЂРµС‚РёРЅ РЅРµ Р·РЅР°Р№РґРµРЅРѕ Р°Р±Рѕ РїРѕРІРµСЂРЅСѓС‚Рѕ РЅРµРєРѕСЂРµРєС‚РЅРёР№ С‚РёРї РґР°РЅРёС….")
+          ) ; if - РїРµСЂРµРІС–СЂРєР° С‚РёРїСѓ variant/РїРѕРјРёР»РєРё
+        ) ; if - РїРѕРјРёР»РєР° РјРµС‚РѕРґСѓ IntersectWith
+      ) ; progn - РѕР±СЂРѕР±РєР° РєР°РЅРґРёРґР°С‚Р°
+    ) ; if - РїСЂРѕРїСѓСЃРєР°С”РјРѕ СЃР°Рј РѕР±'С”РєС‚
   ) ; while
 
-  ;; --- Завершення ---
+  ;; --- Р—Р°РІРµСЂС€РµРЅРЅСЏ ---
   (if (not foundIntersection)
-      (princ "\nНе знайдено перетинів між вибраним об'єктом та лініями/полілініями поблизу.")
+      (princ "\nРќРµ Р·РЅР°Р№РґРµРЅРѕ РїРµСЂРµС‚РёРЅС–РІ РјС–Р¶ РІРёР±СЂР°РЅРёРј РѕР±'С”РєС‚РѕРј С‚Р° Р»С–РЅС–СЏРјРё/РїРѕР»С–Р»С–РЅС–СЏРјРё РїРѕР±Р»РёР·Сѓ.")
       (if intersectionProcessed
-          (princ (strcat "\nОбробку перетину завершено для об'єкта типу: " objType))
-          (princ "\nЗнайдено перетин, але виникла помилка при обробці дотичної/кутів.")
+          (princ (strcat "\nРћР±СЂРѕР±РєСѓ РїРµСЂРµС‚РёРЅСѓ Р·Р°РІРµСЂС€РµРЅРѕ РґР»СЏ РѕР±'С”РєС‚Р° С‚РёРїСѓ: " objType))
+          (princ "\nР—РЅР°Р№РґРµРЅРѕ РїРµСЂРµС‚РёРЅ, Р°Р»Рµ РІРёРЅРёРєР»Р° РїРѕРјРёР»РєР° РїСЂРё РѕР±СЂРѕР±С†С– РґРѕС‚РёС‡РЅРѕС—/РєСѓС‚С–РІ.")
       )
   )
 
@@ -208,9 +208,9 @@
   (vla-EndUndoMark *acadDoc*)
 
   (setq *acadDoc* nil)
-  (princ) ; Тихий вихід
+  (princ) ; РўРёС…РёР№ РІРёС…С–Рґ
 )
 
-;; --- Кінець скрипта ---
-(princ (strcat "\nLISP скрипт AlignPerp завантажено. Спочатку ВИБЕРІТЬ БЛОК, ЛІНІЮ або ПОЛІЛІНІЮ, потім введіть ALIGNPERP для запуску."))
+;; --- РљС–РЅРµС†СЊ СЃРєСЂРёРїС‚Р° ---
+(princ (strcat "\nLISP СЃРєСЂРёРїС‚ AlignPerp Р·Р°РІР°РЅС‚Р°Р¶РµРЅРѕ. РЎРїРѕС‡Р°С‚РєСѓ Р’РР‘Р•Р Р†РўР¬ Р‘Р›РћРљ, Р›Р†РќР†Р® Р°Р±Рѕ РџРћР›Р†Р›Р†РќР†Р®, РїРѕС‚С–Рј РІРІРµРґС–С‚СЊ ALIGNPERP РґР»СЏ Р·Р°РїСѓСЃРєСѓ."))
 (princ)
