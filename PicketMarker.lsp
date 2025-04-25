@@ -39,7 +39,8 @@
 ;; Створює лінію, Т-засічку та текст у заданій точці
 (defun PlaceMarkerElements (pt_center vec_tangent side_factor piket_str final_stylename txt_h target_layer len_main len_tcap /
                            vec_perp vec_perp_final vec_perp_norm vec_tangent_norm half_main half_tcap
-                           pt_end_far pt_end_near pt_tcap_start pt_tcap_end pt_text angle_text angle_text_raw line1_ent line2_ent text_ent fuzz)
+                           pt_end_far pt_end_near pt_tcap_start pt_tcap_end pt_text angle_text angle_text_raw
+                           line1_ent line2_ent text_ent fuzz) ; <<< ДОДАНО 'fuzz' ДО ЛОКАЛЬНИХ ЗМІННИХ
 
   (setq fuzz 1e-9) ; Локальний допуск
   (setq half_main (/ len_main 2.0) half_tcap (/ len_tcap 2.0))
