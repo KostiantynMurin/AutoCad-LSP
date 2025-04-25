@@ -1,0 +1,22 @@
+;;; VLisp project file [V2.0] LSP_SCRIPTS saved to:[c:\Users\kstmu\Desktop\ГЕОДЕЗІЯ\LSP APPS\LSP_SCRIPTS] at:[4/16/2025]
+(VLISP-PROJECT-LIST 
+  :NAME
+  LSP_SCRIPTS
+  :OWN-LIST
+  ("AlignPerp" 
+    "AutoSnapPline"
+    "OffsetLine"
+    "OffsetLineWithPikets"
+    "OLWP-TEST"
+    "Search"
+  )
+  :FAS-DIRECTORY
+  nil
+  :TMP-DIRECTORY
+  nil
+  :PROJECT-KEYS
+  (:BUILD (:standard))
+  :CONTEXT-ID
+  :AUTOLISP
+)
+;;; EOF
