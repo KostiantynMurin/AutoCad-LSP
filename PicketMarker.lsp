@@ -29,24 +29,24 @@
   (mapcar '- v1 v2)
 )
 
-;; Головна функція (виправлено позицію та кут тексту)
+;; Головна функція (додано перевірку на від'ємні значення пікету)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len
                              first_picket_val last_picket_val current_picket_val dist_on_pline
                              pt_on_pline vec_tangent vec_perp vec_perp_final vec_perp_norm vec_tangent_norm
                              target_layer line_len_main line_len_tcap half_line_main half_line_tcap
-                             fuzz pt_end_far pt_end_near pt_tcap_start pt_tcap_end pt_text angle_text angle_text_raw ; Додано angle_text_raw
+                             fuzz pt_end_far pt_end_near pt_tcap_start pt_tcap_end pt_text angle_text angle_text_raw
                              piket_str text_style text_height final_stylename line1_ent line2_ent text_ent)
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-24_LineTeeText_FixPosRot ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_NoNegativePickets ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
   (setq target_layer   "0"
         line_len_main  38.0
-        line_len_tcap  3.0
+        line_len_tcap  5.0
         text_style     "Д-431"
-        text_height    0.9
+        text_height    1.8
         fuzz           1e-9
   )
   (setq half_line_main (/ line_len_main 2.0))
@@ -67,7 +67,7 @@
   (setvar "CMDECHO" 0)
 
   ;; --- Збір вхідних даних ---
-  (princ "\nРозстановка пікетажу (Лінія+Засічка+Текст).")
+  (princ "\nРозстановка пікетажу (Лінія+Засічка+Текст, без від'ємних значень).") ; Оновлено опис
   (while (not pline_obj)
     (setq pline_ent (entsel "\nОберіть 2D полілінію (LWPOLYLINE): "))
     (if (and pline_ent (= "LWPOLYLINE" (cdr (assoc 0 (entget (car pline_ent))))))
@@ -150,7 +150,12 @@
   (setq current_picket_val first_picket_val)
   (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz)))
     (if (= dir_factor 1.0) (setq dist_on_pline (- current_picket_val picket_at_start)) (setq dist_on_pline (- picket_at_start current_picket_val)))
-    (if (and (>= dist_on_pline (- 0.0 fuzz)) (<= dist_on_pline (+ pline_len fuzz)))
+
+    ;; Перевірка, чи точка в межах полілінії ТА чи значення пікету не від'ємне
+    (if (and (>= current_picket_val (- 0.0 fuzz)) ; <<< ДОДАНО ПЕРЕВІРКУ НА НЕВІД'ЄМНІСТЬ
+             (>= dist_on_pline (- 0.0 fuzz))
+             (<= dist_on_pline (+ pline_len fuzz)))
+      ;; --- Якщо умови виконано - розставляємо елементи ---
       (progn
         (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
         (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
@@ -172,47 +177,35 @@
                       (setq pt_end_far (v_sub pt_on_pline (v_scale vec_perp_norm half_line_main)))
                       (setq pt_end_near (v_add pt_on_pline (v_scale vec_perp_norm half_line_main)))
                       (setq line1_ent (entmake (list '(0 . "LINE") (cons 8 target_layer) (cons 10 pt_end_far) (cons 11 pt_end_near))))
-                      (if (not line1_ent) (princ (strcat "\n *** Помилка створення основного відрізка на пікеті ~" (rtos (/ current_picket_val 100.0) 2 1))))
+                      ;; (if (not line1_ent) (princ ...)) ; Можна прибрати повідомлення про помилки entmake для чистоти
 
                       ;; --- 2. Створення "Т"-засічки (5 од.) ---
                       (setq pt_tcap_start (v_sub pt_end_near (v_scale vec_tangent_norm half_line_tcap)))
                       (setq pt_tcap_end (v_add pt_end_near (v_scale vec_tangent_norm half_line_tcap)))
                       (setq line2_ent (entmake (list '(0 . "LINE") (cons 8 target_layer) (cons 10 pt_tcap_start) (cons 11 pt_tcap_end))))
-                      (if (not line2_ent) (princ (strcat "\n *** Помилка створення Т-засічки на пікеті ~" (rtos (/ current_picket_val 100.0) 2 1))))
+                      ;; (if (not line2_ent) (princ ...))
 
                       ;; --- 3. Створення Тексту ---
                       (if final_stylename
                           (progn
                             (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
-                            ;; Точка вставки тексту (зменшений відступ)
-                            (setq pt_text (v_add pt_end_near (v_scale vec_perp_norm (* text_height 0.75)))) ; <--- ЗМІНЕНО ВІДСТУП
-                            ;; Розрахунок кута тексту з корекцією на читабельність
+                            (setq pt_text (v_add pt_end_near (v_scale vec_perp_norm (* text_height 0.75))))
                             (setq angle_text_raw (angle '(0 0 0) vec_tangent_norm))
-                            (if (and (> angle_text_raw (/ pi 2.0)) (< angle_text_raw (* 1.5 pi))) ; <--- ДОДАНО ПЕРЕВІРКУ КУТА
+                            (if (and (> angle_text_raw (/ pi 2.0)) (< angle_text_raw (* 1.5 pi)))
                                 (setq angle_text (+ angle_text_raw pi))
                                 (setq angle_text angle_text_raw)
                             )
-                            (if (>= angle_text (* 2.0 pi)) (setq angle_text (- angle_text (* 2.0 pi)))) ; Нормалізація 0-2PI
+                            (if (>= angle_text (* 2.0 pi)) (setq angle_text (- angle_text (* 2.0 pi))))
 
-                            (setq text_ent (entmake (list '(0 . "TEXT")
-                                                          (cons 8 target_layer)
-                                                          (cons 10 pt_text)
-                                                          (cons 40 text_height)
-                                                          (cons 1 piket_str)
-                                                          (cons 50 angle_text)   ; <--- ВИКОРИСТАННЯ СКОРИГОВАНОГО КУТА
-                                                          (cons 7 final_stylename)
-                                                          (cons 72 4) ; Гор: Middle
-                                                          (cons 73 2) ; Верт: Middle
-                                                          (cons 11 pt_text)
-                                                    )
-                                          )
-                            )
+                            (setq text_ent (entmake (list '(0 . "TEXT") (cons 8 target_layer) (cons 10 pt_text) (cons 40 text_height)
+                                                          (cons 1 piket_str) (cons 50 angle_text) (cons 7 final_stylename)
+                                                          (cons 72 4) (cons 73 2) (cons 11 pt_text) )))
                             (if text_ent
                                 (princ (strcat "\n Створено елементи для пікету " piket_str " на відстані " (rtos dist_on_pline 2 2)))
-                                (princ (strcat "\n *** Помилка створення тексту на пікеті ~" (rtos (/ current_picket_val 100.0) 2 1)))
+                                ;; (princ (strcat "\n *** Помилка створення тексту ..."))
                             )
                           )
-                          (princ (strcat "\n*** Пропуск створення тексту на пікеті ~" (rtos (/ current_picket_val 100.0) 2 1) " через відсутність стилю.")) ; Повідомлення, якщо стиль не знайдено
+                          ;; (princ (strcat "\n*** Пропуск створення тексту ..."))
                       ) ; if final_stylename
                     ) ; progn if normalization successful
                     (princ (strcat "\n*** Попередження: Не вдалося нормалізувати вектор(и) на відстані " (rtos dist_on_pline) ". Пропуск пікету."))
@@ -220,8 +213,11 @@
               ) ; progn if pt_on_pline and vec_tangent valid
             ) ; endif tangent non-zero check
         ) ; endif pt_on_pline and vec_tangent exist check
-      ) ; progn if point on polyline
-    ) ; if point on polyline
+      ) ; progn if conditions met (picket >= 0 AND distance valid)
+      ;; --- Якщо умови НЕ виконано (пікет від'ємний або точка поза полілінією) ---
+      (if (< current_picket_val (- 0.0 fuzz)) ; Додатково виводимо повідомлення про пропуск від'ємного
+        (princ (strcat "\n--- Пропуск пікету " (rtos current_picket_val 2 1) " (від'ємне значення).")))
+    ) ; if conditions met
 
     ;; Перехід до наступного пікету
     (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
@@ -235,5 +231,5 @@
   (princ)
 )
 ;; Повідомлення про завантаження
-(princ "\nСкрипт для розстановки пікетажу (Лінія+Засічка+Текст) завантажено. Введіть 'CREATE_PICKETMARKER' v12 для запуску.")
+(princ "\nСкрипт для розстановки пікетажу (Лінія+Засічка+Текст) завантажено. Введіть 'CREATE_PICKETMARKER' v13 для запуску.")
 (princ)
