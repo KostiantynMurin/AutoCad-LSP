@@ -300,7 +300,15 @@
                 (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- ЗАМІНА WHILE НА REM
                 (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Додавання 2*PI якщо результат від'ємний
                 ;; -------------------------
-                (setq piket_str (FormatPicketValue current_picket_val))
+                ;;;;;(setq piket_str (FormatPicketValue current_picket_val)) ;; ПК0+0,00
+               ;; --- Форматування тексту для 100м пікету ---
+                (if (< (abs (rem current_picket_val 100.0)) fuzz) ; Перевірка чи це рівно 100м
+                    ;; Якщо так, формат "ПКXX"
+                    (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
+                    ;; Якщо ні (не очікується тут, але про всяк випадок) - повний формат
+                    (setq piket_str (FormatPicketValue current_picket_val))
+                ) ; if end
+                ;; -----------------------------------------
                 (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name_selected 1.0 1.0 1.0 block_angle)))
                 (if (vl-catch-all-error-p block_insert_obj)
                     (princ (strcat "\n*** Помилка вставки блоку для " piket_str ": " (vl-catch-all-error-message block_insert_obj)))
