@@ -45,57 +45,57 @@
 
 ;;; === Допоміжна функція для створення елементів маркера (ЗАКОМЕНТОВАНО) ===
 ;;; Створює лінію, Т-засічку та текст у заданій точці
-;;;(defun PlaceMarkerElements (pt_center vec_tangent side_factor piket_str final_stylename txt_h target_layer len_main len_tcap /
-;;;                           vec_perp vec_perp_final vec_perp_norm vec_tangent_norm half_main half_tcap
-;;;                           pt_end_far pt_end_near pt_tcap_start pt_tcap_end pt_text angle_text angle_text_raw
-;;;                           line1_ent line2_ent text_ent fuzz) ; Додано 'fuzz'
-;;;
-;;;  (setq fuzz 1e-9) ; Локальний допуск
-;;;  (setq half_main (/ len_main 2.0) half_tcap (/ len_tcap 2.0))
-;;;
-;;;  (if (or (not vec_tangent) (< (distance '(0 0 0) vec_tangent) fuzz))
-;;;      (progn (princ (strcat "\n*** Попередження: Недійсна дотична для точки: " (vl-princ-to-string pt_center) ". Маркер не створено.")) nil)
-;;;      (progn
-;;;        (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
-;;;        (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-;;;        (setq vec_perp_norm (normalize vec_perp_final))
-;;;        (setq vec_tangent_norm (normalize vec_tangent))
-;;;
-;;;        (if (and vec_perp_norm vec_tangent_norm)
-;;;            (progn
-;;;              (setq pt_end_far (v_sub pt_center (v_scale vec_perp_norm half_main)))
-;;;              (setq pt_end_near (v_add pt_center (v_scale vec_perp_norm half_main)))
-;;;              (entmake (list '(0 . "LINE") (cons 8 target_layer) (cons 10 pt_end_far) (cons 11 pt_end_near)))
-;;;
-;;;              (setq pt_tcap_start (v_sub pt_end_near (v_scale vec_tangent_norm half_tcap)))
-;;;              (setq pt_tcap_end (v_add pt_end_near (v_scale vec_tangent_norm half_tcap)))
-;;;              (entmake (list '(0 . "LINE") (cons 8 target_layer) (cons 10 pt_tcap_start) (cons 11 pt_tcap_end)))
-;;;
-;;;              (if final_stylename
-;;;                  (progn
-;;;                    (setq pt_text (v_add pt_end_near (v_scale vec_perp_norm (* txt_h 0.75))))
-;;;                    (setq angle_text_raw (angle '(0 0 0) vec_tangent_norm))
-;;;                    (if (and (> angle_text_raw (/ pi 2.0)) (< angle_text_raw (* 1.5 pi)))
-;;;                        (setq angle_text (+ angle_text_raw pi))
-;;;                        (setq angle_text angle_text_raw)
-;;;                    )
-;;;                    (if (>= angle_text (* 2.0 pi)) (setq angle_text (- angle_text (* 2.0 pi))))
-;;;                    (entmake (list '(0 . "TEXT") (cons 8 target_layer) (cons 10 pt_text) (cons 40 txt_h)
-;;;                                   (cons 1 piket_str) (cons 50 angle_text) (cons 7 final_stylename)
-;;;                                   (cons 72 4) (cons 73 2) (cons 11 pt_text)))
-;;;                  )
-;;;              ) ; if final_stylename
-;;;              (princ (strcat "\n Створено маркер для: " piket_str " в точці " (vl-princ-to-string pt_center)))
-;;;              T ; Успіх
-;;;            )
-;;;            (progn
-;;;              (princ (strcat "\n*** Попередження: Не вдалося нормалізувати вектор(и) для точки: " (vl-princ-to-string pt_center) ". Маркер не створено."))
-;;;              nil ; Невдача
-;;;            )
-;;;        ) ; if vectors normalized
-;;;      ) ; progn if tangent valid
-;;;  ) ; if tangent valid check
-;;;)
+(defun PlaceMarkerElements (pt_center vec_tangent side_factor piket_str final_stylename txt_h target_layer len_main len_tcap /
+                           vec_perp vec_perp_final vec_perp_norm vec_tangent_norm half_main half_tcap
+                           pt_end_far pt_end_near pt_tcap_start pt_tcap_end pt_text angle_text angle_text_raw
+                           line1_ent line2_ent text_ent fuzz) ; Додано 'fuzz'
+
+  (setq fuzz 1e-9) ; Локальний допуск
+  (setq half_main (/ len_main 2.0) half_tcap (/ len_tcap 2.0))
+
+  (if (or (not vec_tangent) (< (distance '(0 0 0) vec_tangent) fuzz))
+      (progn (princ (strcat "\n*** Попередження: Недійсна дотична для точки: " (vl-princ-to-string pt_center) ". Маркер не створено.")) nil)
+      (progn
+        (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
+        (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
+        (setq vec_perp_norm (normalize vec_perp_final))
+        (setq vec_tangent_norm (normalize vec_tangent))
+
+        (if (and vec_perp_norm vec_tangent_norm)
+            (progn
+              (setq pt_end_far (v_sub pt_center (v_scale vec_perp_norm half_main)))
+              (setq pt_end_near (v_add pt_center (v_scale vec_perp_norm half_main)))
+              (entmake (list '(0 . "LINE") (cons 8 target_layer) (cons 10 pt_end_far) (cons 11 pt_end_near)))
+
+              (setq pt_tcap_start (v_sub pt_end_near (v_scale vec_tangent_norm half_tcap)))
+              (setq pt_tcap_end (v_add pt_end_near (v_scale vec_tangent_norm half_tcap)))
+              (entmake (list '(0 . "LINE") (cons 8 target_layer) (cons 10 pt_tcap_start) (cons 11 pt_tcap_end)))
+
+              (if final_stylename
+                  (progn
+                    (setq pt_text (v_add pt_end_near (v_scale vec_perp_norm (* txt_h 0.75))))
+                    (setq angle_text_raw (angle '(0 0 0) vec_tangent_norm))
+                    (if (and (> angle_text_raw (/ pi 2.0)) (< angle_text_raw (* 1.5 pi)))
+                        (setq angle_text (+ angle_text_raw pi))
+                        (setq angle_text angle_text_raw)
+                    )
+                    (if (>= angle_text (* 2.0 pi)) (setq angle_text (- angle_text (* 2.0 pi))))
+                    (entmake (list '(0 . "TEXT") (cons 8 target_layer) (cons 10 pt_text) (cons 40 txt_h)
+                                   (cons 1 piket_str) (cons 50 angle_text) (cons 7 final_stylename)
+                                   (cons 72 4) (cons 73 2) (cons 11 pt_text)))
+                  )
+              ) ; if final_stylename
+              (princ (strcat "\n Створено маркер для: " piket_str " в точці " (vl-princ-to-string pt_center)))
+              T ; Успіх
+            )
+            (progn
+              (princ (strcat "\n*** Попередження: Не вдалося нормалізувати вектор(и) для точки: " (vl-princ-to-string pt_center) ". Маркер не створено."))
+              nil ; Невдача
+            )
+        ) ; if vectors normalized
+      ) ; progn if tangent valid
+  ) ; if tangent valid check
+)
 
 
 ;; === Головна функція ===
