@@ -127,7 +127,7 @@
   found ; Повернути T якщо атрибут знайдено
 )
 
-;; Головна функція (Нормалізація кута через MOD)
+;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
@@ -138,7 +138,7 @@
                              acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename)
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_RotateFixY_ModAngle ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_RotateFixY_RemAngle ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -252,10 +252,12 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_start)) (car vec_tangent_start) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              ;; --- КОРЕКЦІЯ КУТА через MOD ---
+              ;; --- КОРЕКЦІЯ КУТА для Y-орієнтованого блоку (з REM) ---
               (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
-              (setq block_angle (mod (- block_angle_perp (/ pi 2.0)) (* 2.0 pi))) ; Віднімаємо 90 і нормалізуємо через MOD
-              ;; -----------------------------
+              (setq block_angle (- block_angle_perp (/ pi 2.0)))
+              (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- ЗАМІНА WHILE НА REM
+              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Додавання 2*PI якщо результат від'ємний
+              ;; ----------------------------------------------------
               (setq piket_str_start (FormatPicketValue picket_at_start))
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_start) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
@@ -292,9 +294,11 @@
              (progn
                 (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
                 (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-                ;; --- КОРЕКЦІЯ КУТА через MOD ---
+                ;; --- КОРЕКЦІЯ КУТА (з REM) ---
                 (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
-                (setq block_angle (mod (- block_angle_perp (/ pi 2.0)) (* 2.0 pi)))
+                (setq block_angle (- block_angle_perp (/ pi 2.0)))
+                (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- ЗАМІНА WHILE НА REM
+                (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Додавання 2*PI якщо результат від'ємний
                 ;; -------------------------
                 (setq piket_str (FormatPicketValue current_picket_val))
                 (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name_selected 1.0 1.0 1.0 block_angle)))
@@ -335,10 +339,12 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              ;; --- ПРАВИЛЬНА КОРЕКЦІЯ КУТА через MOD ---
+              ;; --- КОРЕКЦІЯ КУТА (з REM) ---
               (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
-              (setq block_angle (mod (- block_angle_perp (/ pi 2.0)) (* 2.0 pi)))
-              ;; -----------------------------------
+              (setq block_angle (- block_angle_perp (/ pi 2.0)))
+              (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- ЗАМІНА WHILE НА REM
+              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Додавання 2*PI якщо результат від'ємний
+              ;; -------------------------
               (setq piket_str_end (FormatPicketValue picket_at_end))
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
