@@ -119,7 +119,9 @@
                   (progn 
                     ;;(princ "\n  Debug [SetAttrib]: Виклик vla-Update...") 
                     (vla-Update block_vla_obj) 
-                    ;;(princ "\n  Debug [SetAttrib]: vla-Update завершено.")))
+                    ;;(princ "\n  Debug [SetAttrib]: vla-Update завершено.")
+                  )
+              )
               (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** Атрибут з тегом '" att_tag "' не знайдено серед атрибутів блоку.")))
             ) ; progn if has attributes
             (princ (strcat "\n  Debug [SetAttrib]: Check FAILED (HasAttributes is nil or False)."))
@@ -131,7 +133,7 @@
 )
 
 ;; Головна функція (Нормалізація кута через REM)
-(defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
+(defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
                              first_picket_val last_picket_val current_picket_val dist_on_pline
@@ -141,7 +143,7 @@
                              acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename)
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_RotateFixY_RemAngle ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-04-25_UseBlock_RotateFixY_RemAngle ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -381,8 +383,8 @@
   (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))
   (setq *error* nil)
   (princ)
-) ; Defun C:CREATE_PICKETMARKER End
+) ; Defun C:CREATE_PICKET_MARKER End
 
 ;; Повідомлення про завантаження
-(princ "\nСкрипт для розстановки пікетажу БЛОКАМИ завантажено. Введіть 'CREATE_PICKETMARKER' для запуску.")
+(princ "\nСкрипт для розстановки пікетажу БЛОКАМИ завантажено. Введіть 'CREATE_PICKET_MARKER' для запуску.")
 (princ)
