@@ -100,21 +100,20 @@
 )
 
 
-;; === Головна функція ===
+;; Головна функція (Додано перевірку ATTREQ та vla-Update після вставки)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
                              first_picket_val last_picket_val current_picket_val dist_on_pline
-                             pt_on_pline vec_tangent ; Видалено змінні для геометрії
-                             target_layer block_name_selected block_vla_obj block_insert_obj ; Змінні для блоку
+                             pt_on_pline vec_tangent target_layer block_name_selected block_vla_obj block_insert_obj
                              fuzz piket_str piket_str_start piket_str_end
                              pt_start pt_end vec_tangent_start vec_tangent_end block_angle mspace
-                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts) ; Додаткові змінні
+                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final) ; Додано пропущені змінні
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_AttreqUpdate ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
-  (setq target_layer   "0"         ; Шар для вставки блоків
+  (setq target_layer   "0"
         fuzz           1e-9
   )
 
@@ -130,14 +129,13 @@
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
   (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
+  (princ (strcat "\nПеревірка перед стартом: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA")))) ; Перевірка
 
   ;; --- Збір вхідних даних ---
   (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
-
-  ;; --- 1. Вибір блоку користувачем ---
   (setq block_name_selected nil)
   (while (not block_name_selected)
-     (setq block_insert_obj nil) ; Скидаємо змінну
+     (setq block_insert_obj nil)
      (setq block_ent (entsel "\nОберіть екземпляр блоку, який буде використовуватися для маркера: "))
      (if block_ent
         (progn
@@ -146,23 +144,18 @@
                 (progn
                   (setq block_name_selected (vla-get-EffectiveName block_vla_obj))
                   (princ (strcat "\nОбрано блок: '" block_name_selected "'."))
-                  ;; Перевірка на наявність атрибуту "НОМЕР"
                   (if (not (CheckBlockAttrib block_name_selected "НОМЕР"))
-                      (progn
-                        (princ (strcat "\n*** Помилка: Обраний блок '" block_name_selected "' не містить атрибуту з тегом 'НОМЕР'. Оберіть інший блок."))
-                        (setq block_name_selected nil) ; Скидаємо ім'я, щоб цикл вибору продовжився
-                      )
+                      (progn (princ (strcat "\n*** Помилка: Обраний блок '" block_name_selected "' не містить атрибуту з тегом 'НОМЕР'. Оберіть інший блок.")) (setq block_name_selected nil))
                       (princ "\n -> Атрибут 'НОМЕР' знайдено в блоці.")
                   )
                 )
-                (princ "\nОбраний об'єкт не є вставкою блоку (Block Reference). Спробуйте ще раз.")
+                (princ "\nОбраний об'єкт не є вставкою блоку. Спробуйте ще раз.")
             )
         )
-        (*error* "Відміна користувачем") ; Якщо користувач натиснув Esc при виборі блоку
+        (*error* "Відміна користувачем")
      )
   ) ; while not block_name_selected
 
-  ;; --- 2. Вибір полілінії ---
   (while (not pline_obj)
     (setq pline_ent (entsel "\nОберіть 2D полілінію (LWPOLYLINE): "))
     (if (and pline_ent (= "LWPOLYLINE" (cdr (assoc 0 (entget (car pline_ent))))))
@@ -171,7 +164,6 @@
     )
   )
 
-  ;; --- 3. Інші вхідні дані ---
   (setq pt_ref (getpoint "\nВкажіть точку прив'язки на полілінії або біля неї: "))
   (if pt_ref
     (progn (setq pt_ref_on_pline (vlax-curve-getClosestPointTo pline_obj (trans pt_ref 1 0)))
@@ -183,10 +175,9 @@
   (if (not val_ref) (*error* "Відміна користувачем"))
   (setq pt_dir (getpoint pt_ref_on_pline "\nВкажіть точку в напрямку ЗБІЛЬШЕННЯ пікетажу: "))
   (if (not pt_dir) (*error* "Відміна користувачем"))
-  (setq pt_side_ref (getpoint pt_ref_on_pline "\nВкажіть сторону для розміщення блоку: ")) ; Запит сторони лишається
+  (setq pt_side_ref (getpoint pt_ref_on_pline "\nВкажіть сторону для розміщення блоку: "))
   (if (not pt_side_ref) (*error* "Відміна користувачем"))
 
-  ;; Перевірка валідності точок
   (if (not (and pt_ref_on_pline (= 'LIST (type pt_ref_on_pline)) (= 3 (length pt_ref_on_pline)))) (*error* "Reference point on polyline invalid"))
   (if (not (and pt_dir (= 'LIST (type pt_dir)) (= 3 (length pt_dir)))) (*error* "Direction point invalid"))
   (if (not (and pt_side_ref (= 'LIST (type pt_side_ref)) (= 3 (length pt_side_ref)))) (*error* "Side point invalid"))
@@ -198,12 +189,10 @@
   (if (not vec_tangent_ref) (*error* "Tangent calculation failed at ref point"))
   (setq dot_prod_dir (apply '+ (mapcar '* vec_dir vec_tangent_ref)))
   (setq dir_factor (if (< dot_prod_dir 0.0) -1.0 1.0))
-  ;; Розрахунок фактору сторони (для визначення перпендикуляру)
   (setq vec_side_ref (mapcar '- (trans pt_side_ref 1 0) pt_ref_on_pline))
   (setq vec_perp_ref (list (- (cadr vec_tangent_ref)) (car vec_tangent_ref) 0.0))
   (setq dot_prod_side (apply '+ (mapcar '* vec_side_ref vec_perp_ref)))
   (setq side_factor (if (< dot_prod_side 0.0) -1.0 1.0))
-  ;; --------------------------------------------
   (if (= dir_factor 1.0) (setq picket_at_start (- val_ref dist_ref_on_pline)) (setq picket_at_start (+ val_ref dist_ref_on_pline)))
   (setq pline_len (vlax-curve-getDistAtParam pline_obj (vlax-curve-getEndParam pline_obj)))
   (if (not pline_len) (*error* "Length calculation failed"))
@@ -222,7 +211,7 @@
 
   ;; --- Підготовка до розстановки ---
   (setvar "CLAYER" target_layer) ; Встановлюємо поточний шар "0"
-  (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object)))) ; Отримуємо Modelspace
+  (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))
   (if (not mspace) (*error* "Modelspace failed"))
 
   ;; --- Маркер на ПОЧАТКУ полілінії (якщо пікет >= 0) ---
@@ -235,16 +224,23 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_start)) (car vec_tangent_start) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут повороту
-              (setq piket_str_start (FormatPicketValue picket_at_start)) ; Форматований текст
+              (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
+              (setq piket_str_start (FormatPicketValue picket_at_start))
+              ;; Перевірка ATTREQ/ATTDIA перед вставкою
+              (princ (strcat "\n  Debug [Insert Start]: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA"))))
               ;; Вставка блоку
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_start) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
                   (princ (strcat "\n*** Помилка вставки блоку на початку: " (vl-catch-all-error-message block_insert_obj)))
                   (if block_insert_obj
                       (progn
+                        ;; Примусове оновлення перед перевіркою атрибутів
+                        (princ "\n  Debug [Insert Start]: Оновлення вставленого об'єкта...")
+                        (vla-Update block_insert_obj) ; <--- ДОДАНО ОНОВЛЕННЯ
+                        (princ " Завершено.")
+                        ;; Встановлення атрибуту
                         (princ (strcat "\n Вставлено блок для: " piket_str_start))
-                        (SetAttributeValue block_insert_obj "НОМЕР" piket_str_start) ; Встановлення атрибуту
+                        (SetAttributeValue block_insert_obj "НОМЕР" piket_str_start)
                       )
                       (princ "\n*** Помилка: vla-InsertBlock повернув nil на початку.")
                   )
@@ -274,14 +270,20 @@
                 (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
                 (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
                 (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
-                ;; Форматуємо пікет - використовуємо повний формат і для 100м
                 (setq piket_str (FormatPicketValue current_picket_val))
+                ;; Перевірка ATTREQ/ATTDIA перед вставкою
+                (princ (strcat "\n  Debug [Insert Loop]: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA"))))
                 ;; Вставка блоку
                 (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name_selected 1.0 1.0 1.0 block_angle)))
                 (if (vl-catch-all-error-p block_insert_obj)
                     (princ (strcat "\n*** Помилка вставки блоку для " piket_str ": " (vl-catch-all-error-message block_insert_obj)))
                     (if block_insert_obj
                         (progn
+                          ;; Примусове оновлення перед перевіркою атрибутів
+                          (princ "\n  Debug [Insert Loop]: Оновлення вставленого об'єкта...")
+                          (vla-Update block_insert_obj) ; <--- ДОДАНО ОНОВЛЕННЯ
+                          (princ " Завершено.")
+                          ;; Встановлення атрибуту
                           (princ (strcat "\n Вставлено блок для: " piket_str))
                           (SetAttributeValue block_insert_obj "НОМЕР" piket_str)
                         )
@@ -317,12 +319,19 @@
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
               (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
               (setq piket_str_end (FormatPicketValue picket_at_end))
+              ;; Перевірка ATTREQ/ATTDIA перед вставкою
+              (princ (strcat "\n  Debug [Insert End]: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA"))))
               ;; Вставка блоку
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
                   (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
                   (if block_insert_obj
                       (progn
+                        ;; Примусове оновлення перед перевіркою атрибутів
+                        (princ "\n  Debug [Insert End]: Оновлення вставленого об'єкта...")
+                        (vla-Update block_insert_obj) ; <--- ДОДАНО ОНОВЛЕННЯ
+                        (princ " Завершено.")
+                        ;; Встановлення атрибуту
                         (princ (strcat "\n Вставлено блок для: " piket_str_end))
                         (SetAttributeValue block_insert_obj "НОМЕР" piket_str_end)
                       )
