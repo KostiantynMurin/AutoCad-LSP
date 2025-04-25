@@ -25,23 +25,23 @@
 
 ;;; === Допоміжна функція для форматування значення пікету (ЗАКОМЕНТОВАНО) ===
 ;;; Приймає числове значення, повертає рядок "ПКX+YY.YY"
-;;;(defun FormatPicketValue (p_val / pk_km pk_m val_str km_str fuzz)
-;;;  (setq fuzz 1e-9) ; Локальний допуск
-;;;  (setq pk_km (fix (/ p_val 100.0)))
-;;;  (setq pk_m (abs (- p_val (* (float pk_km) 100.0))))
-;;;  (if (> pk_m (- 100.0 fuzz))
-;;;      (progn
-;;;         (setq pk_m 0.0)
-;;;         (if (>= p_val 0.0) (setq pk_km (1+ pk_km)) (setq pk_km (1- pk_km)))
-;;;      )
-;;;  )
-;;;  (setq km_str (itoa pk_km))
-;;;  (setq val_str (rtos pk_m 2 2))
-;;;  (if (and (< pk_m (- 10.0 fuzz)) (> pk_m (- 0.0 fuzz)))
-;;;      (setq val_str (strcat "0" val_str))
-;;;  )
-;;;  (strcat "ПК" km_str "+" val_str)
-;;;)
+(defun FormatPicketValue (p_val / pk_km pk_m val_str km_str fuzz)
+  (setq fuzz 1e-9) ; Локальний допуск
+  (setq pk_km (fix (/ p_val 100.0)))
+  (setq pk_m (abs (- p_val (* (float pk_km) 100.0))))
+  (if (> pk_m (- 100.0 fuzz))
+      (progn
+         (setq pk_m 0.0)
+         (if (>= p_val 0.0) (setq pk_km (1+ pk_km)) (setq pk_km (1- pk_km)))
+      )
+  )
+  (setq km_str (itoa pk_km))
+  (setq val_str (rtos pk_m 2 2))
+  (if (and (< pk_m (- 10.0 fuzz)) (> pk_m (- 0.0 fuzz)))
+      (setq val_str (strcat "0" val_str))
+  )
+  (strcat "ПК" km_str "+" val_str)
+)
 
 ;;; === Допоміжна функція для створення елементів маркера (ЗАКОМЕНТОВАНО) ===
 ;;; Створює лінію, Т-засічку та текст у заданій точці
