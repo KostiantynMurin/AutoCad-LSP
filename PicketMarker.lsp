@@ -127,7 +127,7 @@
   found ; Повернути T якщо атрибут знайдено
 )
 
-;; Головна функція (Виправлено кут повороту блоку -90 градусів для Y-орієнтованого блоку)
+;; Головна функція (Перевірені дужки, версія v2025-04-25_UseBlock_RotateFixY_ParenCheck)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
@@ -135,9 +135,10 @@
                              pt_on_pline vec_tangent target_layer block_name_selected block_vla_obj block_insert_obj
                              fuzz piket_str piket_str_start piket_str_end
                              pt_start pt_end vec_tangent_start vec_tangent_end block_angle block_angle_perp mspace
-                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final)
+                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
+                             num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename) ; Додано всі можливі локальні змінні
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_RotateFixY ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_RotateFixY_ParenCheck ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -151,7 +152,7 @@
       (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ)
-  )
+  ) ; *error* defun end
 
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
@@ -173,29 +174,29 @@
                   (if (not (CheckBlockAttrib block_name_selected "НОМЕР"))
                       (progn (princ (strcat "\n*** Помилка: Обраний блок '" block_name_selected "' не містить атрибуту з тегом 'НОМЕР'. Оберіть інший блок.")) (setq block_name_selected nil))
                       (princ "\n -> Атрибут 'НОМЕР' знайдено в блоці.")
-                  )
-                )
+                  ) ; if CheckBlockAttrib end
+                ) ; progn end
                 (princ "\nОбраний об'єкт не є вставкою блоку. Спробуйте ще раз.")
-            )
-        )
+            ) ; if block reference end
+        ) ; progn end
         (*error* "Відміна користувачем")
-     )
-  ) ; while not block_name_selected
+     ) ; if block_ent end
+  ) ; while not block_name_selected end
 
   (while (not pline_obj)
     (setq pline_ent (entsel "\nОберіть 2D полілінію (LWPOLYLINE): "))
     (if (and pline_ent (= "LWPOLYLINE" (cdr (assoc 0 (entget (car pline_ent))))))
       (setq pline_obj (vlax-ename->vla-object (car pline_ent)))
       (princ "\nОбраний об'єкт не є LWPOLYLINE. Спробуйте ще раз.")
-    )
-  )
+    ) ; if end
+  ) ; while end
 
   (setq pt_ref (getpoint "\nВкажіть точку прив'язки на полілінії або біля неї: "))
   (if pt_ref
     (progn (setq pt_ref_on_pline (vlax-curve-getClosestPointTo pline_obj (trans pt_ref 1 0)))
            (setq dist_ref_on_pline (vlax-curve-getDistAtPoint pline_obj pt_ref_on_pline)))
     (*error* "Відміна користувачем")
-  )
+  ) ; if end
   (princ (strcat "\nВідстань до точки прив'язки від початку полілінії: " (rtos dist_ref_on_pline 2 4) " м."))
   (setq val_ref (getdist pt_ref_on_pline (strcat "\nВведіть значення пікету для цієї точки (в метрах): ")))
   (if (not val_ref) (*error* "Відміна користувачем"))
@@ -204,6 +205,7 @@
   (setq pt_side_ref (getpoint pt_ref_on_pline "\nВкажіть сторону для розміщення блоку: "))
   (if (not pt_side_ref) (*error* "Відміна користувачем"))
 
+  ;; Перевірка валідності
   (if (not (and pt_ref_on_pline (= 'LIST (type pt_ref_on_pline)) (= 3 (length pt_ref_on_pline)))) (*error* "Reference point on polyline invalid"))
   (if (not (and pt_dir (= 'LIST (type pt_dir)) (= 3 (length pt_dir)))) (*error* "Direction point invalid"))
   (if (not (and pt_side_ref (= 'LIST (type pt_side_ref)) (= 3 (length pt_side_ref)))) (*error* "Side point invalid"))
@@ -232,7 +234,7 @@
            (setq last_picket_val (* (fix (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0)))
     (progn (setq first_picket_val (* (fix (/ (- picket_at_start fuzz) 100.0)) 100.0))
            (setq last_picket_val (* (fix (+ (/ (+ (- picket_at_start pline_len) fuzz) 100.0) (- 1.0 fuzz))) 100.0)))
-  )
+  ) ; if end
   (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos first_picket_val) " до " (rtos last_picket_val)))
 
   ;; --- Підготовка до розстановки ---
@@ -250,14 +252,11 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_start)) (car vec_tangent_start) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              ;; --- ПРАВИЛЬНА КОРЕКЦІЯ КУТА для Y-орієнтованого блоку ---
-              (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут перпендикуляру
-              (setq block_angle (- block_angle_perp (/ pi 2.0))) ; ВІДНІМАЄМО 90 градусів
-              (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi)))) ; Нормалізація 0-2PI
-              (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))))
-              ;; ----------------------------------------------------
+              (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
+              (setq block_angle (- block_angle_perp (/ pi 2.0)))
+              (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi))) ;;;;;;;;;;;;;;;;;;;;
+              (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))) ;;;;;;;;;;;;;;;
               (setq piket_str_start (FormatPicketValue picket_at_start))
-              ;; Вставка блоку
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_start) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
                   (princ (strcat "\n*** Помилка вставки блоку на початку: " (vl-catch-all-error-message block_insert_obj)))
@@ -265,21 +264,21 @@
                       (progn
                         (princ (strcat "\n Вставлено блок для: " piket_str_start))
                         (SetAttributeValue block_insert_obj "НОМЕР" piket_str_start)
-                      )
+                      ) ; progn end
                       (princ "\n*** Помилка: vla-InsertBlock повернув nil на початку.")
-                  )
-              )
-            )
+                  ) ; if block_insert_obj end
+              ) ; if vl-catch-all-error-p end
+            ) ; progn end
             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в початковій точці. Маркер не створено."))
-        )
-      )
+        ) ; if vec_tangent_start end
+      ) ; progn end
       (princ (strcat "\n--- Пропуск маркера на початку полілінії (Пікет=" (rtos picket_at_start 2 2) " < 0)."))
-  )
+  );; if picket_at_start end
 
   ;; --- Цикл розстановки 100-метрових пікетів ---
   (princ (strcat "\nШукаємо 100м пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
   (setq current_picket_val first_picket_val)
-  (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz)))
+  (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz))) ; WHILE START
     (if (= dir_factor 1.0) (setq dist_on_pline (- current_picket_val picket_at_start)) (setq dist_on_pline (- picket_at_start current_picket_val)))
     (if (and (>= current_picket_val (- 0.0 fuzz))
              (> dist_on_pline fuzz)
@@ -293,14 +292,11 @@
              (progn
                 (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
                 (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-                ;; --- ПРАВИЛЬНА КОРЕКЦІЯ КУТА ---
                 (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
-                (setq block_angle (- block_angle_perp (/ pi 2.0))) ; ВІДНІМАЄМО 90
-                (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi))))
-                (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))))
-                ;; -------------------------
+                (setq block_angle (- block_angle_perp (/ pi 2.0)))
+                (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi))) ;;;;;;;;;;;
+                (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))) ;;;;;;;;;;;;;
                 (setq piket_str (FormatPicketValue current_picket_val))
-                ;; Вставка блоку
                 (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name_selected 1.0 1.0 1.0 block_angle)))
                 (if (vl-catch-all-error-p block_insert_obj)
                     (princ (strcat "\n*** Помилка вставки блоку для " piket_str ": " (vl-catch-all-error-message block_insert_obj)))
@@ -308,14 +304,14 @@
                         (progn
                           (princ (strcat "\n Вставлено блок для: " piket_str))
                           (SetAttributeValue block_insert_obj "НОМЕР" piket_str)
-                        )
+                        ) ; progn end
                         (princ (strcat "\n*** Помилка: vla-InsertBlock повернув nil для " piket_str))
-                    )
-                )
-             )
+                    ) ; if block_insert_obj end
+                ) ; if vl-catch-all-error-p end
+             ) ; progn end
              (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну на відстані " (rtos dist_on_pline) ". Пропуск 100м пікету."))
-          )
-      )
+          ) ; if vec_tangent end
+      ) ; progn end
       (progn ; ELSE
          (if (< current_picket_val (- 0.0 fuzz))
              (princ (strcat "\n--- Пропуск 100м пікету " (rtos current_picket_val 2 1) " (від'ємне значення).")))
@@ -339,14 +335,11 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              ;; --- ПРАВИЛЬНА КОРЕКЦІЯ КУТА ---
               (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
-              (setq block_angle (- block_angle_perp (/ pi 2.0))) ; ВІДНІМАЄМО 90
-              (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi))))
-              (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))))
-              ;; -------------------------
+              (setq block_angle (- block_angle_perp (/ pi 2.0)))
+              (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi))) ;;;;;;;;;;
+              (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))) ;;;;;;;;;;;;
               (setq piket_str_end (FormatPicketValue picket_at_end))
-              ;; Вставка блоку
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
                   (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
@@ -354,16 +347,16 @@
                       (progn
                         (princ (strcat "\n Вставлено блок для: " piket_str_end))
                         (SetAttributeValue block_insert_obj "НОМЕР" piket_str_end)
-                      )
+                      ) ; progn end
                       (princ "\n*** Помилка: vla-InsertBlock повернув nil в кінці.")
-                  )
-              )
-            )
+                  ) ; if block_insert_obj end
+              ) ; if vl-catch-all-error-p end
+            ) ; progn end
             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в кінцевій точці. Маркер не створено."))
-        )
-      )
+        ) ; if vec_tangent_end end
+      ) ; progn end
       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
-  )
+  ) ; if picket_at_end end
 
   ;; --- Завершення ---
   (command "_REGEN")
