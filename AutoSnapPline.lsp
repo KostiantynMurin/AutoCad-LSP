@@ -1,11 +1,11 @@
-;; AutoSnapPline.lsp (Версія 8.8 - Додано команду FASTLINE)
-;; Порядок: Радіус -> Об'єкт. Функціонал: Entmake полілінія, 2D Відстань.
+;; AutoSnapPline.lsp (Р’РµСЂСЃС–СЏ 8.8 - Р”РѕРґР°РЅРѕ РєРѕРјР°РЅРґСѓ FASTLINE)
+;; РџРѕСЂСЏРґРѕРє: Р Р°РґС–СѓСЃ -> РћР±'С”РєС‚. Р¤СѓРЅРєС†С–РѕРЅР°Р»: Entmake РїРѕР»С–Р»С–РЅС–СЏ, 2D Р’С–РґСЃС‚Р°РЅСЊ.
 
-;; Глобальна змінна для запам'ятовування останнього радіусу для AutoSnapPline
-(setq *g_autosnap_last_radius* nil) ; Ініціалізуємо як nil
+;; Р“Р»РѕР±Р°Р»СЊРЅР° Р·РјС–РЅРЅР° РґР»СЏ Р·Р°РїР°Рј'СЏС‚РѕРІСѓРІР°РЅРЅСЏ РѕСЃС‚Р°РЅРЅСЊРѕРіРѕ СЂР°РґС–СѓСЃСѓ РґР»СЏ AutoSnapPline
+(setq *g_autosnap_last_radius* nil) ; Р†РЅС–С†С–Р°Р»С–Р·СѓС”РјРѕ СЏРє nil
 
-; --- Допоміжна функція для малювання маркерів радіусу ---
-; (Без змін)
+; --- Р”РѕРїРѕРјС–Р¶РЅР° С„СѓРЅРєС†С–СЏ РґР»СЏ РјР°Р»СЋРІР°РЅРЅСЏ РјР°СЂРєРµСЂС–РІ СЂР°РґС–СѓСЃСѓ ---
+; (Р‘РµР· Р·РјС–РЅ)
 (defun draw_radius_markers (center radius color size_ss / p_left p_right p_bottom p_top)
   (if (and center radius (> radius 1e-6) color size_ss (> size_ss 1e-6))
     (progn
@@ -21,8 +21,8 @@
   )
 )
 
-; --- Допоміжна функція для зняття підсвічування ---
-; (Без змін)
+; --- Р”РѕРїРѕРјС–Р¶РЅР° С„СѓРЅРєС†С–СЏ РґР»СЏ Р·РЅСЏС‚С‚СЏ РїС–РґСЃРІС–С‡СѓРІР°РЅРЅСЏ ---
+; (Р‘РµР· Р·РјС–РЅ)
 (defun clear_highlights (ents_list / i ename)
   (if ents_list
     (progn
@@ -39,20 +39,20 @@
   nil
 )
 
-; --- Головна функція команди (зберігаємо оригінальну назву) ---
-(defun c:AutoSnapPline ( / *error* old_osmode old_cmdecho old_blipmode ; Системні змінні
-                         snap_radius start_ent start_pt ent_data initial_ent_type ; Вхідні дані
-                         gr_status gr_data cursor_pt draw_color marker_size_ss loop_counter ; Цикл
-                         ll ur filter nearby_ss found_now_ents i ename edata obj_pt ; Пошук об'єктів
-                         highlighted_ents ; Список підсвічених
-                         detection_counter detection_threshold ; Оптимізація
-                         cursor_pt_2d obj_pt_2d dist_2d ; 2D відстань
+; --- Р“РѕР»РѕРІРЅР° С„СѓРЅРєС†С–СЏ РєРѕРјР°РЅРґРё (Р·Р±РµСЂС–РіР°С”РјРѕ РѕСЂРёРіС–РЅР°Р»СЊРЅСѓ РЅР°Р·РІСѓ) ---
+(defun c:AutoSnapPline ( / *error* old_osmode old_cmdecho old_blipmode ; РЎРёСЃС‚РµРјРЅС– Р·РјС–РЅРЅС–
+                         snap_radius start_ent start_pt ent_data initial_ent_type ; Р’С…С–РґРЅС– РґР°РЅС–
+                         gr_status gr_data cursor_pt draw_color marker_size_ss loop_counter ; Р¦РёРєР»
+                         ll ur filter nearby_ss found_now_ents i ename edata obj_pt ; РџРѕС€СѓРє РѕР±'С”РєС‚С–РІ
+                         highlighted_ents ; РЎРїРёСЃРѕРє РїС–РґСЃРІС–С‡РµРЅРёС…
+                         detection_counter detection_threshold ; РћРїС‚РёРјС–Р·Р°С†С–СЏ
+                         cursor_pt_2d obj_pt_2d dist_2d ; 2D РІС–РґСЃС‚Р°РЅСЊ
                          vertices_list temp_pline_segment_color pline_dxf vertex ; Entmake
                          inputRadius prompt_radius_str 
                          )
   (vl-load-com)
 
-  ; --- Обробник помилок ---
+  ; --- РћР±СЂРѕР±РЅРёРє РїРѕРјРёР»РѕРє ---
   (defun *error* (msg)
     (if old_cmdecho (setvar "CMDECHO" old_cmdecho))
     (if old_osmode (setvar "OSMODE" old_osmode))
@@ -60,11 +60,11 @@
     (setq highlighted_ents (clear_highlights highlighted_ents))
     (redraw)
     (if (and msg (not (wcmatch (strcase msg) "*CANCEL*,*QUIT*,*BREAK*")))
-        (princ (strcat "\nСкасовано/Помилка: " msg)))
+        (princ (strcat "\nРЎРєР°СЃРѕРІР°РЅРѕ/РџРѕРјРёР»РєР°: " msg)))
     (princ)
   )
 
-  ; --- Збереження та налаштування системних змінних ---
+  ; --- Р—Р±РµСЂРµР¶РµРЅРЅСЏ С‚Р° РЅР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ СЃРёСЃС‚РµРјРЅРёС… Р·РјС–РЅРЅРёС… ---
   (setq old_cmdecho (getvar "CMDECHO"))
   (setq old_osmode (getvar "OSMODE"))
   (setq old_blipmode (getvar "BLIPMODE"))
@@ -72,57 +72,57 @@
   (setvar "OSMODE" 0)
   (setvar "BLIPMODE" 0)
 
- ; --- 1. Отримати Радіус Відображення/Пошуку (з пам'яттю - виправлено) ---
-  ; Ініціалізація / використання збереженого значення
+ ; --- 1. РћС‚СЂРёРјР°С‚Рё Р Р°РґС–СѓСЃ Р’С–РґРѕР±СЂР°Р¶РµРЅРЅСЏ/РџРѕС€СѓРєСѓ (Р· РїР°Рј'СЏС‚С‚СЋ - РІРёРїСЂР°РІР»РµРЅРѕ) ---
+  ; Р†РЅС–С†С–Р°Р»С–Р·Р°С†С–СЏ / РІРёРєРѕСЂРёСЃС‚Р°РЅРЅСЏ Р·Р±РµСЂРµР¶РµРЅРѕРіРѕ Р·РЅР°С‡РµРЅРЅСЏ
   (if (or (null (boundp '*g_autosnap_last_radius*)) (null *g_autosnap_last_radius*) (not (numberp *g_autosnap_last_radius*)))
-      (setq *g_autosnap_last_radius* 1.0) ; Початкове значення за замовчуванням
+      (setq *g_autosnap_last_radius* 1.0) ; РџРѕС‡Р°С‚РєРѕРІРµ Р·РЅР°С‡РµРЅРЅСЏ Р·Р° Р·Р°РјРѕРІС‡СѓРІР°РЅРЅСЏРј
   )
-  ; Формування підказки
-  (setq prompt_radius_str (strcat "\nВведіть радіус відображення/пошуку <" (rtos *g_autosnap_last_radius* 2 4) ">: "))
-  (initget 6) ; Заборонити нуль та негативні (2+4), Дозволити Enter (немає прапорця 1)
-  ; Отримати відстань - getdist поверне nil, якщо натиснуто Enter
+  ; Р¤РѕСЂРјСѓРІР°РЅРЅСЏ РїС–РґРєР°Р·РєРё
+  (setq prompt_radius_str (strcat "\nР’РІРµРґС–С‚СЊ СЂР°РґС–СѓСЃ РІС–РґРѕР±СЂР°Р¶РµРЅРЅСЏ/РїРѕС€СѓРєСѓ <" (rtos *g_autosnap_last_radius* 2 4) ">: "))
+  (initget 6) ; Р—Р°Р±РѕСЂРѕРЅРёС‚Рё РЅСѓР»СЊ С‚Р° РЅРµРіР°С‚РёРІРЅС– (2+4), Р”РѕР·РІРѕР»РёС‚Рё Enter (РЅРµРјР°С” РїСЂР°РїРѕСЂС†СЏ 1)
+  ; РћС‚СЂРёРјР°С‚Рё РІС–РґСЃС‚Р°РЅСЊ - getdist РїРѕРІРµСЂРЅРµ nil, СЏРєС‰Рѕ РЅР°С‚РёСЃРЅСѓС‚Рѕ Enter
   (setq inputRadius (getdist prompt_radius_str))
 
-  ; Використання введеного значення або попереднього (якщо натиснуто Enter)
+  ; Р’РёРєРѕСЂРёСЃС‚Р°РЅРЅСЏ РІРІРµРґРµРЅРѕРіРѕ Р·РЅР°С‡РµРЅРЅСЏ Р°Р±Рѕ РїРѕРїРµСЂРµРґРЅСЊРѕРіРѕ (СЏРєС‰Рѕ РЅР°С‚РёСЃРЅСѓС‚Рѕ Enter)
   (if inputRadius
-      (setq snap_radius inputRadius) ; Користувач ввів валідне значення
-      (progn ; Користувач натиснув Enter (inputRadius = nil)
-        (princ (strcat " Використовується останнє значення: " (rtos *g_autosnap_last_radius* 2 4)))
-        (setq snap_radius *g_autosnap_last_radius*) ; Присвоюємо збережене значення
+      (setq snap_radius inputRadius) ; РљРѕСЂРёСЃС‚СѓРІР°С‡ РІРІС–РІ РІР°Р»С–РґРЅРµ Р·РЅР°С‡РµРЅРЅСЏ
+      (progn ; РљРѕСЂРёСЃС‚СѓРІР°С‡ РЅР°С‚РёСЃРЅСѓРІ Enter (inputRadius = nil)
+        (princ (strcat " Р’РёРєРѕСЂРёСЃС‚РѕРІСѓС”С‚СЊСЃСЏ РѕСЃС‚Р°РЅРЅС” Р·РЅР°С‡РµРЅРЅСЏ: " (rtos *g_autosnap_last_radius* 2 4)))
+        (setq snap_radius *g_autosnap_last_radius*) ; РџСЂРёСЃРІРѕСЋС”РјРѕ Р·Р±РµСЂРµР¶РµРЅРµ Р·РЅР°С‡РµРЅРЅСЏ
       )
   )
-  ; Якщо користувач натиснув ESC, getdist повернув би nil, але *error* обробить це раніше.
-  ; Перевірка на <= 0 не потрібна, бо initget 6 це забороняє.
+  ; РЇРєС‰Рѕ РєРѕСЂРёСЃС‚СѓРІР°С‡ РЅР°С‚РёСЃРЅСѓРІ ESC, getdist РїРѕРІРµСЂРЅСѓРІ Р±Рё nil, Р°Р»Рµ *error* РѕР±СЂРѕР±РёС‚СЊ С†Рµ СЂР°РЅС–С€Рµ.
+  ; РџРµСЂРµРІС–СЂРєР° РЅР° <= 0 РЅРµ РїРѕС‚СЂС–Р±РЅР°, Р±Рѕ initget 6 С†Рµ Р·Р°Р±РѕСЂРѕРЅСЏС”.
 
-  ; Зберігаємо фактично використаний радіус для наступного разу
+  ; Р—Р±РµСЂС–РіР°С”РјРѕ С„Р°РєС‚РёС‡РЅРѕ РІРёРєРѕСЂРёСЃС‚Р°РЅРёР№ СЂР°РґС–СѓСЃ РґР»СЏ РЅР°СЃС‚СѓРїРЅРѕРіРѕ СЂР°Р·Сѓ
   (setq *g_autosnap_last_radius* snap_radius)
 
-  ; --- 2. Отримати Стартовий Об'єкт та його тип ---
+  ; --- 2. РћС‚СЂРёРјР°С‚Рё РЎС‚Р°СЂС‚РѕРІРёР№ РћР±'С”РєС‚ С‚Р° Р№РѕРіРѕ С‚РёРї ---
   (setq start_pt nil initial_ent_type nil)
   (while (not start_pt)
-    (setq start_ent (entsel (strcat "\nВиберіть стартовий об'єкт POINT, CIRCLE або INSERT (Радіус пошуку: " (rtos snap_radius 2 2) "): ")))
+    (setq start_ent (entsel (strcat "\nР’РёР±РµСЂС–С‚СЊ СЃС‚Р°СЂС‚РѕРІРёР№ РѕР±'С”РєС‚ POINT, CIRCLE Р°Р±Рѕ INSERT (Р Р°РґС–СѓСЃ РїРѕС€СѓРєСѓ: " (rtos snap_radius 2 2) "): ")))
     (cond
-      ((null start_ent) (*error* "Вибір скасовано."))
+      ((null start_ent) (*error* "Р’РёР±С–СЂ СЃРєР°СЃРѕРІР°РЅРѕ."))
       ((listp start_ent)
        (setq ent_data (entget (car start_ent)))
        (setq initial_ent_type (cdr (assoc 0 ent_data)))
        (if (member initial_ent_type '("POINT" "CIRCLE" "INSERT"))
          (setq start_pt (cdr (assoc 10 ent_data)))
          (progn
-            (princ (strcat "\nНевірний тип об'єкта: " initial_ent_type ". Виберіть POINT, CIRCLE або INSERT."))
+            (princ (strcat "\nРќРµРІС–СЂРЅРёР№ С‚РёРї РѕР±'С”РєС‚Р°: " initial_ent_type ". Р’РёР±РµСЂС–С‚СЊ POINT, CIRCLE Р°Р±Рѕ INSERT."))
             (setq initial_ent_type nil)
          )
        )
       )
-      (t (princ "\nНевірний вибір.")(exit))
+      (t (princ "\nРќРµРІС–СЂРЅРёР№ РІРёР±С–СЂ.")(exit))
     )
   )
   (if (or (not start_pt) (not initial_ent_type))
-      (*error* "Не вдалося визначити стартову точку або тип об'єкта.")
+      (*error* "РќРµ РІРґР°Р»РѕСЃСЏ РІРёР·РЅР°С‡РёС‚Рё СЃС‚Р°СЂС‚РѕРІСѓ С‚РѕС‡РєСѓ Р°Р±Рѕ С‚РёРї РѕР±'С”РєС‚Р°.")
   )
   (setq vertices_list (list start_pt))
 
-  ; --- Ініціалізація для циклу ---
+  ; --- Р†РЅС–С†С–Р°Р»С–Р·Р°С†С–СЏ РґР»СЏ С†РёРєР»Сѓ ---
   (setq loop_counter 0)
   (setq draw_color 30)
   (setq temp_pline_segment_color 1)
@@ -131,20 +131,20 @@
   (setq detection_counter 0)
   (setq detection_threshold 5)
 
-  (princ "\n--- РЕЖИМ ВІДОБРАЖЕННЯ, ПОШУКУ ТА СТВОРЕННЯ ПОЛІЛІНІЇ (v8.8) ---") ; Оновлено версію
-  (princ (strcat "\nШукаємо '" initial_ent_type "' в 2D радіусі " (rtos snap_radius) ". ЛКМ на підсвіченому для додавання вершини."))
-  (princ "\nНатисніть Enter/ПКМ для завершення полілінії, Esc для скасування.")
+  (princ "\n--- Р Р•Р–РРњ Р’Р†Р”РћР‘Р РђР–Р•РќРќРЇ, РџРћРЁРЈРљРЈ РўРђ РЎРўР’РћР Р•РќРќРЇ РџРћР›Р†Р›Р†РќР†Р‡ (v8.8) ---") ; РћРЅРѕРІР»РµРЅРѕ РІРµСЂСЃС–СЋ
+  (princ (strcat "\nРЁСѓРєР°С”РјРѕ '" initial_ent_type "' РІ 2D СЂР°РґС–СѓСЃС– " (rtos snap_radius) ". Р›РљРњ РЅР° РїС–РґСЃРІС–С‡РµРЅРѕРјСѓ РґР»СЏ РґРѕРґР°РІР°РЅРЅСЏ РІРµСЂС€РёРЅРё."))
+  (princ "\nРќР°С‚РёСЃРЅС–С‚СЊ Enter/РџРљРњ РґР»СЏ Р·Р°РІРµСЂС€РµРЅРЅСЏ РїРѕР»С–Р»С–РЅС–С—, Esc РґР»СЏ СЃРєР°СЃСѓРІР°РЅРЅСЏ.")
 
-  ; --- Інтерактивний цикл ---
+  ; --- Р†РЅС‚РµСЂР°РєС‚РёРІРЅРёР№ С†РёРєР» ---
   (while T
      (setq loop_counter (1+ loop_counter))
      (setq gr_data (grread T 2 0))
      (setq gr_status (car gr_data))
      (setq cursor_pt (cadr gr_data))
 
-     (redraw) ; Очищає маркери та тимчасові сегменти
+     (redraw) ; РћС‡РёС‰Р°С” РјР°СЂРєРµСЂРё С‚Р° С‚РёРјС‡Р°СЃРѕРІС– СЃРµРіРјРµРЅС‚Рё
 
-     ; Малювання тимчасових сегментів
+     ; РњР°Р»СЋРІР°РЅРЅСЏ С‚РёРјС‡Р°СЃРѕРІРёС… СЃРµРіРјРµРЅС‚С–РІ
      (if (> (length vertices_list) 1)
         (progn
           (setq i 0)
@@ -155,9 +155,9 @@
         )
      )
 
-     ; Обробка подій
+     ; РћР±СЂРѕР±РєР° РїРѕРґС–Р№
      (cond
-       ; ЛКМ: Додати вершину
+       ; Р›РљРњ: Р”РѕРґР°С‚Рё РІРµСЂС€РёРЅСѓ
        ((= gr_status 3)
          (if highlighted_ents
            (progn
@@ -167,20 +167,20 @@
                  (setq target_pt (cdr (assoc 10 edata)))
                  (if target_pt
                    (progn
-                     (princ (strcat "\nДодано вершину: " (vl-princ-to-string target_pt)))
+                     (princ (strcat "\nР”РѕРґР°РЅРѕ РІРµСЂС€РёРЅСѓ: " (vl-princ-to-string target_pt)))
                      (setq vertices_list (append vertices_list (list target_pt)))
                      (setq highlighted_ents (clear_highlights highlighted_ents))
                    )
-                   (princ "\nПомилка: Координати.")
+                   (princ "\nРџРѕРјРёР»РєР°: РљРѕРѕСЂРґРёРЅР°С‚Рё.")
                  )
                )
-               (princ "\nПомилка: Дані об'єкта.")
+               (princ "\nРџРѕРјРёР»РєР°: Р”Р°РЅС– РѕР±'С”РєС‚Р°.")
              )
            )
          )
-       ) ; Кінець status 3
+       ) ; РљС–РЅРµС†СЊ status 3
 
-       ; Рух Миші: Оновити маркери та підсвічування
+       ; Р СѓС… РњРёС€С–: РћРЅРѕРІРёС‚Рё РјР°СЂРєРµСЂРё С‚Р° РїС–РґСЃРІС–С‡СѓРІР°РЅРЅСЏ
        ((and (= gr_status 5) cursor_pt)
          (progn
            (draw_radius_markers cursor_pt snap_radius draw_color marker_size_ss)
@@ -188,7 +188,7 @@
            (if (>= detection_counter detection_threshold)
              (progn
                (setq detection_counter 0)
-               ; Блок Пошуку/Підсвічування (2D Відстань)
+               ; Р‘Р»РѕРє РџРѕС€СѓРєСѓ/РџС–РґСЃРІС–С‡СѓРІР°РЅРЅСЏ (2D Р’С–РґСЃС‚Р°РЅСЊ)
                (setq ll (list (- (car cursor_pt) snap_radius) (- (cadr cursor_pt) snap_radius)))
                (setq ur (list (+ (car cursor_pt) snap_radius) (+ (cadr cursor_pt) snap_radius)))
                (setq filter (list (cons 0 initial_ent_type)))
@@ -215,10 +215,10 @@
                        )
                      )
                      (setq i (1+ i))
-                   ) ; кінець repeat
-                 ) ; кінець progn if nearby_ss
-               ) ; кінець if nearby_ss
-               ; Керування підсвічуванням
+                   ) ; РєС–РЅРµС†СЊ repeat
+                 ) ; РєС–РЅРµС†СЊ progn if nearby_ss
+               ) ; РєС–РЅРµС†СЊ if nearby_ss
+               ; РљРµСЂСѓРІР°РЅРЅСЏ РїС–РґСЃРІС–С‡СѓРІР°РЅРЅСЏРј
                (setq highlighted_ents (clear_highlights highlighted_ents))
                (if found_now_ents
                   (progn
@@ -228,17 +228,17 @@
                      (setq highlighted_ents found_now_ents)
                   )
                )
-               ; --- Кінець блоку Пошуку/Підсвічування ---
-             ) ; кінець progn для блоку, що виконується рідше
-           ) ; кінець if для перевірки порогу лічильника
-         ) ; кінець progn для обробки події руху миші
-       ) ; Кінець status 5
+               ; --- РљС–РЅРµС†СЊ Р±Р»РѕРєСѓ РџРѕС€СѓРєСѓ/РџС–РґСЃРІС–С‡СѓРІР°РЅРЅСЏ ---
+             ) ; РєС–РЅРµС†СЊ progn РґР»СЏ Р±Р»РѕРєСѓ, С‰Рѕ РІРёРєРѕРЅСѓС”С‚СЊСЃСЏ СЂС–РґС€Рµ
+           ) ; РєС–РЅРµС†СЊ if РґР»СЏ РїРµСЂРµРІС–СЂРєРё РїРѕСЂРѕРіСѓ Р»С–С‡РёР»СЊРЅРёРєР°
+         ) ; РєС–РЅРµС†СЊ progn РґР»СЏ РѕР±СЂРѕР±РєРё РїРѕРґС–С— СЂСѓС…Сѓ РјРёС€С–
+       ) ; РљС–РЅРµС†СЊ status 5
 
-       ; Клавіші Виходу: Створити полілінію (Enter/ПКМ) або скасувати (Esc)
-       ((or (= gr_status 11) (= gr_status 25) (and (= gr_status 2) (= (cadr gr_data) 13))) ; Enter або ПКМ
+       ; РљР»Р°РІС–С€С– Р’РёС…РѕРґСѓ: РЎС‚РІРѕСЂРёС‚Рё РїРѕР»С–Р»С–РЅС–СЋ (Enter/РџРљРњ) Р°Р±Рѕ СЃРєР°СЃСѓРІР°С‚Рё (Esc)
+       ((or (= gr_status 11) (= gr_status 25) (and (= gr_status 2) (= (cadr gr_data) 13))) ; Enter Р°Р±Рѕ РџРљРњ
           (if (> (length vertices_list) 1)
              (progn
-                (princ (strcat "\nСтворюємо полілінію з " (itoa (length vertices_list)) " вершин..."))
+                (princ (strcat "\nРЎС‚РІРѕСЂСЋС”РјРѕ РїРѕР»С–Р»С–РЅС–СЋ Р· " (itoa (length vertices_list)) " РІРµСЂС€РёРЅ..."))
                 (setq pline_dxf (list '(0 . "LWPOLYLINE") '(100 . "AcDbEntity") '(100 . "AcDbPolyline")
                                       (cons 90 (length vertices_list))
                                       '(70 . 0)
@@ -248,51 +248,51 @@
                    (setq pline_dxf (append pline_dxf (list (cons 10 vertex))))
                 )
                 (entmake pline_dxf)
-                (princ " Готово.")
+                (princ " Р“РѕС‚РѕРІРѕ.")
              )
-             (princ "\nНедостатньо вершин (потрібно мінімум 2) для створення полілінії.")
+             (princ "\nРќРµРґРѕСЃС‚Р°С‚РЅСЊРѕ РІРµСЂС€РёРЅ (РїРѕС‚СЂС–Р±РЅРѕ РјС–РЅС–РјСѓРј 2) РґР»СЏ СЃС‚РІРѕСЂРµРЅРЅСЏ РїРѕР»С–Р»С–РЅС–С—.")
           )
-          (princ "\nЗавершення.")
+          (princ "\nР—Р°РІРµСЂС€РµРЅРЅСЏ.")
           (exit)
        )
        ((and (= gr_status 2) (= (cadr gr_data) 27)) ; Esc
-          (*error* "Скасовано користувачем (Esc).")
+          (*error* "РЎРєР°СЃРѕРІР°РЅРѕ РєРѕСЂРёСЃС‚СѓРІР°С‡РµРј (Esc).")
           (exit)
        )
 
-       ; Інші статуси ігноруються
+       ; Р†РЅС€С– СЃС‚Р°С‚СѓСЃРё С–РіРЅРѕСЂСѓСЋС‚СЊСЃСЏ
        (t nil)
 
-     ) ; кінець головного cond
+     ) ; РєС–РЅРµС†СЊ РіРѕР»РѕРІРЅРѕРіРѕ cond
 
-  ) ; кінець while
+  ) ; РєС–РЅРµС†СЊ while
 
-  ; --- Очищення при нормальному виході ---
+  ; --- РћС‡РёС‰РµРЅРЅСЏ РїСЂРё РЅРѕСЂРјР°Р»СЊРЅРѕРјСѓ РІРёС…РѕРґС– ---
   (*error* nil)
   (princ)
-) ; кінець c:AutoSnapPline
+) ; РєС–РЅРµС†СЊ c:AutoSnapPline
 
-; --- === Додаткові Команди (Аліаси) === ---
+; --- === Р”РѕРґР°С‚РєРѕРІС– РљРѕРјР°РЅРґРё (РђР»С–Р°СЃРё) === ---
 
-; Короткий аліас ASPL
+; РљРѕСЂРѕС‚РєРёР№ Р°Р»С–Р°СЃ ASPL
 (defun c:ASPL ()
   (c:AutoSnapPline)
   (princ)
 )
 
-; Логічний аліас PCON (Polyline Connect / Point Connect)
+; Р›РѕРіС–С‡РЅРёР№ Р°Р»С–Р°СЃ PCON (Polyline Connect / Point Connect)
 (defun c:PCON ()
   (c:AutoSnapPline)
   (princ)
 )
 
-; Ще один аліас FASTLINE <<-- ДОДАНО
+; Р©Рµ РѕРґРёРЅ Р°Р»С–Р°СЃ FASTLINE <<-- Р”РћР”РђРќРћ
 (defun c:FASTLINE ()
-  (c:AutoSnapPline) ; Викликати основну функцію
+  (c:AutoSnapPline) ; Р’РёРєР»РёРєР°С‚Рё РѕСЃРЅРѕРІРЅСѓ С„СѓРЅРєС†С–СЋ
   (princ)
 )
 
-; --- Повідомлення про завантаження (з переліком команд) ---
-(princ "\nСкрипт AutoSnapPline (v8.8) завантажено.") ; <<-- ЗМІНЕНО версію
-(princ "\nДоступні команди: AutoSnapPline, ASPL, PCON, FASTLINE") ; <<-- Додано FASTLINE
+; --- РџРѕРІС–РґРѕРјР»РµРЅРЅСЏ РїСЂРѕ Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ (Р· РїРµСЂРµР»С–РєРѕРј РєРѕРјР°РЅРґ) ---
+(princ "\nРЎРєСЂРёРїС‚ AutoSnapPline (v8.8) Р·Р°РІР°РЅС‚Р°Р¶РµРЅРѕ.") ; <<-- Р—РњР†РќР•РќРћ РІРµСЂСЃС–СЋ
+(princ "\nР”РѕСЃС‚СѓРїРЅС– РєРѕРјР°РЅРґРё: AutoSnapPline, ASPL, PCON, FASTLINE") ; <<-- Р”РѕРґР°РЅРѕ FASTLINE
 (princ)
