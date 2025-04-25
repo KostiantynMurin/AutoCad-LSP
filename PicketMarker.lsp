@@ -98,7 +98,7 @@
                                           ;;(princ (strcat "\n      Debug [SetAttrib]: Спроба встановити значення в '" new_value "'..."))
                                           (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
                                           (if (vl-catch-all-error-p set_result)
-                                              ;;(princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
+                                              (princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
                                               ;;(princ "\n      Debug [SetAttrib]: Значення встановлено (або спроба зроблена).")
                                           )
                                           (setq update_needed T) (setq found T)
