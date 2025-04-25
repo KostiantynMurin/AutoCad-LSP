@@ -98,29 +98,21 @@
 )
 
 
-;; Головна функція (Спрощений цикл WHILE для перевірки синтаксису)
+;; Головна функція (Відновлено виклики PlaceMarkerElements)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
                              first_picket_val last_picket_val current_picket_val dist_on_pline
-                             pt_on_pline vec_tangent vec_perp vec_perp_final vec_perp_norm vec_tangent_norm
-                             target_layer line_len_main line_len_tcap half_line_main half_line_tcap
-                             fuzz pt_end_far pt_end_near pt_tcap_start pt_tcap_end pt_text angle_text angle_text_raw
-                             piket_str piket_str_start piket_str_end text_style text_height final_stylename
-                             line1_ent line2_ent text_ent pt_start pt_end vec_tangent_start vec_tangent_end)
+                             pt_on_pline vec_tangent ; Removed many geometry vars, handled by helper now
+                             target_layer line_len_main line_len_tcap ; Kept constants
+                             fuzz piket_str piket_str_start piket_str_end text_style text_height final_stylename ; Kept text vars
+                             pt_start pt_end vec_tangent_start vec_tangent_end) ; Kept start/end point/tangent vars
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_SyntaxCheckLoop ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_Final_UseHelper ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
-  (setq target_layer   "0"
-        line_len_main  38.0
-        line_len_tcap  5.0
-        text_style     "Д-431"
-        text_height    1.8
-        fuzz           1e-9
-  )
-  (setq half_line_main (/ line_len_main 2.0))
-  (setq half_line_tcap (/ line_len_tcap 2.0))
+  (setq target_layer   "0") (setq line_len_main  38.0) (setq line_len_tcap  5.0)
+  (setq text_style     "Д-431") (setq text_height    1.8) (setq fuzz           1e-9)
   (setq final_stylename text_style)
 
   ;; Перевизначення обробника помилок
@@ -130,27 +122,27 @@
       (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ)
-  )
+  ) ; *error* defun end
 
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER")))
   (setvar "CMDECHO" 0)
 
   ;; --- Збір вхідних даних ---
-  (princ "\nРозстановка пікетажу (СИНТАКСИЧНА ПЕРЕВІРКА ЦИКЛУ).")
+  (princ "\nРозстановка пікетажу (з маркерами на початку/кінці).")
   (while (not pline_obj)
     (setq pline_ent (entsel "\nОберіть 2D полілінію (LWPOLYLINE): "))
     (if (and pline_ent (= "LWPOLYLINE" (cdr (assoc 0 (entget (car pline_ent))))))
       (setq pline_obj (vlax-ename->vla-object (car pline_ent)))
       (princ "\nОбраний об'єкт не є LWPOLYLINE. Спробуйте ще раз.")
-    )
-  )
+    ) ; if end
+  ) ; while end
   (setq pt_ref (getpoint "\nВкажіть точку прив'язки на полілінії або біля неї: "))
   (if pt_ref
     (progn (setq pt_ref_on_pline (vlax-curve-getClosestPointTo pline_obj (trans pt_ref 1 0)))
            (setq dist_ref_on_pline (vlax-curve-getDistAtPoint pline_obj pt_ref_on_pline)))
     (*error* "Відміна користувачем")
-  )
+  ) ; if end
   (princ (strcat "\nВідстань до точки прив'язки від початку полілінії: " (rtos dist_ref_on_pline 2 4) " м."))
   (setq val_ref (getdist pt_ref_on_pline (strcat "\nВведіть значення пікету для цієї точки (в метрах): ")))
   (if (not val_ref) (*error* "Відміна користувачем"))
@@ -178,13 +170,13 @@
              (if (not (tblsearch "STYLE" final_stylename))
                  (progn (princ (strcat "\n*** Помилка: Стиль 'Standard' не знайдено! Текст не буде створено.")) (setq final_stylename nil))
                  (princ (strcat "\n Використовується стиль '" final_stylename "'."))
-             )
-          )
+             ) ; if end
+          ) ; progn end
           (princ (strcat "\n Використовується стиль '" final_stylename "'."))
-      )
-    )
+      ) ; if end
+    ) ; progn end
     (princ (strcat "\n Використовується стиль тексту '" final_stylename "'."))
-  )
+  ) ; if end
 
   ;; --- Розрахунки ---
   (command "_REGEN")
@@ -210,13 +202,13 @@
            (setq last_picket_val (* (fix (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0)))
     (progn (setq first_picket_val (* (fix (/ (- picket_at_start fuzz) 100.0)) 100.0))
            (setq last_picket_val (* (fix (+ (/ (+ (- picket_at_start pline_len) fuzz) 100.0) (- 1.0 fuzz))) 100.0)))
-  )
+  ) ; if end
   (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos first_picket_val) " до " (rtos last_picket_val)))
 
   ;; --- Підготовка до розстановки ---
   (setvar "CLAYER" target_layer)
 
-  ;; --- Маркер на ПОЧАТКУ полілінії (виклик PlaceMarkerElements) ---
+  ;; --- Маркер на ПОЧАТКУ полілінії ---
   (if (>= picket_at_start (- 0.0 fuzz))
       (progn
         (princ "\nСпроба поставити маркер на початку полілінії...")
@@ -224,74 +216,82 @@
         (setq vec_tangent_start (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getStartParam pline_obj)))
         (if vec_tangent_start
             (progn
-              (setq piket_str_start (FormatPicketValue picket_at_start))
+              (setq piket_str_start (FormatPicketValue picket_at_start)) ; Використовуємо FormatPicketValue
+              ;; ВИКЛИК ДОПОМІЖНОЇ ФУНКЦІЇ ДЛЯ РОЗСТАНОВКИ
               (PlaceMarkerElements pt_start vec_tangent_start side_factor piket_str_start final_stylename text_height target_layer line_len_main line_len_tcap)
-            )
+            ) ; progn end
             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в початковій точці. Маркер не створено."))
-        )
-      )
+        ) ; if vec_tangent_start end
+      ) ; progn end
       (princ (strcat "\n--- Пропуск маркера на початку полілінії (Пікет=" (rtos picket_at_start 2 2) " < 0)."))
-  )
+  ) ; if picket_at_start end
 
-  ;; --- Цикл розстановки 100-метрових пікетів (СПРОЩЕНИЙ ДЛЯ ПЕРЕВІРКИ СИНТАКСИСУ) ---
+  ;; --- Цикл розстановки 100-метрових пікетів ---
   (princ (strcat "\nШукаємо 100м пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
   (setq current_picket_val first_picket_val)
   (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz))) ; WHILE START
     (if (= dir_factor 1.0) (setq dist_on_pline (- current_picket_val picket_at_start)) (setq dist_on_pline (- picket_at_start current_picket_val)))
-
-    ;; Перевірка, чи точка в межах полілінії ТА чи значення пікету не від'ємне
-    ;; Додаємо перевірку, щоб не дублювати початкову/кінцеву точки, якщо вони збігаються з 100м
     (if (and (>= current_picket_val (- 0.0 fuzz))
              (> dist_on_pline fuzz)
              (< dist_on_pline (- pline_len fuzz))
              (>= dist_on_pline (- 0.0 fuzz))
              (<= dist_on_pline (+ pline_len fuzz)))
-      ;; --- Якщо умови виконано - ТИМЧАСОВО НІЧОГО НЕ РОБИМО ---
-      (princ (strcat "\n -> Знайдено дійсний 100м пікет: " (rtos current_picket_val 2 1))) ; Просто друкуємо повідомлення
+      ;; --- Якщо умови виконано - ВИКЛИКАЄМО ДОПОМІЖНУ ФУНКЦІЮ ---
+      (progn
+          (setq pt_on_pline (vlax-curve-getPointAtDist pline_obj dist_on_pline))
+          (setq vec_tangent (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj dist_on_pline)))
+          (if vec_tangent
+             (progn
+                ;; Форматуємо текст для 100м пікету (просто ПК+номер)
+                (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
+                (PlaceMarkerElements pt_on_pline vec_tangent side_factor piket_str final_stylename text_height target_layer line_len_main line_len_tcap)
+             )
+             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну на відстані " (rtos dist_on_pline) ". Пропуск 100м пікету."))
+          )
+      )
       ;; --- Якщо умови НЕ виконано (пікет від'ємний або близько до кінців) ---
-      ;; (else) - тут блок else не потрібен, бо ми просто нічого не робимо якщо if=nil
-         (if (< current_picket_val (- 0.0 fuzz)) ; Окремий if для повідомлення про негативний пікет
+      (progn ; ELSE
+         (if (< current_picket_val (- 0.0 fuzz))
              (princ (strcat "\n--- Пропуск 100м пікету " (rtos current_picket_val 2 1) " (від'ємне значення).")))
-         (if (or (<= dist_on_pline fuzz) (>= dist_on_pline (- pline_len fuzz))) ; Окремий if для повідомлення про близькість до кінців
+         (if (or (<= dist_on_pline fuzz) (>= dist_on_pline (- pline_len fuzz)))
              (princ (strcat "\n--- Пропуск 100м пікету " (rtos current_picket_val 2 1) " (збігається або близько до початку/кінця).")))
+      ) ; progn (else) end
     ) ; IF END (Main condition check)
-
-    ;; Перехід до наступного пікету
     (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
   ) ; WHILE END
-  ;; --- Кінець спрощеного циклу ---
+  ;; --- Кінець циклу ---
 
-
-  ;; --- Маркер в КІНЦІ полілінії (виклик PlaceMarkerElements) ---
+  ;; --- Маркер в КІНЦІ полілінії ---
   (if (= dir_factor 1.0)
       (setq picket_at_end (+ picket_at_start pline_len))
       (setq picket_at_end (- picket_at_start pline_len))
-  )
+  ) ; if end
   (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
   (if (>= picket_at_end (- 0.0 fuzz))
       (progn
         (princ "\nСпроба поставити маркер в кінці полілінії...")
         (setq pt_end (vlax-curve-getEndPoint pline_obj))
-        (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj (- pline_len fuzz))))
-        (if (not vec_tangent_end) (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj))))
+        (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj (- pline_len fuzz)))) ; Спробуємо трохи раніше
+        (if (not vec_tangent_end) (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj)))) ; Спробуємо точно в кінці
         (if vec_tangent_end
             (progn
-              (setq piket_str_end (FormatPicketValue picket_at_end))
+              (setq piket_str_end (FormatPicketValue picket_at_end)) ; Використовуємо FormatPicketValue
+              ;; ВИКЛИК ДОПОМІЖНОЇ ФУНКЦІЇ ДЛЯ РОЗСТАНОВКИ
               (PlaceMarkerElements pt_end vec_tangent_end side_factor piket_str_end final_stylename text_height target_layer line_len_main line_len_tcap)
-            )
+            ) ; progn end
             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в кінцевій точці. Маркер не створено."))
-        )
-      )
+        ) ; if vec_tangent_end end
+      ) ; progn end
       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
-  )
+  ) ; if picket_at_end end
 
   ;; --- Завершення ---
   (command "_REGEN")
-  (princ "\nРозстановка пікетажу завершена (СИНТАКСИЧНА ПЕРЕВІРКА ЦИКЛУ).") ; Оновлено повідомлення
+  (princ "\nРозстановка пікетажу завершена.")
   (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))
   (setq *error* nil)
   (princ)
-)
+) ; Defun C:CREATE_PICKETMARKER End
 
 ;; Повідомлення про завантаження
 (princ "\nLSP завантажено (СИНТАКСИЧНА ПЕРЕВІРКА ЦИКЛУ). Введіть 'CREATE_PICKETMARKER' для запуску.")
