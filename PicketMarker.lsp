@@ -127,17 +127,17 @@
   found ; Повернути T якщо атрибут знайдено
 )
 
-;; Головна функція (Додано перевірку ATTREQ та vla-Update після вставки)
+;; Головна функція (Виправлено кут повороту блоку -90 градусів для Y-орієнтованого блоку)
 (defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
                              first_picket_val last_picket_val current_picket_val dist_on_pline
                              pt_on_pline vec_tangent target_layer block_name_selected block_vla_obj block_insert_obj
                              fuzz piket_str piket_str_start piket_str_end
-                             pt_start pt_end vec_tangent_start vec_tangent_end block_angle mspace
-                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final) ; Додано пропущені змінні
+                             pt_start pt_end vec_tangent_start vec_tangent_end block_angle block_angle_perp mspace
+                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final)
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_AttreqUpdate ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_RotateFixY ***") ; <<< Оновлено версію
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -156,7 +156,6 @@
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
   (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
-  (princ (strcat "\nПеревірка перед стартом: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA")))) ; Перевірка
 
   ;; --- Збір вхідних даних ---
   (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
@@ -237,7 +236,7 @@
   (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos first_picket_val) " до " (rtos last_picket_val)))
 
   ;; --- Підготовка до розстановки ---
-  (setvar "CLAYER" target_layer) ; Встановлюємо поточний шар "0"
+  (setvar "CLAYER" target_layer)
   (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))
   (if (not mspace) (*error* "Modelspace failed"))
 
@@ -251,21 +250,19 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_start)) (car vec_tangent_start) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
+              ;; --- ПРАВИЛЬНА КОРЕКЦІЯ КУТА для Y-орієнтованого блоку ---
+              (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final)) ; Кут перпендикуляру
+              (setq block_angle (- block_angle_perp (/ pi 2.0))) ; ВІДНІМАЄМО 90 градусів
+              (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi)))) ; Нормалізація 0-2PI
+              (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))))
+              ;; ----------------------------------------------------
               (setq piket_str_start (FormatPicketValue picket_at_start))
-              ;; Перевірка ATTREQ/ATTDIA перед вставкою
-              (princ (strcat "\n  Debug [Insert Start]: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA"))))
               ;; Вставка блоку
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_start) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
                   (princ (strcat "\n*** Помилка вставки блоку на початку: " (vl-catch-all-error-message block_insert_obj)))
                   (if block_insert_obj
                       (progn
-                        ;; Примусове оновлення перед перевіркою атрибутів
-                        (princ "\n  Debug [Insert Start]: Оновлення вставленого об'єкта...")
-                        (vla-Update block_insert_obj) ; <--- ДОДАНО ОНОВЛЕННЯ
-                        (princ " Завершено.")
-                        ;; Встановлення атрибуту
                         (princ (strcat "\n Вставлено блок для: " piket_str_start))
                         (SetAttributeValue block_insert_obj "НОМЕР" piket_str_start)
                       )
@@ -296,21 +293,19 @@
              (progn
                 (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
                 (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-                (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
+                ;; --- ПРАВИЛЬНА КОРЕКЦІЯ КУТА ---
+                (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
+                (setq block_angle (- block_angle_perp (/ pi 2.0))) ; ВІДНІМАЄМО 90
+                (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi))))
+                (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))))
+                ;; -------------------------
                 (setq piket_str (FormatPicketValue current_picket_val))
-                ;; Перевірка ATTREQ/ATTDIA перед вставкою
-                (princ (strcat "\n  Debug [Insert Loop]: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA"))))
                 ;; Вставка блоку
                 (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name_selected 1.0 1.0 1.0 block_angle)))
                 (if (vl-catch-all-error-p block_insert_obj)
                     (princ (strcat "\n*** Помилка вставки блоку для " piket_str ": " (vl-catch-all-error-message block_insert_obj)))
                     (if block_insert_obj
                         (progn
-                          ;; Примусове оновлення перед перевіркою атрибутів
-                          (princ "\n  Debug [Insert Loop]: Оновлення вставленого об'єкта...")
-                          (vla-Update block_insert_obj) ; <--- ДОДАНО ОНОВЛЕННЯ
-                          (princ " Завершено.")
-                          ;; Встановлення атрибуту
                           (princ (strcat "\n Вставлено блок для: " piket_str))
                           (SetAttributeValue block_insert_obj "НОМЕР" piket_str)
                         )
@@ -344,21 +339,19 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              (setq block_angle (angle '(0.0 0.0 0.0) vec_perp_final))
+              ;; --- ПРАВИЛЬНА КОРЕКЦІЯ КУТА ---
+              (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
+              (setq block_angle (- block_angle_perp (/ pi 2.0))) ; ВІДНІМАЄМО 90
+              (while (>= block_angle (* 2.0 pi))) (setq block_angle (- block_angle (* 2.0 pi))))
+              (while (< block_angle 0.0)) (setq block_angle (+ block_angle (* 2.0 pi))))
+              ;; -------------------------
               (setq piket_str_end (FormatPicketValue picket_at_end))
-              ;; Перевірка ATTREQ/ATTDIA перед вставкою
-              (princ (strcat "\n  Debug [Insert End]: ATTREQ=" (itoa (getvar "ATTREQ")) ", ATTDIA=" (itoa (getvar "ATTDIA"))))
               ;; Вставка блоку
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
                   (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
                   (if block_insert_obj
                       (progn
-                        ;; Примусове оновлення перед перевіркою атрибутів
-                        (princ "\n  Debug [Insert End]: Оновлення вставленого об'єкта...")
-                        (vla-Update block_insert_obj) ; <--- ДОДАНО ОНОВЛЕННЯ
-                        (princ " Завершено.")
-                        ;; Встановлення атрибуту
                         (princ (strcat "\n Вставлено блок для: " piket_str_end))
                         (SetAttributeValue block_insert_obj "НОМЕР" piket_str_end)
                       )
