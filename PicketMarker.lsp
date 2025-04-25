@@ -43,46 +43,60 @@
 )
 
 
-;; === Допоміжна функція для встановлення значення атрибуту ===
-(defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed)
+;; === Допоміжна функція для встановлення значення атрибуту (з налагодженням) ===
+(defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result) ; Додано змінні
   (setq found nil update_needed nil)
-  ;; Перевіряємо чи передано валідний об'єкт VLA
+  (princ (strcat "\n  Debug [SetAttrib]: Setting '" att_tag "' to '" new_value "' for " (vl-princ-to-string block_vla_obj))) ; DEBUG
   (if (and block_vla_obj (= (type block_vla_obj) 'VLA-OBJECT) (not (vlax-object-released-p block_vla_obj)))
-      ;; Перевіряємо чи є у вставці блоку атрибути
-      (if (= :vlax_true (vla-get-HasAttributes block_vla_obj))
-        (progn
-          ;; Отримуємо колекцію атрибутів
-          (setq atts (vl-catch-all-apply 'vlax-invoke (list block_vla_obj 'GetAttributes)))
-          (if (vl-catch-all-error-p atts)
-              (princ (strcat "\n*** Помилка отримання атрибутів для об'єкта: " (vl-princ-to-string block_vla_obj)))
-              (if atts
-                  ;; Перебираємо атрибути
-                  (foreach att atts
-                    ;; Порівнюємо тег (регістронезалежно)
-                    (if (= (strcase (vla-get-TagString att)) (strcase att_tag))
-                      (progn
-                        ;; Якщо значення відрізняється, встановлюємо нове
-                        (if (/= (vla-get-TextString att) new_value)
-                           (progn
-                              (vl-catch-all-apply 'vla-put-TextString (list att new_value))
-                              (setq update_needed T) ; Позначка, що потрібно оновити блок
+      (progn
+        (setq has_attribs (vla-get-HasAttributes block_vla_obj))
+        (princ (strcat "\n  Debug [SetAttrib]: HasAttributes = " (vl-princ-to-string has_attribs))) ; DEBUG
+        (if (= :vlax_true has_attribs)
+          (progn
+            (princ "\n  Debug [SetAttrib]: Getting attributes...") ; DEBUG
+            (setq atts (vl-catch-all-apply 'vlax-invoke (list block_vla_obj 'GetAttributes)))
+            (if (vl-catch-all-error-p atts)
+                (princ (strcat "\n  Debug [SetAttrib]: *** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
+                (if (and atts (or (= (type atts) 'LIST) (= (type atts) 'SAFEARRAY))) ; Перевірка чи список/масив не порожній
+                   (progn ; Атрибути отримано, перебираємо
+                     (princ (strcat "\n  Debug [SetAttrib]: Знайдено атрибути (тип: " (vl-princ-to-string (type atts)) "). Ітерація...")) ; DEBUG
+                     (foreach att (vlax-safearray->list atts) ; Конвертуємо в список для foreach
+                       (setq current_tag (vla-get-TagString att))
+                       (princ (strcat "\n    Debug [SetAttrib]: Перевірка Тегу: '" current_tag "'")) ; DEBUG
+                       (if (= (strcase current_tag) (strcase att_tag)) ; Порівняння без урахування регістру
+                         (progn
+                           (princ (strcat "\n      Debug [SetAttrib]: Тег СПІВПАВ! Поточне значення: '" (vla-get-TextString att) "'")) ; DEBUG
+                           ;; Встановлюємо значення без перевірки на відмінність
+                           (princ (strcat "\n      Debug [SetAttrib]: Спроба встановити значення в '" new_value "'...")) ; DEBUG
+                           (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
+                           (if (vl-catch-all-error-p set_result)
+                               (princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
+                               (princ "\n      Debug [SetAttrib]: Значення встановлено (або спроба зроблена).") ; DEBUG
                            )
-                        )
-                        (setq found T) ; Позначка, що атрибут знайдено
-                      ) ; progn if tag matches
-                    ) ; if tag matches
-                  ) ; foreach
-                  (princ (strcat "\n*** Помилка: Не вдалося отримати атрибути для об'єкта: " (vl-princ-to-string block_vla_obj)))
-              )
-          )
-          ;; Оновлюємо відображення блоку, якщо значення атрибуту було змінено
-          (if update_needed (vla-Update block_vla_obj))
-        ) ; progn if has attributes
-        (princ (strcat "\n*** Попередження: Вставлений блок " (vla-get-Name block_vla_obj) " не має атрибутів."))
-      ) ; if has attributes
+                           (setq update_needed T) ; Позначка для оновлення
+                           (setq found T)
+                         ) ; progn if tag matches
+                       ) ; if tag matches
+                     ) ; foreach
+                   ) ; progn iterate attributes
+                   (princ "\n  Debug [SetAttrib]: GetAttributes повернув nil або порожній список.") ; DEBUG
+                ) ; If Atts not error or nil/empty
+            ) ; Check GetAttributes Error/Result
+            (if update_needed
+                (progn
+                  (princ "\n  Debug [SetAttrib]: Виклик vla-Update...") ; DEBUG
+                  (vla-Update block_vla_obj)
+                  (princ "\n  Debug [SetAttrib]: vla-Update завершено.") ; DEBUG
+                )
+            )
+            (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** Атрибут з тегом '" att_tag "' не знайдено серед атрибутів блоку."))) ; DEBUG
+          ) ; progn if has attributes
+          (princ (strcat "\n*** Попередження: Вставлений блок " (vla-get-Name block_vla_obj) " не має атрибутів (або HasAttributes=False)."))
+        ) ; if has attributes
+      ) ; progn if valid object
       (princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
   ) ; if valid VLA object
-  found ; Повертає T якщо атрибут було знайдено (незалежно від того, чи змінювалось значення)
+  found ; Повернути T якщо атрибут знайдено
 )
 
 
