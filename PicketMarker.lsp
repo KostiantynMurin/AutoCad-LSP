@@ -1,15 +1,15 @@
-;;; РЎРєСЂРёРїС‚ РґР»СЏ СЂРѕР·СЃС‚Р°РЅРѕРІРєРё РїС–РєРµС‚Р°Р¶Сѓ РІР·РґРѕРІР¶ РїРѕР»С–Р»С–РЅС–С— AutoCAD (LWPOLYLINE)
-;;; Р’РµСЂСЃС–СЏ v2025-04-25_UseBlock (Р’РёРєРѕСЂРёСЃС‚Р°РЅРЅСЏ Р±Р»РѕРєСѓ РєРѕСЂРёСЃС‚СѓРІР°С‡Р° Р· Р°С‚СЂРёР±СѓС‚РѕРј "РќРћРњР•Р ")
-;;; Р РѕР·СЃС‚Р°РІР»СЏС” РµРєР·РµРјРїР»СЏСЂРё РѕР±СЂР°РЅРѕРіРѕ Р±Р»РѕРєСѓ РєРѕР¶РЅС– 100Рј, Р° С‚Р°РєРѕР¶ РЅР° РїРѕС‡Р°С‚РєСѓ/РєС–РЅС†С–
-;;; РїРѕР»С–Р»С–РЅС–С— (СЏРєС‰Рѕ РїС–РєРµС‚ >= 0). Р’РёРєРѕСЂРёСЃС‚РѕРІСѓС” FIX Р·Р°РјС–СЃС‚СЊ floor/ceiling.
+;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
+;;; Версія v2025-04-25_UseBlock (Використання блоку користувача з атрибутом "НОМЕР")
+;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
+;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 
-;; === Р”РѕРїРѕРјС–Р¶РЅС– С„СѓРЅРєС†С–С— РґР»СЏ РІРµРєС‚РѕСЂРЅРѕС— РјР°С‚РµРјР°С‚РёРєРё ===
+;; === Допоміжні функції для векторної математики ===
 (defun normalize (v / len) (setq len (distance '(0 0 0) v)) (if (< len 1e-12) nil (mapcar '(lambda (x) (/ x len)) v)))
 (defun v_scale (v s) (mapcar '(lambda (x) (* x s)) v))
 (defun v_add (v1 v2) (mapcar '+ v1 v2))
 (defun v_sub (v1 v2) (mapcar '- v1 v2))
 
-;; === Р”РѕРїРѕРјС–Р¶РЅР° С„СѓРЅРєС†С–СЏ РґР»СЏ С„РѕСЂРјР°С‚СѓРІР°РЅРЅСЏ Р·РЅР°С‡РµРЅРЅСЏ РїС–РєРµС‚Сѓ ===
+;; === Допоміжна функція для форматування значення пікету ===
 (defun FormatPicketValue (p_val / pk_km pk_m val_str km_str fuzz)
   (setq fuzz 1e-9)
   (setq pk_km (fix (/ p_val 100.0)))
@@ -18,32 +18,32 @@
   (setq km_str (itoa pk_km))
   (setq val_str (rtos pk_m 2 2))
   (if (and (< pk_m (- 10.0 fuzz)) (> pk_m (- 0.0 fuzz))) (setq val_str (strcat "0" val_str)))
-  (strcat "РџРљ" km_str "+" val_str)
+  (strcat "ПК" km_str "+" val_str)
 )
 
-;; === Р”РѕРїРѕРјС–Р¶РЅР° С„СѓРЅРєС†С–СЏ РґР»СЏ РїРµСЂРµРІС–СЂРєРё РЅР°СЏРІРЅРѕСЃС‚С– Р°С‚СЂРёР±СѓС‚Сѓ РІ Р±Р»РѕС†С– ===
+;; === Допоміжна функція для перевірки наявності атрибуту в блоці ===
 (defun CheckBlockAttrib (blockname att_tag / blk_obj ent attdef_found acad_obj doc blocks)
   (setq attdef_found nil)
   (setq acad_obj (vlax-get-acad-object))
   (setq doc (vla-get-ActiveDocument acad_obj))
   (setq blocks (vla-get-Blocks doc))
-  ;; РџРµСЂРµРІС–СЂРєР° С‡Рё С–СЃРЅСѓС” Р±Р»РѕРє Р· С‚Р°РєРёРј С–Рј'СЏРј РІР·Р°РіР°Р»С–
+  ;; Перевірка чи існує блок з таким ім'ям взагалі
   (if (not (vl-catch-all-error-p (setq blk_obj (vla-item blocks blockname))))
-      ;; РЇРєС‰Рѕ Р±Р»РѕРє С–СЃРЅСѓС”, С€СѓРєР°С”РјРѕ Р°С‚СЂРёР±СѓС‚
+      ;; Якщо блок існує, шукаємо атрибут
       (vlax-for ent blk_obj
         (if (= "AcDbAttributeDefinition" (vla-get-ObjectName ent))
           (if (= (strcase (vla-get-TagString ent)) (strcase att_tag))
-            (setq attdef_found T) ; Р—РЅР°Р№РґРµРЅРѕ!
+            (setq attdef_found T) ; Знайдено!
           )
         )
       )
-      (princ (strcat "\n*** РџРѕРјРёР»РєР°: Р‘Р»РѕРє Р· С–Рј'СЏРј '" blockname "' РЅРµ Р·РЅР°Р№РґРµРЅРѕ РІ С‚Р°Р±Р»РёС†С– Р±Р»РѕРєС–РІ."))
+      (princ (strcat "\n*** Помилка: Блок з ім'ям '" blockname "' не знайдено в таблиці блоків."))
   )
-  attdef_found ; РџРѕРІРµСЂС‚Р°С” T СЏРєС‰Рѕ Р·РЅР°Р№РґРµРЅРѕ, nil С–РЅР°РєС€Рµ
+  attdef_found ; Повертає T якщо знайдено, nil інакше
 )
 
 
-;; === Р”РѕРїРѕРјС–Р¶РЅР° С„СѓРЅРєС†С–СЏ РґР»СЏ РІСЃС‚Р°РЅРѕРІР»РµРЅРЅСЏ Р·РЅР°С‡РµРЅРЅСЏ Р°С‚СЂРёР±СѓС‚Сѓ (РѕР±СЂРѕР±РєР° С‚РёРїСѓ Р°С‚СЂРёР±СѓС‚С–РІ) ===
+;; === Допоміжна функція для встановлення значення атрибуту (обробка типу атрибутів) ===
 (defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
   (setq found nil update_needed nil)
   ;;(princ (strcat "\n  Debug [SetAttrib]: Setting '" att_tag "' to '" new_value "' for " (vl-princ-to-string block_vla_obj)))
@@ -57,83 +57,83 @@
               ;;(princ "\n  Debug [SetAttrib]: Getting attributes...")
               (setq atts (vl-catch-all-apply 'vlax-invoke (list block_vla_obj 'GetAttributes)))
               (if (vl-catch-all-error-p atts)
-                  ;;(princ (strcat "\n  Debug [SetAttrib]: *** РџРѕРјРёР»РєР° РѕС‚СЂРёРјР°РЅРЅСЏ Р°С‚СЂРёР±СѓС‚С–РІ: " (vl-catch-all-error-message atts)))
+                  ;;(princ (strcat "\n  Debug [SetAttrib]: *** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
                   (if atts
                      (progn
-                       ;; --- Р’РР—РќРђР§Р•РќРќРЇ РЎРџРРЎРљРЈ РђРўР РР‘РЈРўР†Р’ Р”Р›РЇ FOREACH ---
-                       (setq att_list nil) ; Р†РЅС–С†С–Р°Р»С–Р·Р°С†С–СЏ СЃРїРёСЃРєСѓ
+                       ;; --- ВИЗНАЧЕННЯ СПИСКУ АТРИБУТІВ ДЛЯ FOREACH ---
+                       (setq att_list nil) ; Ініціалізація списку
                        (cond
-                         ((= (type atts) 'VARIANT) ; РЎС‚Р°РЅРґР°СЂС‚РЅРёР№ РІРёРїР°РґРѕРє: Variant, С‰Рѕ РјС–СЃС‚РёС‚СЊ SafeArray
-                           ;;(princ "\n  Debug [SetAttrib]: РўРёРї Р°С‚СЂРёР±СѓС‚С–РІ VARIANT. РљРѕРЅРІРµСЂС‚Р°С†С–СЏ SafeArray...")
-                           (if (and (= (type (vlax-variant-value atts)) 'SAFEARRAY)) ; РџРµСЂРµРІС–СЂРєР° РІРјС–СЃС‚Сѓ РІР°СЂС–Р°РЅС‚Сѓ
+                         ((= (type atts) 'VARIANT) ; Стандартний випадок: Variant, що містить SafeArray
+                           ;;(princ "\n  Debug [SetAttrib]: Тип атрибутів VARIANT. Конвертація SafeArray...")
+                           (if (and (= (type (vlax-variant-value atts)) 'SAFEARRAY)) ; Перевірка вмісту варіанту
                               (setq att_list (vlax-safearray->list (vlax-variant-value atts)))
-                              ;;(princ "\n  Debug [SetAttrib]: *** РџРѕРјРёР»РєР°: Variant РЅРµ РјС–СЃС‚РёС‚СЊ SafeArray!")
+                              ;;(princ "\n  Debug [SetAttrib]: *** Помилка: Variant не містить SafeArray!")
                            )
                          )
-                         ((= (type atts) 'LIST) ; РќРµСЃС‚Р°РЅРґР°СЂС‚РЅРёР№ РІРёРїР°РґРѕРє: РІР¶Рµ С” СЃРїРёСЃРѕРє
-                           ;;(princ "\n  Debug [SetAttrib]: РўРёРї Р°С‚СЂРёР±СѓС‚С–РІ LIST (РќРµРѕС‡С–РєСѓРІР°РЅРѕ!). Р’РёРєРѕСЂРёСЃС‚Р°РЅРЅСЏ РЅР°РїСЂСЏРјСѓ.")
-                           (setq att_list atts) ; Р’РёРєРѕСЂРёСЃС‚РѕРІСѓС”РјРѕ СЃРїРёСЃРѕРє СЏРє С”
+                         ((= (type atts) 'LIST) ; Нестандартний випадок: вже є список
+                           ;;(princ "\n  Debug [SetAttrib]: Тип атрибутів LIST (Неочікувано!). Використання напряму.")
+                           (setq att_list atts) ; Використовуємо список як є
                          )
-                         ((= (type atts) 'SAFEARRAY) ; РќР° РІРёРїР°РґРѕРє, СЏРєС‰Рѕ РїРѕРІРµСЂС‚Р°С”С‚СЊСЃСЏ РЅР°РїСЂСЏРјСѓ SafeArray
-                           ;;(princ "\n  Debug [SetAttrib]: РўРёРї Р°С‚СЂРёР±СѓС‚С–РІ SAFEARRAY. РљРѕРЅРІРµСЂС‚Р°С†С–СЏ...")
+                         ((= (type atts) 'SAFEARRAY) ; На випадок, якщо повертається напряму SafeArray
+                           ;;(princ "\n  Debug [SetAttrib]: Тип атрибутів SAFEARRAY. Конвертація...")
                            (setq att_list (vlax-safearray->list atts))
                          )
-                         (T ; Р†РЅС€РёР№ РЅРµРѕС‡С–РєСѓРІР°РЅРёР№ С‚РёРї
-                           ;;(princ (strcat "\n  Debug [SetAttrib]: *** РџРѕРјРёР»РєР°: РќРµРѕС‡С–РєСѓРІР°РЅРёР№ С‚РёРї РєРѕР»РµРєС†С–С— Р°С‚СЂРёР±СѓС‚С–РІ: " (vl-princ-to-string (type atts))))
+                         (T ; Інший неочікуваний тип
+                           ;;(princ (strcat "\n  Debug [SetAttrib]: *** Помилка: Неочікуваний тип колекції атрибутів: " (vl-princ-to-string (type atts))))
                          )
                        ) ; cond
 
-                       ;; --- Р†С‚РµСЂР°С†С–СЏ РїРѕ РѕС‚СЂРёРјР°РЅРѕРјСѓ СЃРїРёСЃРєСѓ att_list ---
+                       ;; --- Ітерація по отриманому списку att_list ---
                        (if att_list
                           (progn
-                             ;;(princ (strcat "\n  Debug [SetAttrib]: Р†С‚РµСЂР°С†С–СЏ РїРѕ " (itoa (length att_list)) " РѕР±'С”РєС‚Р°Рј Р°С‚СЂРёР±СѓС‚С–РІ..."))
-                             (foreach att att_list ; Р†С‚РµСЂР°С†С–СЏ РїРѕ РїС–РґРіРѕС‚РѕРІР»РµРЅРѕРјСѓ СЃРїРёСЃРєСѓ
-                               (if (= (type att) 'VLA-OBJECT) ; РџРµСЂРµРєРѕРЅСѓС”РјРѕСЃСЊ, С‰Рѕ РµР»РµРјРµРЅС‚ - С†Рµ VLA РѕР±'С”РєС‚
+                             ;;(princ (strcat "\n  Debug [SetAttrib]: Ітерація по " (itoa (length att_list)) " об'єктам атрибутів..."))
+                             (foreach att att_list ; Ітерація по підготовленому списку
+                               (if (= (type att) 'VLA-OBJECT) ; Переконуємось, що елемент - це VLA об'єкт
                                    (progn
                                       (setq current_tag (vla-get-TagString att))
-                                      ;;(princ (strcat "\n    Debug [SetAttrib]: РџРµСЂРµРІС–СЂРєР° РўРµРіСѓ: '" current_tag "'"))
+                                      ;;(princ (strcat "\n    Debug [SetAttrib]: Перевірка Тегу: '" current_tag "'"))
                                       (if (= (strcase current_tag) (strcase att_tag))
                                         (progn
-                                          ;;(princ (strcat "\n      Debug [SetAttrib]: РўРµРі РЎРџР†Р’РџРђР’! РџРѕС‚РѕС‡РЅРµ Р·РЅР°С‡РµРЅРЅСЏ: '" (vla-get-TextString att) "'"))
-                                          ;;(princ (strcat "\n      Debug [SetAttrib]: РЎРїСЂРѕР±Р° РІСЃС‚Р°РЅРѕРІРёС‚Рё Р·РЅР°С‡РµРЅРЅСЏ РІ '" new_value "'..."))
+                                          ;;(princ (strcat "\n      Debug [SetAttrib]: Тег СПІВПАВ! Поточне значення: '" (vla-get-TextString att) "'"))
+                                          ;;(princ (strcat "\n      Debug [SetAttrib]: Спроба встановити значення в '" new_value "'..."))
                                           (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
                                           (if (vl-catch-all-error-p set_result)
-                                              ;;(princ (strcat "\n      Debug [SetAttrib]: *** РџРѕРјРёР»РєР° РІСЃС‚Р°РЅРѕРІР»РµРЅРЅСЏ Р·РЅР°С‡РµРЅРЅСЏ: " (vl-catch-all-error-message set_result)))
-                                              ;;(princ "\n      Debug [SetAttrib]: Р—РЅР°С‡РµРЅРЅСЏ РІСЃС‚Р°РЅРѕРІР»РµРЅРѕ (Р°Р±Рѕ СЃРїСЂРѕР±Р° Р·СЂРѕР±Р»РµРЅР°).")
+                                              ;;(princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
+                                              ;;(princ "\n      Debug [SetAttrib]: Значення встановлено (або спроба зроблена).")
                                           )
                                           (setq update_needed T) (setq found T)
                                         ) ; progn if tag matches
                                       ) ; if tag matches
                                    ) ; progn if VLA-OBJECT
-                                   ;;(princ (strcat "\n    Debug [SetAttrib]: *** РџРѕРјРёР»РєР°: Р•Р»РµРјРµРЅС‚ СЃРїРёСЃРєСѓ Р°С‚СЂРёР±СѓС‚С–РІ РЅРµ С” VLA-OBJECT: " (vl-princ-to-string att)))
+                                   ;;(princ (strcat "\n    Debug [SetAttrib]: *** Помилка: Елемент списку атрибутів не є VLA-OBJECT: " (vl-princ-to-string att)))
                                ) ; if VLA-OBJECT
                              ) ; foreach
                           ) ; progn if att_list is valid
-                          ;;(princ "\n  Debug [SetAttrib]: РќРµ РІРґР°Р»РѕСЃСЏ СЃС‚РІРѕСЂРёС‚Рё СЃРїРёСЃРѕРє Р°С‚СЂРёР±СѓС‚С–РІ РґР»СЏ С–С‚РµСЂР°С†С–С—.")
+                          ;;(princ "\n  Debug [SetAttrib]: Не вдалося створити список атрибутів для ітерації.")
                        ) ; if att_list
                      ) ; progn if atts is not nil
-                     ;;(princ "\n  Debug [SetAttrib]: GetAttributes РїРѕРІРµСЂРЅСѓРІ nil.")
+                     ;;(princ "\n  Debug [SetAttrib]: GetAttributes повернув nil.")
                   ) ; if atts
               ) ; Check GetAttributes Error
               (if update_needed
                   (progn 
-                    ;;(princ "\n  Debug [SetAttrib]: Р’РёРєР»РёРє vla-Update...") 
+                    ;;(princ "\n  Debug [SetAttrib]: Виклик vla-Update...") 
                     (vla-Update block_vla_obj) 
-                    ;;(princ "\n  Debug [SetAttrib]: vla-Update Р·Р°РІРµСЂС€РµРЅРѕ.")
+                    ;;(princ "\n  Debug [SetAttrib]: vla-Update завершено.")
                   )
               )
-              (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** РђС‚СЂРёР±СѓС‚ Р· С‚РµРіРѕРј '" att_tag "' РЅРµ Р·РЅР°Р№РґРµРЅРѕ СЃРµСЂРµРґ Р°С‚СЂРёР±СѓС‚С–РІ Р±Р»РѕРєСѓ.")))
+              (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** Атрибут з тегом '" att_tag "' не знайдено серед атрибутів блоку.")))
             ) ; progn if has attributes
             (princ (strcat "\n  Debug [SetAttrib]: Check FAILED (HasAttributes is nil or False)."))
         ) ; if check HasAttributes corrected
       ) ; progn if valid object
-      (princ "\n*** РџРѕРјРёР»РєР°: РџРµСЂРµРґР°РЅРѕ РЅРµРІР°Р»С–РґРЅРёР№ РѕР±'С”РєС‚ Р±Р»РѕРєСѓ РґР»СЏ SetAttributeValue.")
+      (princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
   ) ; if valid VLA object
-  found ; РџРѕРІРµСЂРЅСѓС‚Рё T СЏРєС‰Рѕ Р°С‚СЂРёР±СѓС‚ Р·РЅР°Р№РґРµРЅРѕ
+  found ; Повернути T якщо атрибут знайдено
 )
 
-;; Р“РѕР»РѕРІРЅР° С„СѓРЅРєС†С–СЏ (РќРѕСЂРјР°Р»С–Р·Р°С†С–СЏ РєСѓС‚Р° С‡РµСЂРµР· REM)
-(defun C:CREATE_PICKETMARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
+;; Головна функція (Нормалізація кута через REM)
+(defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
                              val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
                              vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
                              first_picket_val last_picket_val current_picket_val dist_on_pline
@@ -143,79 +143,79 @@
                              acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename)
 
-  (princ "\n*** Running CREATE_PICKETMARKER v2025-04-25_UseBlock_RotateFixY_RemAngle ***") ; <<< РћРЅРѕРІР»РµРЅРѕ РІРµСЂСЃС–СЋ
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-04-25_UseBlock_RotateFixY_RemAngle ***") ; <<< Оновлено версію
 
-  ;; РќР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ РєРѕРЅСЃС‚Р°РЅС‚
+  ;; Налаштування констант
   (setq target_layer   "0"
         fuzz           1e-9
   )
 
-  ;; РџРµСЂРµРІРёР·РЅР°С‡РµРЅРЅСЏ РѕР±СЂРѕР±РЅРёРєР° РїРѕРјРёР»РѕРє
+  ;; Перевизначення обробника помилок
   (defun *error* (msg)
     (if old_vars (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)))
-    (if (not (member msg '("Function cancelled" "quit / exit abort" "Р’С–РґРјС–РЅР° РєРѕСЂРёСЃС‚СѓРІР°С‡РµРј" "Block check failed")))
-      (princ (strcat "\nРџРѕРјРёР»РєР° РІРёРєРѕРЅР°РЅРЅСЏ: " msg))
+    (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем" "Block check failed")))
+      (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ)
   ) ; *error* defun end
 
-  ;; Р—Р±РµСЂРµР¶РµРЅРЅСЏ СЃРёСЃС‚РµРјРЅРёС… Р·РјС–РЅРЅРёС…
+  ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
   (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
 
-  ;; --- Р—Р±С–СЂ РІС…С–РґРЅРёС… РґР°РЅРёС… ---
-  (princ "\nР РѕР·СЃС‚Р°РЅРѕРІРєР° РїС–РєРµС‚Р°Р¶Сѓ (Р· РІРёРєРѕСЂРёСЃС‚Р°РЅРЅСЏРј Р±Р»РѕРєСѓ РєРѕСЂРёСЃС‚СѓРІР°С‡Р°).")
+  ;; --- Збір вхідних даних ---
+  (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
   (setq block_name_selected nil)
   (while (not block_name_selected)
      (setq block_insert_obj nil)
-     (setq block_ent (entsel "\nРћР±РµСЂС–С‚СЊ РµРєР·РµРјРїР»СЏСЂ Р±Р»РѕРєСѓ, СЏРєРёР№ Р±СѓРґРµ РІРёРєРѕСЂРёСЃС‚РѕРІСѓРІР°С‚РёСЃСЏ РґР»СЏ РјР°СЂРєРµСЂР°: "))
+     (setq block_ent (entsel "\nОберіть екземпляр блоку, який буде використовуватися для маркера: "))
      (if block_ent
         (progn
             (setq block_vla_obj (vlax-ename->vla-object (car block_ent)))
             (if (and block_vla_obj (= "AcDbBlockReference" (vla-get-ObjectName block_vla_obj)))
                 (progn
                   (setq block_name_selected (vla-get-EffectiveName block_vla_obj))
-                  (princ (strcat "\nРћР±СЂР°РЅРѕ Р±Р»РѕРє: '" block_name_selected "'."))
-                  (if (not (CheckBlockAttrib block_name_selected "РќРћРњР•Р "))
-                      (progn (princ (strcat "\n*** РџРѕРјРёР»РєР°: РћР±СЂР°РЅРёР№ Р±Р»РѕРє '" block_name_selected "' РЅРµ РјС–СЃС‚РёС‚СЊ Р°С‚СЂРёР±СѓС‚Сѓ Р· С‚РµРіРѕРј 'РќРћРњР•Р '. РћР±РµСЂС–С‚СЊ С–РЅС€РёР№ Р±Р»РѕРє.")) (setq block_name_selected nil))
-                      (princ "\n -> РђС‚СЂРёР±СѓС‚ 'РќРћРњР•Р ' Р·РЅР°Р№РґРµРЅРѕ РІ Р±Р»РѕС†С–.")
+                  (princ (strcat "\nОбрано блок: '" block_name_selected "'."))
+                  (if (not (CheckBlockAttrib block_name_selected "НОМЕР"))
+                      (progn (princ (strcat "\n*** Помилка: Обраний блок '" block_name_selected "' не містить атрибуту з тегом 'НОМЕР'. Оберіть інший блок.")) (setq block_name_selected nil))
+                      (princ "\n -> Атрибут 'НОМЕР' знайдено в блоці.")
                   ) ; if CheckBlockAttrib end
                 ) ; progn end
-                (princ "\nРћР±СЂР°РЅРёР№ РѕР±'С”РєС‚ РЅРµ С” РІСЃС‚Р°РІРєРѕСЋ Р±Р»РѕРєСѓ. РЎРїСЂРѕР±СѓР№С‚Рµ С‰Рµ СЂР°Р·.")
+                (princ "\nОбраний об'єкт не є вставкою блоку. Спробуйте ще раз.")
             ) ; if block reference end
         ) ; progn end
-        (*error* "Р’С–РґРјС–РЅР° РєРѕСЂРёСЃС‚СѓРІР°С‡РµРј")
+        (*error* "Відміна користувачем")
      ) ; if block_ent end
   ) ; while not block_name_selected end
 
   (while (not pline_obj)
-    (setq pline_ent (entsel "\nРћР±РµСЂС–С‚СЊ 2D РїРѕР»С–Р»С–РЅС–СЋ (LWPOLYLINE): "))
+    (setq pline_ent (entsel "\nОберіть 2D полілінію (LWPOLYLINE): "))
     (if (and pline_ent (= "LWPOLYLINE" (cdr (assoc 0 (entget (car pline_ent))))))
       (setq pline_obj (vlax-ename->vla-object (car pline_ent)))
-      (princ "\nРћР±СЂР°РЅРёР№ РѕР±'С”РєС‚ РЅРµ С” LWPOLYLINE. РЎРїСЂРѕР±СѓР№С‚Рµ С‰Рµ СЂР°Р·.")
+      (princ "\nОбраний об'єкт не є LWPOLYLINE. Спробуйте ще раз.")
     ) ; if end
   ) ; while end
 
-  (setq pt_ref (getpoint "\nР’РєР°Р¶С–С‚СЊ С‚РѕС‡РєСѓ РїСЂРёРІ'СЏР·РєРё РЅР° РїРѕР»С–Р»С–РЅС–С— Р°Р±Рѕ Р±С–Р»СЏ РЅРµС—: "))
+  (setq pt_ref (getpoint "\nВкажіть точку прив'язки на полілінії або біля неї: "))
   (if pt_ref
     (progn (setq pt_ref_on_pline (vlax-curve-getClosestPointTo pline_obj (trans pt_ref 1 0)))
            (setq dist_ref_on_pline (vlax-curve-getDistAtPoint pline_obj pt_ref_on_pline)))
-    (*error* "Р’С–РґРјС–РЅР° РєРѕСЂРёСЃС‚СѓРІР°С‡РµРј")
+    (*error* "Відміна користувачем")
   ) ; if end
-  (princ (strcat "\nР’С–РґСЃС‚Р°РЅСЊ РґРѕ С‚РѕС‡РєРё РїСЂРёРІ'СЏР·РєРё РІС–Рґ РїРѕС‡Р°С‚РєСѓ РїРѕР»С–Р»С–РЅС–С—: " (rtos dist_ref_on_pline 2 4) " Рј."))
-  (setq val_ref (getdist pt_ref_on_pline (strcat "\nР’РІРµРґС–С‚СЊ Р·РЅР°С‡РµРЅРЅСЏ РїС–РєРµС‚Сѓ РґР»СЏ С†С–С”С— С‚РѕС‡РєРё (РІ РјРµС‚СЂР°С…): ")))
-  (if (not val_ref) (*error* "Р’С–РґРјС–РЅР° РєРѕСЂРёСЃС‚СѓРІР°С‡РµРј"))
-  (setq pt_dir (getpoint pt_ref_on_pline "\nР’РєР°Р¶С–С‚СЊ С‚РѕС‡РєСѓ РІ РЅР°РїСЂСЏРјРєСѓ Р—Р‘Р†Р›Р¬РЁР•РќРќРЇ РїС–РєРµС‚Р°Р¶Сѓ: "))
-  (if (not pt_dir) (*error* "Р’С–РґРјС–РЅР° РєРѕСЂРёСЃС‚СѓРІР°С‡РµРј"))
-  (setq pt_side_ref (getpoint pt_ref_on_pline "\nР’РєР°Р¶С–С‚СЊ СЃС‚РѕСЂРѕРЅСѓ РґР»СЏ СЂРѕР·РјС–С‰РµРЅРЅСЏ Р±Р»РѕРєСѓ: "))
-  (if (not pt_side_ref) (*error* "Р’С–РґРјС–РЅР° РєРѕСЂРёСЃС‚СѓРІР°С‡РµРј"))
+  (princ (strcat "\nВідстань до точки прив'язки від початку полілінії: " (rtos dist_ref_on_pline 2 4) " м."))
+  (setq val_ref (getdist pt_ref_on_pline (strcat "\nВведіть значення пікету для цієї точки (в метрах): ")))
+  (if (not val_ref) (*error* "Відміна користувачем"))
+  (setq pt_dir (getpoint pt_ref_on_pline "\nВкажіть точку в напрямку ЗБІЛЬШЕННЯ пікетажу: "))
+  (if (not pt_dir) (*error* "Відміна користувачем"))
+  (setq pt_side_ref (getpoint pt_ref_on_pline "\nВкажіть сторону для розміщення блоку: "))
+  (if (not pt_side_ref) (*error* "Відміна користувачем"))
 
-  ;; РџРµСЂРµРІС–СЂРєР° РІР°Р»С–РґРЅРѕСЃС‚С–
+  ;; Перевірка валідності
   (if (not (and pt_ref_on_pline (= 'LIST (type pt_ref_on_pline)) (= 3 (length pt_ref_on_pline)))) (*error* "Reference point on polyline invalid"))
   (if (not (and pt_dir (= 'LIST (type pt_dir)) (= 3 (length pt_dir)))) (*error* "Direction point invalid"))
   (if (not (and pt_side_ref (= 'LIST (type pt_side_ref)) (= 3 (length pt_side_ref)))) (*error* "Side point invalid"))
 
-  ;; --- Р РѕР·СЂР°С…СѓРЅРєРё ---
+  ;; --- Розрахунки ---
   (command "_REGEN")
   (setq vec_dir (mapcar '- (trans pt_dir 1 0) pt_ref_on_pline))
   (setq vec_tangent_ref (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtPoint pline_obj pt_ref_on_pline)))
@@ -229,61 +229,61 @@
   (if (= dir_factor 1.0) (setq picket_at_start (- val_ref dist_ref_on_pline)) (setq picket_at_start (+ val_ref dist_ref_on_pline)))
   (setq pline_len (vlax-curve-getDistAtParam pline_obj (vlax-curve-getEndParam pline_obj)))
   (if (not pline_len) (*error* "Length calculation failed"))
-  (princ (strcat "\nР—Р°РіР°Р»СЊРЅР° РґРѕРІР¶РёРЅР° РїРѕР»С–Р»С–РЅС–С—: " (rtos pline_len 2 4) " Рј."))
-  (princ (strcat "\nР РѕР·СЂР°С…СѓРЅРєРѕРІРµ Р·РЅР°С‡РµРЅРЅСЏ РїС–РєРµС‚Сѓ РЅР° РїРѕС‡Р°С‚РєСѓ: " (rtos picket_at_start 2 4) " Рј."))
+  (princ (strcat "\nЗагальна довжина полілінії: " (rtos pline_len 2 4) " м."))
+  (princ (strcat "\nРозрахункове значення пікету на початку: " (rtos picket_at_start 2 4) " м."))
 
-  ;; Р’РёР·РЅР°С‡РµРЅРЅСЏ РґС–Р°РїР°Р·РѕРЅСѓ 100-РјРµС‚СЂРѕРІРёС… РїС–РєРµС‚С–РІ --- Р’РРљРћР РРЎРўРђРќРќРЇ FIX ---
-  (princ "\n*** РЈРІР°РіР°: Р’РёРєРѕСЂРёСЃС‚РѕРІСѓС”С‚СЊСЃСЏ FIX Р·Р°РјС–СЃС‚СЊ CEILING/FLOOR С‡РµСЂРµР· РїРѕРјРёР»РєРё СЃРµСЂРµРґРѕРІРёС‰Р° LISP. РњРѕР¶Р»РёРІР° РЅРµС‚РѕС‡РЅС–СЃС‚СЊ Сѓ РїРµСЂС€РѕРјСѓ/РѕСЃС‚Р°РЅРЅСЊРѕРјСѓ РїС–РєРµС‚С–.")
+  ;; Визначення діапазону 100-метрових пікетів --- ВИКОРИСТАННЯ FIX ---
+  (princ "\n*** Увага: Використовується FIX замість CEILING/FLOOR через помилки середовища LISP. Можлива неточність у першому/останньому пікеті.")
   (if (= dir_factor 1.0)
     (progn (setq first_picket_val (* (fix (+ (/ (+ picket_at_start fuzz) 100.0) (- 1.0 fuzz))) 100.0))
            (setq last_picket_val (* (fix (/ (- (+ picket_at_start pline_len) fuzz) 100.0)) 100.0)))
     (progn (setq first_picket_val (* (fix (/ (- picket_at_start fuzz) 100.0)) 100.0))
            (setq last_picket_val (* (fix (+ (/ (+ (- picket_at_start pline_len) fuzz) 100.0) (- 1.0 fuzz))) 100.0)))
   ) ; if end
-  (princ (strcat "\nР РѕР·СЂР°С…РѕРІР°РЅРёР№ РґС–Р°РїР°Р·РѕРЅ (Р· FIX): " (rtos first_picket_val) " РґРѕ " (rtos last_picket_val)))
+  (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos first_picket_val) " до " (rtos last_picket_val)))
 
-  ;; --- РџС–РґРіРѕС‚РѕРІРєР° РґРѕ СЂРѕР·СЃС‚Р°РЅРѕРІРєРё ---
+  ;; --- Підготовка до розстановки ---
   (setvar "CLAYER" target_layer)
   (setq mspace (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))
   (if (not mspace) (*error* "Modelspace failed"))
 
-  ;; --- РњР°СЂРєРµСЂ РЅР° РџРћР§РђРўРљРЈ РїРѕР»С–Р»С–РЅС–С— (СЏРєС‰Рѕ РїС–РєРµС‚ >= 0) ---
+  ;; --- Маркер на ПОЧАТКУ полілінії (якщо пікет >= 0) ---
   (if (>= picket_at_start (- 0.0 fuzz))
       (progn
-        (princ "\nРЎРїСЂРѕР±Р° РїРѕСЃС‚Р°РІРёС‚Рё РјР°СЂРєРµСЂ РЅР° РїРѕС‡Р°С‚РєСѓ РїРѕР»С–Р»С–РЅС–С—...")
+        (princ "\nСпроба поставити маркер на початку полілінії...")
         (setq pt_start (vlax-curve-getStartPoint pline_obj))
         (setq vec_tangent_start (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getStartParam pline_obj)))
         (if vec_tangent_start
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_start)) (car vec_tangent_start) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              ;; --- РљРћР Р•РљР¦Р†РЇ РљРЈРўРђ РґР»СЏ Y-РѕСЂС–С”РЅС‚РѕРІР°РЅРѕРіРѕ Р±Р»РѕРєСѓ (Р· REM) ---
+              ;; --- КОРЕКЦІЯ КУТА для Y-орієнтованого блоку (з REM) ---
               (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
               (setq block_angle (- block_angle_perp (/ pi 2.0)))
-              (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- Р—РђРњР†РќРђ WHILE РќРђ REM
-              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Р”РѕРґР°РІР°РЅРЅСЏ 2*PI СЏРєС‰Рѕ СЂРµР·СѓР»СЊС‚Р°С‚ РІС–Рґ'С”РјРЅРёР№
+              (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- ЗАМІНА WHILE НА REM
+              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Додавання 2*PI якщо результат від'ємний
               ;; ----------------------------------------------------
               (setq piket_str_start (FormatPicketValue picket_at_start))
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_start) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
-                  (princ (strcat "\n*** РџРѕРјРёР»РєР° РІСЃС‚Р°РІРєРё Р±Р»РѕРєСѓ РЅР° РїРѕС‡Р°С‚РєСѓ: " (vl-catch-all-error-message block_insert_obj)))
+                  (princ (strcat "\n*** Помилка вставки блоку на початку: " (vl-catch-all-error-message block_insert_obj)))
                   (if block_insert_obj
                       (progn
-                        (princ (strcat "\n Р’СЃС‚Р°РІР»РµРЅРѕ Р±Р»РѕРє РґР»СЏ: " piket_str_start))
-                        (SetAttributeValue block_insert_obj "РќРћРњР•Р " piket_str_start)
+                        (princ (strcat "\n Вставлено блок для: " piket_str_start))
+                        (SetAttributeValue block_insert_obj "НОМЕР" piket_str_start)
                       ) ; progn end
-                      (princ "\n*** РџРѕРјРёР»РєР°: vla-InsertBlock РїРѕРІРµСЂРЅСѓРІ nil РЅР° РїРѕС‡Р°С‚РєСѓ.")
+                      (princ "\n*** Помилка: vla-InsertBlock повернув nil на початку.")
                   ) ; if block_insert_obj end
               ) ; if vl-catch-all-error-p end
             ) ; progn end
-            (princ (strcat "\n*** РџРѕРїРµСЂРµРґР¶РµРЅРЅСЏ: РќРµ РІРґР°Р»РѕСЃСЏ РѕС‚СЂРёРјР°С‚Рё РґРѕС‚РёС‡РЅСѓ РІ РїРѕС‡Р°С‚РєРѕРІС–Р№ С‚РѕС‡С†С–. РњР°СЂРєРµСЂ РЅРµ СЃС‚РІРѕСЂРµРЅРѕ."))
+            (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в початковій точці. Маркер не створено."))
         ) ; if vec_tangent_start end
       ) ; progn end
-      (princ (strcat "\n--- РџСЂРѕРїСѓСЃРє РјР°СЂРєРµСЂР° РЅР° РїРѕС‡Р°С‚РєСѓ РїРѕР»С–Р»С–РЅС–С— (РџС–РєРµС‚=" (rtos picket_at_start 2 2) " < 0)."))
+      (princ (strcat "\n--- Пропуск маркера на початку полілінії (Пікет=" (rtos picket_at_start 2 2) " < 0)."))
   ) ; if picket_at_start end
 
-  ;; --- Р¦РёРєР» СЂРѕР·СЃС‚Р°РЅРѕРІРєРё 100-РјРµС‚СЂРѕРІРёС… РїС–РєРµС‚С–РІ ---
-  (princ (strcat "\nРЁСѓРєР°С”РјРѕ 100Рј РїС–РєРµС‚Рё РІС–Рґ " (rtos (min first_picket_val last_picket_val) 2 1) " РґРѕ " (rtos (max first_picket_val last_picket_val) 2 1)))
+  ;; --- Цикл розстановки 100-метрових пікетів ---
+  (princ (strcat "\nШукаємо 100м пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
   (setq current_picket_val first_picket_val)
   (while (if (= dir_factor 1.0) (<= current_picket_val (+ last_picket_val fuzz)) (>= current_picket_val (- last_picket_val fuzz))) ; WHILE START
     (if (= dir_factor 1.0) (setq dist_on_pline (- current_picket_val picket_at_start)) (setq dist_on_pline (- picket_at_start current_picket_val)))
@@ -299,52 +299,52 @@
              (progn
                 (setq vec_perp (list (- (cadr vec_tangent)) (car vec_tangent) 0.0))
                 (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-                ;; --- РљРћР Р•РљР¦Р†РЇ РљРЈРўРђ (Р· REM) ---
+                ;; --- КОРЕКЦІЯ КУТА (з REM) ---
                 (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
                 (setq block_angle (- block_angle_perp (/ pi 2.0)))
-                (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- Р—РђРњР†РќРђ WHILE РќРђ REM
-                (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Р”РѕРґР°РІР°РЅРЅСЏ 2*PI СЏРєС‰Рѕ СЂРµР·СѓР»СЊС‚Р°С‚ РІС–Рґ'С”РјРЅРёР№
+                (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- ЗАМІНА WHILE НА REM
+                (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Додавання 2*PI якщо результат від'ємний
                 ;; -------------------------
-                ;;;;;(setq piket_str (FormatPicketValue current_picket_val)) ;; РџРљ0+0,00
-               ;; --- Р¤РѕСЂРјР°С‚СѓРІР°РЅРЅСЏ С‚РµРєСЃС‚Сѓ РґР»СЏ 100Рј РїС–РєРµС‚Сѓ ---
-                (if (< (abs (rem current_picket_val 100.0)) fuzz) ; РџРµСЂРµРІС–СЂРєР° С‡Рё С†Рµ СЂС–РІРЅРѕ 100Рј
-                    ;; РЇРєС‰Рѕ С‚Р°Рє, С„РѕСЂРјР°С‚ "РџРљXX"
-                    (setq piket_str (strcat "РџРљ" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
-                    ;; РЇРєС‰Рѕ РЅС– (РЅРµ РѕС‡С–РєСѓС”С‚СЊСЃСЏ С‚СѓС‚, Р°Р»Рµ РїСЂРѕ РІСЃСЏРє РІРёРїР°РґРѕРє) - РїРѕРІРЅРёР№ С„РѕСЂРјР°С‚
+                ;;;;;(setq piket_str (FormatPicketValue current_picket_val)) ;; ПК0+0,00
+               ;; --- Форматування тексту для 100м пікету ---
+                (if (< (abs (rem current_picket_val 100.0)) fuzz) ; Перевірка чи це рівно 100м
+                    ;; Якщо так, формат "ПКXX"
+                    (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
+                    ;; Якщо ні (не очікується тут, але про всяк випадок) - повний формат
                     (setq piket_str (FormatPicketValue current_picket_val))
                 ) ; if end
                 ;; -----------------------------------------
                 (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name_selected 1.0 1.0 1.0 block_angle)))
                 (if (vl-catch-all-error-p block_insert_obj)
-                    (princ (strcat "\n*** РџРѕРјРёР»РєР° РІСЃС‚Р°РІРєРё Р±Р»РѕРєСѓ РґР»СЏ " piket_str ": " (vl-catch-all-error-message block_insert_obj)))
+                    (princ (strcat "\n*** Помилка вставки блоку для " piket_str ": " (vl-catch-all-error-message block_insert_obj)))
                     (if block_insert_obj
                         (progn
-                          (princ (strcat "\n Р’СЃС‚Р°РІР»РµРЅРѕ Р±Р»РѕРє РґР»СЏ: " piket_str))
-                          (SetAttributeValue block_insert_obj "РќРћРњР•Р " piket_str)
+                          (princ (strcat "\n Вставлено блок для: " piket_str))
+                          (SetAttributeValue block_insert_obj "НОМЕР" piket_str)
                         ) ; progn end
-                        (princ (strcat "\n*** РџРѕРјРёР»РєР°: vla-InsertBlock РїРѕРІРµСЂРЅСѓРІ nil РґР»СЏ " piket_str))
+                        (princ (strcat "\n*** Помилка: vla-InsertBlock повернув nil для " piket_str))
                     ) ; if block_insert_obj end
                 ) ; if vl-catch-all-error-p end
              ) ; progn end
-             (princ (strcat "\n*** РџРѕРїРµСЂРµРґР¶РµРЅРЅСЏ: РќРµ РІРґР°Р»РѕСЃСЏ РѕС‚СЂРёРјР°С‚Рё РґРѕС‚РёС‡РЅСѓ РЅР° РІС–РґСЃС‚Р°РЅС– " (rtos dist_on_pline) ". РџСЂРѕРїСѓСЃРє 100Рј РїС–РєРµС‚Сѓ."))
+             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну на відстані " (rtos dist_on_pline) ". Пропуск 100м пікету."))
           ) ; if vec_tangent end
       ) ; progn end
       (progn ; ELSE
          (if (< current_picket_val (- 0.0 fuzz))
-             (princ (strcat "\n--- РџСЂРѕРїСѓСЃРє 100Рј РїС–РєРµС‚Сѓ " (rtos current_picket_val 2 1) " (РІС–Рґ'С”РјРЅРµ Р·РЅР°С‡РµРЅРЅСЏ).")))
+             (princ (strcat "\n--- Пропуск 100м пікету " (rtos current_picket_val 2 1) " (від'ємне значення).")))
          (if (or (<= dist_on_pline fuzz) (>= dist_on_pline (- pline_len fuzz)))
-             (princ (strcat "\n--- РџСЂРѕРїСѓСЃРє 100Рј РїС–РєРµС‚Сѓ " (rtos current_picket_val 2 1) " (Р·Р±С–РіР°С”С‚СЊСЃСЏ Р°Р±Рѕ Р±Р»РёР·СЊРєРѕ РґРѕ РїРѕС‡Р°С‚РєСѓ/РєС–РЅС†СЏ).")))
+             (princ (strcat "\n--- Пропуск 100м пікету " (rtos current_picket_val 2 1) " (збігається або близько до початку/кінця).")))
       ) ; progn (else) end
     ) ; IF END
     (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
   ) ; WHILE END
 
-  ;; --- РњР°СЂРєРµСЂ РІ РљР†РќР¦Р† РїРѕР»С–Р»С–РЅС–С— ---
+  ;; --- Маркер в КІНЦІ полілінії ---
   (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
-  (princ (strcat "\nР РѕР·СЂР°С…СѓРЅРєРѕРІРµ Р·РЅР°С‡РµРЅРЅСЏ РїС–РєРµС‚Сѓ РІ РєС–РЅС†С–: " (rtos picket_at_end 2 4) " Рј."))
+  (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
   (if (>= picket_at_end (- 0.0 fuzz))
       (progn
-        (princ "\nРЎРїСЂРѕР±Р° РїРѕСЃС‚Р°РІРёС‚Рё РјР°СЂРєРµСЂ РІ РєС–РЅС†С– РїРѕР»С–Р»С–РЅС–С—...")
+        (princ "\nСпроба поставити маркер в кінці полілінії...")
         (setq pt_end (vlax-curve-getEndPoint pline_obj))
         (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj (- pline_len fuzz))))
         (if (not vec_tangent_end) (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj))))
@@ -352,39 +352,39 @@
             (progn
               (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              ;; --- РљРћР Р•РљР¦Р†РЇ РљРЈРўРђ (Р· REM) ---
+              ;; --- КОРЕКЦІЯ КУТА (з REM) ---
               (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
               (setq block_angle (- block_angle_perp (/ pi 2.0)))
-              (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- Р—РђРњР†РќРђ WHILE РќРђ REM
-              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Р”РѕРґР°РІР°РЅРЅСЏ 2*PI СЏРєС‰Рѕ СЂРµР·СѓР»СЊС‚Р°С‚ РІС–Рґ'С”РјРЅРёР№
+              (setq block_angle (rem block_angle (* 2.0 pi))) ; <--- ЗАМІНА WHILE НА REM
+              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi)))) ; <--- Додавання 2*PI якщо результат від'ємний
               ;; -------------------------
               (setq piket_str_end (FormatPicketValue picket_at_end))
               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
               (if (vl-catch-all-error-p block_insert_obj)
-                  (princ (strcat "\n*** РџРѕРјРёР»РєР° РІСЃС‚Р°РІРєРё Р±Р»РѕРєСѓ РІ РєС–РЅС†С–: " (vl-catch-all-error-message block_insert_obj)))
+                  (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
                   (if block_insert_obj
                       (progn
-                        (princ (strcat "\n Р’СЃС‚Р°РІР»РµРЅРѕ Р±Р»РѕРє РґР»СЏ: " piket_str_end))
-                        (SetAttributeValue block_insert_obj "РќРћРњР•Р " piket_str_end)
+                        (princ (strcat "\n Вставлено блок для: " piket_str_end))
+                        (SetAttributeValue block_insert_obj "НОМЕР" piket_str_end)
                       ) ; progn end
-                      (princ "\n*** РџРѕРјРёР»РєР°: vla-InsertBlock РїРѕРІРµСЂРЅСѓРІ nil РІ РєС–РЅС†С–.")
+                      (princ "\n*** Помилка: vla-InsertBlock повернув nil в кінці.")
                   ) ; if block_insert_obj end
               ) ; if vl-catch-all-error-p end
             ) ; progn end
-            (princ (strcat "\n*** РџРѕРїРµСЂРµРґР¶РµРЅРЅСЏ: РќРµ РІРґР°Р»РѕСЃСЏ РѕС‚СЂРёРјР°С‚Рё РґРѕС‚РёС‡РЅСѓ РІ РєС–РЅС†РµРІС–Р№ С‚РѕС‡С†С–. РњР°СЂРєРµСЂ РЅРµ СЃС‚РІРѕСЂРµРЅРѕ."))
+            (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в кінцевій точці. Маркер не створено."))
         ) ; if vec_tangent_end end
       ) ; progn end
-      (princ (strcat "\n--- РџСЂРѕРїСѓСЃРє РјР°СЂРєРµСЂР° РІ РєС–РЅС†С– РїРѕР»С–Р»С–РЅС–С— (РџС–РєРµС‚=" (rtos picket_at_end 2 2) " < 0)."))
+      (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
   ) ; if picket_at_end end
 
-  ;; --- Р—Р°РІРµСЂС€РµРЅРЅСЏ ---
+  ;; --- Завершення ---
   (command "_REGEN")
-  (princ "\nР РѕР·СЃС‚Р°РЅРѕРІРєР° РїС–РєРµС‚Р°Р¶Сѓ (Р±Р»РѕРєР°РјРё) Р·Р°РІРµСЂС€РµРЅР°.")
+  (princ "\nРозстановка пікетажу (блоками) завершена.")
   (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))
   (setq *error* nil)
   (princ)
-) ; Defun C:CREATE_PICKETMARKER End
+) ; Defun C:CREATE_PICKET_MARKER End
 
-;; РџРѕРІС–РґРѕРјР»РµРЅРЅСЏ РїСЂРѕ Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ
-(princ "\nРЎРєСЂРёРїС‚ РґР»СЏ СЂРѕР·СЃС‚Р°РЅРѕРІРєРё РїС–РєРµС‚Р°Р¶Сѓ Р‘Р›РћРљРђРњР Р·Р°РІР°РЅС‚Р°Р¶РµРЅРѕ. Р’РІРµРґС–С‚СЊ 'CREATE_PICKETMARKER' РґР»СЏ Р·Р°РїСѓСЃРєСѓ.")
+;; Повідомлення про завантаження
+(princ "\nСкрипт для розстановки пікетажу БЛОКАМИ завантажено. Введіть 'CREATE_PICKET_MARKER' для запуску.")
 (princ)
