@@ -3,25 +3,25 @@
 
 ;;; === Допоміжні функції для векторної математики (ЗАКОМЕНТОВАНО) ===
 ;;;
-;;;(defun normalize (v / len)
-;;;  (setq len (distance '(0 0 0) v))
-;;;  (if (< len 1e-12) ; Уникнення ділення на нуль для нульових векторів
-;;;      nil ; Повернути nil якщо вектор нульовий
-;;;      (mapcar '(lambda (x) (/ x len)) v)
-;;;  )
-;;;)
-;;;
-;;;(defun v_scale (v s)
-;;;  (mapcar '(lambda (x) (* x s)) v)
-;;;)
-;;;
-;;;(defun v_add (v1 v2)
-;;;  (mapcar '+ v1 v2)
-;;;)
-;;;
-;;;(defun v_sub (v1 v2)
-;;;  (mapcar '- v1 v2)
-;;;)
+(defun normalize (v / len)
+  (setq len (distance '(0 0 0) v))
+  (if (< len 1e-12) ; Уникнення ділення на нуль для нульових векторів
+      nil ; Повернути nil якщо вектор нульовий
+      (mapcar '(lambda (x) (/ x len)) v)
+  )
+)
+
+(defun v_scale (v s)
+  (mapcar '(lambda (x) (* x s)) v)
+)
+
+(defun v_add (v1 v2)
+  (mapcar '+ v1 v2)
+)
+
+(defun v_sub (v1 v2)
+  (mapcar '- v1 v2)
+)
 
 ;;; === Допоміжна функція для форматування значення пікету (ЗАКОМЕНТОВАНО) ===
 ;;; Приймає числове значення, повертає рядок "ПКX+YY.YY"
