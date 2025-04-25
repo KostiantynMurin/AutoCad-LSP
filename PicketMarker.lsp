@@ -217,21 +217,21 @@
   (setvar "CLAYER" target_layer) ; Встановлюємо поточний шар "0"
 
   ;; --- Маркер на ПОЧАТКУ полілінії (виклик закоментовано) ---
-;   (if (>= picket_at_start (- 0.0 fuzz))
-;       (progn
-;         (princ "\nСпроба поставити маркер на початку полілінії...")
-;         (setq pt_start (vlax-curve-getStartPoint pline_obj))
-;         (setq vec_tangent_start (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getStartParam pline_obj)))
-;         (if vec_tangent_start
-;             (progn
-;               (setq piket_str_start (FormatPicketValue picket_at_start))
-;               (PlaceMarkerElements pt_start vec_tangent_start side_factor piket_str_start final_stylename text_height target_layer line_len_main line_len_tcap)
-;             )
-;             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в початковій точці. Маркер не створено."))
-;         )
-;       )
-;       (princ (strcat "\n--- Пропуск маркера на початку полілінії (Пікет=" (rtos picket_at_start 2 2) " < 0)."))
-;   )
+   (if (>= picket_at_start (- 0.0 fuzz))
+       (progn
+         (princ "\nСпроба поставити маркер на початку полілінії...")
+         (setq pt_start (vlax-curve-getStartPoint pline_obj))
+         (setq vec_tangent_start (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getStartParam pline_obj)))
+         (if vec_tangent_start
+             (progn
+               (setq piket_str_start (FormatPicketValue picket_at_start))
+               (PlaceMarkerElements pt_start vec_tangent_start side_factor piket_str_start final_stylename text_height target_layer line_len_main line_len_tcap)
+             )
+             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в початковій точці. Маркер не створено."))
+         )
+       )
+       (princ (strcat "\n--- Пропуск маркера на початку полілінії (Пікет=" (rtos picket_at_start 2 2) " < 0)."))
+   )
 
   ;; --- Цикл розстановки 100-метрових пікетів (виклик закоментовано) ---
   (princ (strcat "\nШукаємо 100м пікети від " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
