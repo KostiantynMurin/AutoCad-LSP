@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-04-25_UseBlock (Використання блоку користувача з атрибутом "НОМЕР")
+;;; Версія v2025-04-25_UseBlock (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 
@@ -176,9 +176,9 @@
                 (progn
                   (setq block_name_selected (vla-get-EffectiveName block_vla_obj))
                   (princ (strcat "\nОбрано блок: '" block_name_selected "'."))
-                  (if (not (CheckBlockAttrib block_name_selected "НОМЕР"))
-                      (progn (princ (strcat "\n*** Помилка: Обраний блок '" block_name_selected "' не містить атрибуту з тегом 'НОМЕР'. Оберіть інший блок.")) (setq block_name_selected nil))
-                      (princ "\n -> Атрибут 'НОМЕР' знайдено в блоці.")
+                  (if (not (CheckBlockAttrib block_name_selected "ПІКЕТ"))
+                      (progn (princ (strcat "\n*** Помилка: Обраний блок '" block_name_selected "' не містить атрибуту з тегом 'ПІКЕТ'. Оберіть інший блок.")) (setq block_name_selected nil))
+                      (princ "\n -> Атрибут 'ПІКЕТ' знайдено в блоці.")
                   ) ; if CheckBlockAttrib end
                 ) ; progn end
                 (princ "\nОбраний об'єкт не є вставкою блоку. Спробуйте ще раз.")
@@ -270,7 +270,7 @@
                   (if block_insert_obj
                       (progn
                         (princ (strcat "\n Вставлено блок для: " piket_str_start))
-                        (SetAttributeValue block_insert_obj "НОМЕР" piket_str_start)
+                        (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str_start)
                       ) ; progn end
                       (princ "\n*** Помилка: vla-InsertBlock повернув nil на початку.")
                   ) ; if block_insert_obj end
@@ -320,7 +320,7 @@
                     (if block_insert_obj
                         (progn
                           (princ (strcat "\n Вставлено блок для: " piket_str))
-                          (SetAttributeValue block_insert_obj "НОМЕР" piket_str)
+                          (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str)
                         ) ; progn end
                         (princ (strcat "\n*** Помилка: vla-InsertBlock повернув nil для " piket_str))
                     ) ; if block_insert_obj end
@@ -365,7 +365,7 @@
                   (if block_insert_obj
                       (progn
                         (princ (strcat "\n Вставлено блок для: " piket_str_end))
-                        (SetAttributeValue block_insert_obj "НОМЕР" piket_str_end)
+                        (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str_end)
                       ) ; progn end
                       (princ "\n*** Помилка: vla-InsertBlock повернув nil в кінці.")
                   ) ; if block_insert_obj end
