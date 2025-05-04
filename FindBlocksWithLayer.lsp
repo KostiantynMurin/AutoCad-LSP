@@ -1,6 +1,7 @@
 ;; Function to find blocks containing objects on a specific layer
 ;; Command name: FindBlocksWithLayer
-(defun c:FindBlocksWithLayer ( / *error* layerName blockTableEntry blockDefData blockName entity entityData entityLayer foundBlocks stopSearch )
+;; Version 2: Replaced LOGTEST with LOGAND for compatibility
+(defun c:FindBlocksWithLayer ( / *error* layerName blockTableEntry blockDefData blockName entity entityData entityLayer foundBlocks stopSearch blockFlags )
 
   ;; Local error handler
   (defun *error* ( msg )
@@ -27,10 +28,13 @@
       (while blockTableEntry
         (setq blockName (cdr (assoc 2 blockTableEntry))) ; Get the block name
         (setq blockDefData (entget (tblobjname "BLOCK" blockName))) ; Get block definition data
+        (setq blockFlags (cdr (assoc 70 blockTableEntry))) ; Get block flags (DXF code 70)
 
         ;; Process only regular user blocks (non-Xref, non-anonymous, non-layout)
         ;; Block definition flag 70 bits: 1=anonymous, 4=Xref, 64=Layout block (*Model_Space, *Paper_Space)
-        (if (and blockDefData (not (logtest (+ 1 4 64) (cdr (assoc 70 blockTableEntry)))))
+        ;; Check if NONE of these bits (1, 4, 64) are set using LOGAND
+        ;; (= 0 (logand <bits_to_check> blockFlags)) means none of the bits are set
+        (if (and blockDefData (= 0 (logand (+ 1 4 64) blockFlags)))
           (progn
             ;; Get the first entity within the block definition
             (setq entity (entnext (cdr (assoc -2 blockDefData))))
@@ -68,8 +72,6 @@
         (progn
           (princ (strcat "\n\nFound " (itoa (length foundBlocks)) " block(s) containing objects on layer '" layerName "':"))
           ;; Sort the list alphabetically (requires Visual LISP extensions, usually available)
-          ;; If you encounter errors with vl-sort, replace the line below with:
-          ;; (foreach blkName (reverse foundBlocks) ; Output in reverse order found
           (foreach blkName (vl-sort foundBlocks '<) ; Sort alphabetically
             (princ (strcat "\n  - " blkName))
           )
@@ -89,5 +91,5 @@
 ) ; End defun
 
 ;; --- Add a message indicating the command name upon loading ---
-(princ "\nLISP script loaded. Type FINDBLOCKSWITHLAYER to run the search.")
+(princ "\nLISP script (v2 - using LOGAND) loaded. Type FINDBLOCKSWITHLAYER to run the search.")
 (princ)
