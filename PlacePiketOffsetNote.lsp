@@ -5,64 +5,42 @@
 ;; Вхід: str-val - рядок для аналізу
 ;; Повертає: числове значення або nil, якщо "g-" або коректне число не знайдено
 (defun Helper:GetGValueFromString (str-val / pos S valid_num_str char val index len has_minus has_dot temp_char_code)
-  (if (setq pos (vl-string-search "g-" str-val)) ; Шукаємо "g-"
+  (if (setq pos (vl-string-search "g-" str-val)) 
     (progn
-      (setq S (substr str-val (+ pos 1 (strlen "g-")))) ; Рядок, що йде після "g-"
+      (setq S (substr str-val (+ pos 1 (strlen "g-")))) 
       (setq len (strlen S)
             index 1
             valid_num_str ""
             has_minus nil
             has_dot nil
-            val nil ; Ініціалізуємо результат як nil
+            val nil 
       )
-      ;; Проходимо по символах рядка S
       (while (<= index len)
         (setq char (substr S index 1))
-        (setq temp_char_code (ascii char)) ; ASCII-код поточного символу
-
+        (setq temp_char_code (ascii char))
         (cond
-          ;; Дозволяємо один мінус на самому початку числа
           ((and (= char "-") (not has_minus) (= (strlen valid_num_str) 0))
-           (setq valid_num_str (strcat valid_num_str char)
-                 has_minus T
-           )
+           (setq valid_num_str (strcat valid_num_str char) has_minus T)
           )
-          ;; Дозволяємо одну десяткову крапку
           ((and (= char ".") (not has_dot))
-           (setq valid_num_str (strcat valid_num_str char)
-                 has_dot T
-           )
+           (setq valid_num_str (strcat valid_num_str char) has_dot T)
           )
-          ;; Якщо символ - цифра
           ((and (>= temp_char_code (ascii "0")) (<= temp_char_code (ascii "9")))
            (setq valid_num_str (strcat valid_num_str char))
           )
-          ;; Інший символ - вважаємо, що числова частина закінчилася
-          (T
-           (setq index (1+ len)) ; Примусово завершуємо цикл while
-          )
+          (T (setq index (1+ len)))
         )
         (setq index (1+ index))
       )
-
-      ;; Перевіряємо, чи сформований valid_num_str є коректним представленням числа
-      (if (and (> (strlen valid_num_str) 0) ; Не порожній
-               (not (equal valid_num_str "-")) ; Не просто "-"
-               (not (equal valid_num_str ".")) ; Не просто "."
-               (not (equal valid_num_str "-.")) ; Не просто "-."
-               (if has_dot
-                 (wcmatch valid_num_str "*[0-9]*") 
-                 (if has_minus
-                   (> (strlen valid_num_str) 1)
-                   T 
-                 )
-               )
+      (if (and (> (strlen valid_num_str) 0) 
+               (not (equal valid_num_str "-")) (not (equal valid_num_str ".")) (not (equal valid_num_str "-."))
+               (if has_dot (wcmatch valid_num_str "*[0-9]*") (if has_minus (> (strlen valid_num_str) 1) T ) )
           )
-        (setq val (distof valid_num_str)) ; Конвертуємо рядок в число
+        (setq val (distof valid_num_str)) 
       )
-      val ; Повертаємо число або nil
+      val 
     )
-    nil ; "g-" не знайдено в початковому рядку
+    nil 
   )
 )
 
@@ -70,15 +48,16 @@
 (defun c:PlacePiketOffsetNote ( / *error* old-osmode old-cmdecho doc блок-select ent-block data-block block-name 
                                  att-entity data-att att-tag att-value base-value плінія-select ent-pline 
                                  data-pline pline-type calculated-value text-ins-pt 
-                                 text-angle text-str text-height text-style cur-layer att-found)
-  ;; Зі списку локальних змінних видалено: obj-pline, closest-pt, param, deriv, param-shifted
+                                 text-angle text-str text-height text-style cur-layer att-found
+                                 gr-box-id gr_result gr_status gr_pt) ; Додано змінні для grread
   
   ;; Локальна функція обробки помилок
   (defun *error* (msg)
+    (if gr-box-id (grtext gr-box-id)) ; Стерти тимчасовий текст, якщо він є при помилці
     (if old-cmdecho (setvar "CMDECHO" old-cmdecho)) 
     (if old-osmode (setvar "OSMODE" old-osmode))   
     (if doc (vla-EndUndoMark doc))                 
-    (if (not (member msg '("Function cancelled" "quit / exit abort" nil))) 
+    (if (not (member msg '("Function cancelled" "quit / exit abort" nil "Вибір точки вставки скасовано користувачем."))) 
       (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ) 
@@ -87,6 +66,7 @@
   (setq old-cmdecho (getvar "CMDECHO")
         old-osmode (getvar "OSMODE")
         doc (vla-get-ActiveDocument (vlax-get-acad-object))
+        gr-box-id -1 ; Ініціалізація ідентифікатора для grtext (-1 зазвичай вільний)
   )
   (vla-StartUndoMark doc)
   (setvar "CMDECHO" 0) 
@@ -151,7 +131,6 @@
   )
   
   ;; 3. Вибір полілінії або сплайна
-  ;; Примітка: полілінія обирається, але її геометрія більше не використовується для визначення кута тексту.
   (setq плінія-select (entsel "\nОберіть полілінію або сплайн (текст буде розміщено горизонтально): "))
   (if (null плінія-select)
     (progn (princ "\nНе обрано полілінію/сплайн.") (*error* "Вибір полілінії/сплайну скасовано"))
@@ -163,22 +142,52 @@
     (progn (princ (strcat "\nОбраний об'єкт ('" pline-type "') не є полілінією або сплайном.")) (*error* "Невірний тип об'єкта для лінії"))
   )
   
-  ;; 4. Розрахунок значення для тексту
+  ;; 4. Розрахунок значення для тексту та підготовка рядка тексту
   (setq calculated-value (+ base-value 0.76))
+  (setq text-str (rtos calculated-value 2 2)) 
   
-  ;; 5. Точка вставки тексту
-  (setq text-ins-pt (getpoint "\nВкажіть точку вставки для тексту: "))
-  (if (null text-ins-pt)
-    (*error* "Точку вставки тексту не вказано")
+  ;; 5. Динамічний вибір точки вставки тексту з попереднім переглядом
+  (princ "\nВкажіть точку вставки для тексту (Esc для відміни):")
+  (setq text-ins-pt nil)
+  ;; (setq gr-box-id 0) ; Використовуємо -1, щоб не конфліктувати з можливими стандартними боксами 0-7
+  
+  (setvar "osmode" 0) ; Тимчасово вимикаємо OSNAP для плавності перегляду
+
+  (setq gr_result (grread T 8 0)) ; Початкове зчитування події (T - чекати, 8 - RSG_GETUSED, 0 - без бітів керування курсором)
+
+  (while (not text-ins-pt) ; Цикл, поки точка не обрана або не скасовано
+    (setq gr_status (car gr_result)
+          gr_pt     (cadr gr_result)
+    )
+    (cond
+      ((= gr_status 3) ; Клік миші (точка обрана)
+       (grtext gr-box-id) ; Стерти останній тимчасовий текст
+       (setq text-ins-pt gr_pt) ; Зберегти точку
+      )
+      ((= gr_status 5) ; Рух курсору
+       (grtext gr-box-id) ; Стерти попередній тимчасовий текст
+       (grtext gr-box-id text-str 2) ; Малюємо текст біля курсору (режим 2 для grtext)
+      )
+      ((and (= gr_status 2) (= (cadr gr_result) 27)) ; Введення з клавіатури - клавіша Esc (ASCII 27)
+       (grtext gr-box-id) ; Стерти останній тимчасовий текст
+       (setq text-ins-pt :USER_CANCELLED) ; Встановити прапорець скасування
+      )
+    )
+    (if (not text-ins-pt) ; Якщо точка ще не обрана і не скасовано
+      (setq gr_result (grread T 8 0)) ; Отримати наступну подію
+    )
+  )
+  (setvar "osmode" old-osmode) ; Відновити попереднє значення OSMODE
+
+  ;; Обробка результату вибору точки
+  (if (or (null text-ins-pt) (eq text-ins-pt :USER_CANCELLED))
+    (*error* "Вибір точки вставки скасовано користувачем.") 
+    ; Це викличе *error* і завершить роботу, якщо точка не вказана або скасовано.
   )
   
-  ;; Встановлюємо кут тексту ЗАВЖДИ 0.0 (горизонтальний)
-  (setq text-angle 0.0) 
+  ;; Якщо дійшли сюди, text-ins-pt є валідною точкою
+  (setq text-angle 0.0) ; Встановлюємо кут тексту ЗАВЖДИ 0.0 (горизонтальний)
   
-  ;; !!! Увесь блок коду для розрахунку кута на основі геометрії полілінії ВИДАЛЕНО !!!
-  
-  ;; Створення текстового об'єкта
-  (setq text-str (rtos calculated-value 2 2)) 
   (setq text-height (getvar "TEXTSIZE"))       
   (setq text-style (getvar "TEXTSTYLE"))      
   (setq cur-layer (getvar "CLAYER"))          
@@ -199,10 +208,7 @@
   
   (princ (strcat "\nСтворено горизонтальний текст: \"" text-str "\".")) 
   
-  (setvar "CMDECHO" old-cmdecho)
-  (setvar "OSMODE" old-osmode)
-  (vla-EndUndoMark doc)
-  (princ) 
+  (*error* nil) ; Нормальне завершення через обробник помилок для очищення (відновлення змінних, EndUndoMark)
 )
 
 (defun c:PPON () (c:PlacePiketOffsetNote))
