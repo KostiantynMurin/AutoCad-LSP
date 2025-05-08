@@ -94,7 +94,7 @@
   
   ;; Встановлення параметрів стилізації
   (setq text-style "Д-431")
-  (setq text-height 0,75) ; Паперова висота для анотативного тексту
+  (setq text-height 0.75) ; Паперова висота для анотативного тексту
   (setq text-color 4)    ; Блакитний (Cyan)
   
   (vla-StartUndoMark doc)
