@@ -68,15 +68,13 @@
 
 ;; --- Основна функція команди ---
 (defun c:PlacePiketOffsetNote ( / *error* old-osmode old-cmdecho doc блок-select ent-block data-block block-name 
-                                 att-entity data-att att-tag att-value base-value плінія-select ent-pline 
-                                 data-pline pline-type calculated-value text-ins-pt 
+                                 att-entity data-att att-tag att-value base-value 
+                                 ;; Змінні для полілінії видалені: плінія-select ent-pline data-pline pline-type
+                                 calculated-value text-ins-pt 
                                  text-angle text-str text-height text-style cur-layer att-found
-                                 gr-box-id gr_result gr_status gr_pt
-                                 ;; Нові змінні для стилізації та анотативності
                                  num-str-period num-str-comma text-color
                                  new-text-ename new-text-vla-obj acadDoc currentScale currentScaleResult
                                )
-  ;; Зі списку локальних змінних видалено: obj-pline, closest-pt, param, deriv, param-shifted
   
   ;; Локальна функція обробки помилок
   (defun *error* (msg)
@@ -96,7 +94,7 @@
   
   ;; Встановлення параметрів стилізації
   (setq text-style "Д-431")
-  (setq text-height 0.75) ; Паперова висота для анотативного тексту
+  (setq text-height 0,75) ; Паперова висота для анотативного тексту
   (setq text-color 4)    ; Блакитний (Cyan)
   
   (vla-StartUndoMark doc)
@@ -161,26 +159,15 @@
     )
   )
   
-  ;; 3. Вибір полілінії або сплайна
-  ;; Примітка: полілінія обирається, але її геометрія більше не використовується для визначення кута тексту.
-  (setq плінія-select (entsel "\nОберіть полілінію або сплайн (текст буде розміщено горизонтально): "))
-  (if (null плінія-select)
-    (progn (princ "\nНе обрано полілінію/сплайн.") (*error* "Вибір полілінії/сплайну скасовано"))
-  )
-  (setq ent-pline (car плінія-select)) 
-  (setq data-pline (entget ent-pline))
-  (setq pline-type (cdr (assoc 0 data-pline)))
-  (if (not (member pline-type '("LWPOLYLINE" "POLYLINE" "SPLINE"))) 
-    (progn (princ (strcat "\nОбраний об'єкт ('" pline-type "') не є полілінією або сплайном.")) (*error* "Невірний тип об'єкта для лінії"))
-  )
+  ;; !!! БЛОК ВИБОРУ ПОЛІЛІНІЇ ВИДАЛЕНО !!!
   
-  ;; 4. Розрахунок значення для тексту та форматування рядка "г-0,00"
+  ;; 3. Розрахунок значення для тексту та форматування рядка "г-0,00" (раніше був крок 4)
   (setq calculated-value (+ base-value 0.76))
-  (setq num-str-period (rtos calculated-value 2 2)) ; Число в рядок з крапкою, 2 знаки після крапки
-  (setq num-str-comma (vl-string-subst "," "." num-str-period)) ; Заміна крапки на кому
-  (setq text-str (strcat "г-" num-str-comma)) ; Додавання префікса "г-"
+  (setq num-str-period (rtos calculated-value 2 2)) 
+  (setq num-str-comma (vl-string-subst "," "." num-str-period)) 
+  (setq text-str (strcat "г-" num-str-comma)) 
   
-  ;; 5. Точка вставки тексту
+  ;; 4. Точка вставки тексту (раніше був крок 5)
   (setq text-ins-pt (getpoint "\nВкажіть точку вставки для тексту: "))
   (if (null text-ins-pt)
     (*error* "Точку вставки тексту не вказано")
@@ -188,8 +175,6 @@
   
   ;; Встановлюємо кут тексту ЗАВЖДИ 0.0 (горизонтальний)
   (setq text-angle 0.0) 
-  
-  ;; !!! Увесь блок коду для розрахунку кута на основі геометрії полілінії ВИДАЛЕНО !!!
   
   ;; Створення текстового об'єкта      
   (setq cur-layer (getvar "CLAYER"))          
@@ -199,29 +184,25 @@
       '(0 . "TEXT")                           
       (cons 1 text-str)                      
       (cons 10 text-ins-pt)                  
-      (cons 40 text-height) ; Задана паперова висота 1.5                 
-      (cons 50 text-angle) ; Завжди 0.0                   
-      (cons 7 text-style)  ; Стиль "Д-431"                  
+      (cons 40 text-height)                
+      (cons 50 text-angle)                   
+      (cons 7 text-style)                    
       (cons 8 cur-layer)                     
-      (cons 62 text-color) ; Колір 4 (Cyan)
+      (cons 62 text-color) 
       '(72 . 0)                               
       '(73 . 0)                               
     )
   )
   
-  (setq new-text-ename (entlast)) ; Отримуємо ім'я щойно створеного текстового об'єкта
+  (setq new-text-ename (entlast)) 
 
   ;; Робимо текст анотативним та додаємо поточний масштаб
   (if new-text-ename
       (progn
           (setq new-text-vla-obj (vlax-ename->vla-object new-text-ename))
-          ;; Встановлюємо властивість Annotative
           (vl-catch-all-apply 'vlax-put-property (list new-text-vla-obj 'Annotative :vlax-true))
-          
-          ;; Додаємо поточний анотативний масштаб
           (setq acadDoc (vla-get-activedocument (vlax-get-acad-object)))
           (setq currentScaleResult (vl-catch-all-apply 'vla-get-CurrentAnnotationScale (list acadDoc)))
-          
           (if (not (vl-catch-all-error-p currentScaleResult))
             (progn
               (setq currentScale currentScaleResult) 
@@ -236,7 +217,7 @@
       (princ "\nПопередження: Не вдалося отримати щойно створений текстовий об'єкт для налаштування анотативності.")
   )
   
-  (princ (strcat "\nСтворено горизонтальний текст: \"" text-str "\".")) 
+  (princ (strcat "\nСтворено анотативний горизонтальний текст: \"" text-str "\" стилем '" text-style "'.")) 
   
   (setvar "CMDECHO" old-cmdecho)
   (setvar "OSMODE" old-osmode)
@@ -247,5 +228,5 @@
 (defun c:PPON () (c:PlacePiketOffsetNote))
 
 ;; Повідомлення про завантаження команди
-(princ "\nКоманду 'PlacePiketOffsetNote' завантажено. Введіть PlacePiketOffsetNote в командному рядку для запуску.")
-(princ) ; Для чистоти виводу в консоль після завантаження
+(princ "\nКоманду 'PlacePiketOffsetNote' (версія без вибору полілінії) завантажено. Введіть PlacePiketOffsetNote або PPON для запуску.")
+(princ)
