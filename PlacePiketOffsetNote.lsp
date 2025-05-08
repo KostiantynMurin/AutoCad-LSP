@@ -50,14 +50,11 @@
                (not (equal valid_num_str "-")) ; Не просто "-"
                (not (equal valid_num_str ".")) ; Не просто "."
                (not (equal valid_num_str "-.")) ; Не просто "-."
-               ;; Якщо є крапка, то має бути хоча б одна цифра поруч,
-               ;; або це має бути формат типу "1." чи ".1" (distof це обробить)
                (if has_dot
-                 (wcmatch valid_num_str "*[0-9]*") ; Чи є хоч одна цифра в рядку
-                 ;; Якщо крапки немає, але є мінус, то має бути щось після мінуса
+                 (wcmatch valid_num_str "*[0-9]*") 
                  (if has_minus
                    (> (strlen valid_num_str) 1)
-                   T ; Якщо немає ні крапки, ні мінуса, просто перевіряємо, що не порожній (вже зроблено)
+                   T 
                  )
                )
           )
@@ -72,108 +69,101 @@
 ;; --- Основна функція команди ---
 (defun c:PlacePiketOffsetNote ( / *error* old-osmode old-cmdecho doc блок-select ent-block data-block block-name 
                                  att-entity data-att att-tag att-value base-value плінія-select ent-pline 
-                                 data-pline pline-type obj-pline calculated-value text-ins-pt closest-pt 
-                                 param deriv text-angle text-str text-height text-style cur-layer att-found param-shifted)
+                                 data-pline pline-type calculated-value text-ins-pt 
+                                 text-angle text-str text-height text-style cur-layer att-found)
+  ;; Зі списку локальних змінних видалено: obj-pline, closest-pt, param, deriv, param-shifted
   
   ;; Локальна функція обробки помилок
   (defun *error* (msg)
-    (if old-cmdecho (setvar "CMDECHO" old-cmdecho)) ; Відновлення попереднього значення CMDECHO
-    (if old-osmode (setvar "OSMODE" old-osmode))   ; Відновлення попереднього значення OSMODE
-    (if doc (vla-EndUndoMark doc))                 ; Завершення групи відміни AutoCAD
-    (if (not (member msg '("Function cancelled" "quit / exit abort" nil))) ; Не виводити повідомлення для стандартних відмін
+    (if old-cmdecho (setvar "CMDECHO" old-cmdecho)) 
+    (if old-osmode (setvar "OSMODE" old-osmode))   
+    (if doc (vla-EndUndoMark doc))                 
+    (if (not (member msg '("Function cancelled" "quit / exit abort" nil))) 
       (princ (strcat "\nПомилка виконання: " msg))
     )
-    (princ) ; Тихий вихід з функції *error*
+    (princ) 
   )
 
-  ;; Збереження поточних налаштувань та початок групи відміни
   (setq old-cmdecho (getvar "CMDECHO")
         old-osmode (getvar "OSMODE")
         doc (vla-get-ActiveDocument (vlax-get-acad-object))
   )
   (vla-StartUndoMark doc)
-  (setvar "CMDECHO" 0) ; Вимкнення виводу команд в командний рядок
+  (setvar "CMDECHO" 0) 
 
-  (princ "\nСкрипт для розстановки примітки з розрахунковою відстанню.")
+  (princ "\nСкрипт для розстановки примітки з розрахунковою відстанню (текст буде горизонтальним).")
 
   ;; 1. Вибір блоку "PIKET"
   (setq блок-select (entsel "\nОберіть блок 'PIKET': "))
-  (if (null блок-select) ; Якщо користувач нічого не вибрав (натиснув Esc)
+  (if (null блок-select) 
     (progn (princ "\nНе обрано жодного об'єкта.") (*error* "Вибір блоку скасовано"))
   )
   (setq ent-block (car блок-select))
   (setq data-block (entget ent-block))
 
-  ;; Перевірка, чи обраний об'єкт - блок
   (if (not (and data-block (= (cdr (assoc 0 data-block)) "INSERT")))
     (progn (princ "\nОбраний об'єкт не є блоком.") (*error* "Невірний тип об'єкта (не блок)"))
   )
-  ;; Перевірка імені блоку (без урахування регістру)
   (setq block-name (cdr (assoc 2 data-block)))
   (if (not (equal (strcase "PIKET") (strcase block-name))) 
     (progn (princ (strcat "\nОбрано блок '" block-name "', але очікувався блок 'PIKET'.")) (*error* "Невірне ім'я блоку"))
   )
 
   ;; 2. Обробка атрибута "НОМЕРА"
-  (setq base-value nil att-found nil att-value "") ; Ініціалізація змінних
-  (if (= (cdr (assoc 66 data-block)) 1) ; Перевірка, чи є у блоку атрибути (DXF код 66)
+  (setq base-value nil att-found nil att-value "") 
+  (if (= (cdr (assoc 66 data-block)) 1) 
     (progn
-      (setq att-entity (entnext ent-block)) ; Отримуємо перший атрибут
-      ;; Цикл по всіх атрибутах блоку
-      (while (and att-entity (not att-found)) ; Продовжуємо, поки є атрибути І потрібний не знайдено
+      (setq att-entity (entnext ent-block)) 
+      (while (and att-entity (not att-found)) 
         (setq data-att (entget att-entity))
-        (if (and data-att (= (cdr (assoc 0 data-att)) "ATTRIB")) ; Перевірка, чи це дійсно атрибут
+        (if (and data-att (= (cdr (assoc 0 data-att)) "ATTRIB")) 
           (progn
-            (setq att-tag (cdr (assoc 2 data-att))) ; Ім'я (тег) атрибута
-            ;; Порівняння тегу з "НОМЕРА" (без урахування регістру)
+            (setq att-tag (cdr (assoc 2 data-att))) 
             (if (equal (strcase "НОМЕРА") (strcase att-tag))
               (progn
-                (setq att-value (cdr (assoc 1 data-att))) ; Значення атрибута
-                (setq base-value (Helper:GetGValueFromString att-value)) ; Спроба вилучити "g-число"
-                (setq att-found T) ; Позначка, що атрибут знайдено
+                (setq att-value (cdr (assoc 1 data-att))) 
+                (setq base-value (Helper:GetGValueFromString att-value)) 
+                (setq att-found T) 
               )
             )
           )
-          (setq att-entity nil) ; Якщо це не атрибут (напр. кінець послідовності sub-entities), зупинити цикл
+          (setq att-entity nil) 
         )
-        (if (and att-entity (not att-found)) ; Якщо ще не знайдено і є куди йти
-            (setq att-entity (entnext att-entity)) ; Перехід до наступного атрибута
+        (if (and att-entity (not att-found)) 
+            (setq att-entity (entnext att-entity)) 
         )
       )
-      ;; Якщо після циклу атрибут "НОМЕРА" так і не було знайдено
       (if (not att-found)
         (progn (princ "\nВ обраному блоці 'PIKET' відсутній атрибут 'НОМЕРА'.") (*error* "Атрибут 'НОМЕРА' не знайдено"))
       )
     )
-    ;; Якщо у блоку взагалі немає атрибутів
     (progn (princ "\nВ обраному блоці 'PIKET' відсутні атрибути.") (*error* "Атрибути відсутні у блоці"))
   )
 
-  ;; Якщо атрибут "НОМЕРА" було знайдено, але base-value = nil (тобто "g-число" не знайдено/некоректне)
   (if (and att-found (null base-value))
     (progn
       (princ (strcat "\nПідрядок 'g-число' не знайдено або некоректний в атрибуті 'НОМЕРА' (значення: \"" att-value "\")."))
       (setq base-value (getreal "\nВведіть базове числове значення для розрахунку: "))
-      (if (null base-value) ; Якщо користувач не ввів значення
+      (if (null base-value) 
         (*error* "Значення для розрахунку не введено користувачем")
       )
     )
   )
   
   ;; 3. Вибір полілінії або сплайна
-  (setq плінія-select (entsel "\nОберіть полілінію або сплайн: "))
+  ;; Примітка: полілінія обирається, але її геометрія більше не використовується для визначення кута тексту.
+  (setq плінія-select (entsel "\nОберіть полілінію або сплайн (текст буде розміщено горизонтально): "))
   (if (null плінія-select)
     (progn (princ "\nНе обрано полілінію/сплайн.") (*error* "Вибір полілінії/сплайну скасовано"))
   )
-  (setq ent-pline (car плінія-select))
+  (setq ent-pline (car плінія-select)) 
   (setq data-pline (entget ent-pline))
   (setq pline-type (cdr (assoc 0 data-pline)))
-  ;; Перевірка типу обраного об'єкта
   (if (not (member pline-type '("LWPOLYLINE" "POLYLINE" "SPLINE"))) 
     (progn (princ (strcat "\nОбраний об'єкт ('" pline-type "') не є полілінією або сплайном.")) (*error* "Невірний тип об'єкта для лінії"))
   )
   
-  ;; 4. Розрахунок значення для тексту (додавання 0.76)
+  ;; 4. Розрахунок значення для тексту
   (setq calculated-value (+ base-value 0.76))
   
   ;; 5. Точка вставки тексту
@@ -182,74 +172,37 @@
     (*error* "Точку вставки тексту не вказано")
   )
   
-  ;; Визначення кута нахилу тексту паралельно до полілінії/сплайна
-  (setq text-angle 0.0) ; Кут за замовчуванням (горизонтальний)
-  (setq obj-pline (vlax-ename->vla-object ent-pline)) ; Конвертація в VLA-об'єкт
+  ;; Встановлюємо кут тексту ЗАВЖДИ 0.0 (горизонтальний)
+  (setq text-angle 0.0) 
   
-  (if (and obj-pline (vlax-method-applicable-p obj-pline 'getClosestPointTo)) ; Чи підтримує об'єкт потрібні методи
-    (progn
-      ;; Використовуємо vl-catch-all-apply для безпечного виклику функцій роботи з кривими
-      (setq closest-pt (vl-catch-all-apply 'vlax-curve-getClosestPointTo (list obj-pline text-ins-pt)))
-      (if (not (vl-catch-all-error-p closest-pt)) ; Якщо не було помилки при пошуку найближчої точки
-        (progn
-          (setq param (vl-catch-all-apply 'vlax-curve-getParamAtPoint (list obj-pline closest-pt)))
-          (if (not (vl-catch-all-error-p param)) ; Якщо не було помилки при отриманні параметра
-            (progn
-              (setq deriv (vl-catch-all-apply 'vlax-curve-getFirstDeriv (list obj-pline param))) ; Перша похідна (тангента)
-              ;; Перевірка, чи похідна валідна і не нульовий вектор
-              (if (and (not (vl-catch-all-error-p deriv)) deriv (not (equal deriv '(0.0 0.0 0.0) 1e-9)))
-                (setq text-angle (angle '(0.0 0.0 0.0) deriv)) ; Кут тангенти
-                (progn ; Якщо похідна нульова, спробувати невелике зміщення параметра
-                  (setq param-shifted (if (< param (vlax-curve-getEndParam obj-pline)) (+ param 1e-6) (- param 1e-6)))
-                  (setq deriv (vl-catch-all-apply 'vlax-curve-getFirstDeriv (list obj-pline param-shifted)))
-                  (if (and (not (vl-catch-all-error-p deriv)) deriv (not (equal deriv '(0.0 0.0 0.0) 1e-9)))
-                    (setq text-angle (angle '(0.0 0.0 0.0) deriv))
-                    (princ "\nПопередження: Не вдалося точно визначити напрямок лінії в точці. Текст буде горизонтальним.")
-                  )
-                )
-              )
-            )
-            (princ (strcat "\nПопередження: Не вдалося отримати параметр на кривій. Текст буде горизонтальним. (" (vl-catch-all-error-message param) ")"))
-          )
-        )
-        (princ (strcat "\nПопередження: Не вдалося знайти найближчу точку на кривій. Текст буде горизонтальним. (" (vl-catch-all-error-message closest-pt) ")"))
-      )
-    )
-    (princ "\nПопередження: Обраний тип об'єкта не підтримує автоматичне визначення кута. Текст буде горизонтальним.")
-  )
-  
-  ;; DEBUG >>> Додайте ці два рядки для виводу значення text-angle
-  (princ (strcat "\n[DEBUG] Розрахований кут для тексту (радіани): " (rtos text-angle 2 8)))
-  (princ (strcat "\n[DEBUG] Розрахований кут для тексту (градуси): " (angtos text-angle 0 8))) 
-  ;; DEBUG <<< Кінець рядків для налагодження
+  ;; !!! Увесь блок коду для розрахунку кута на основі геометрії полілінії ВИДАЛЕНО !!!
   
   ;; Створення текстового об'єкта
-  (setq text-str (rtos calculated-value 2 2)) ; Перетворення числа в рядок (2 знаки після коми)
-  (setq text-height (getvar "TEXTSIZE"))       ; Поточна висота тексту
-  (setq text-style (getvar "TEXTSTYLE"))      ; Поточний стиль тексту
-  (setq cur-layer (getvar "CLAYER"))          ; Поточний шар
+  (setq text-str (rtos calculated-value 2 2)) 
+  (setq text-height (getvar "TEXTSIZE"))       
+  (setq text-style (getvar "TEXTSTYLE"))      
+  (setq cur-layer (getvar "CLAYER"))          
 
   (entmake
     (list
-      '(0 . "TEXT")                           ; Тип об'єкта - Текст
-      (cons 1 text-str)                      ; Текстовий рядок
-      (cons 10 text-ins-pt)                  ; Точка вставки (DXF код 10)
-      (cons 40 text-height)                  ; Висота тексту (DXF код 40)
-      (cons 50 text-angle)                   ; Кут повороту тексту в радіанах (DXF код 50)
-      (cons 7 text-style)                    ; Стиль тексту (DXF код 7)
-      (cons 8 cur-layer)                     ; Шар (DXF код 8)
-      '(72 . 0)                               ; Горизонтальне вирівнювання - Ліворуч (DXF 72)
-      '(73 . 0)                               ; Вертикальне вирівнювання - Базова лінія (DXF 73)
+      '(0 . "TEXT")                           
+      (cons 1 text-str)                      
+      (cons 10 text-ins-pt)                  
+      (cons 40 text-height)                  
+      (cons 50 text-angle) ; Завжди буде 0.0                   
+      (cons 7 text-style)                    
+      (cons 8 cur-layer)                     
+      '(72 . 0)                               
+      '(73 . 0)                               
     )
   )
   
-  (princ (strcat "\nСтворено текст: \"" text-str "\" з кутом: " (angtos text-angle 0 4) " градусів.")) ; Вивід кута в градусах
+  (princ (strcat "\nСтворено горизонтальний текст: \"" text-str "\".")) 
   
-  ;; Відновлення попередніх налаштувань AutoCAD та завершення групи відміни
   (setvar "CMDECHO" old-cmdecho)
   (setvar "OSMODE" old-osmode)
   (vla-EndUndoMark doc)
-  (princ) ; Тихий вихід з команди
+  (princ) 
 )
 
 (defun c:PPON () (c:PlacePiketOffsetNote))
