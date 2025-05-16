@@ -5,9 +5,9 @@
 ;; Вхід: str-val - рядок для аналізу
 ;; Повертає: числове значення або nil, якщо "g-" або коректне число не знайдено
 (defun Helper:GetGValueFromString (str-val / pos S valid_num_str char val index len has_minus has_dot temp_char_code)
-  (if (setq pos (vl-string-search "g-" str-val)) ; Шукаємо "g-"
+  (if (setq pos (vl-string-search "g" str-val)) ; Шукаємо "g-"
     (progn
-      (setq S (substr str-val (+ pos 1 (strlen "g-")))) ; Рядок, що йде після "g-"
+      (setq S (substr str-val (+ pos 1 (strlen "g")))) ; Рядок, що йде після "g-"
       (setq len (strlen S)
             index 1
             valid_num_str ""
