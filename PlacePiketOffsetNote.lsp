@@ -8,19 +8,23 @@
 ;; Вхід: str-val - рядок для аналізу
 ;; Повертає: числове значення або nil, якщо "g-"/"g" або коректне число не знайдено
 (defun Helper:GetGValueFromString (str-val / pos S valid_num_str char val index len has_minus has_dot temp_char_code g_found)
-  (setq g_found nil)
-  (if (setq pos (vl-string-search "g-" str-val)) ; Шукаємо "g-"
-    (progn
-      (setq S (substr str-val (+ pos 2))) ; Рядок, що йде після "g-"
-      (setq g_found T)
-    )
-    (if (setq pos (vl-string-search "g" str-val)) ; Якщо "g-" не знайдено, шукаємо "g"
-      (progn
-        (setq S (substr str-val (+ pos 1))) ; Рядок, що йде після "g"
-        (setq g_found T)
-      )
-    )
+  (setq g_found nil
+        pos (vl-string-search "g-" str-val)
   )
+  (if pos
+    (progn
+      (setq S (substr str-val (+ pos 2))
+            g_found T)
+    ) ; Закриваюча дужка для першого (progn
+    (progn
+      (setq pos (vl-string-search "g" str-val))
+      (if pos
+        (setq S (substr str-val (+ pos 1))
+              g_found T)
+      ) ; Закриваюча дужка для внутрішнього (if pos
+    ) ; Закриваюча дужка для зовнішнього (progn
+  ) ; Закриваюча дужка для першого (if pos
+
   (if g_found
     (progn
       (setq len (strlen S)
