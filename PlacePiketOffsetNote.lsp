@@ -4,10 +4,25 @@
 ;; --- Допоміжна функція для вилучення числового значення після "g-" ---
 ;; Вхід: str-val - рядок для аналізу
 ;; Повертає: числове значення або nil, якщо "g-" або коректне число не знайдено
-(defun Helper:GetGValueFromString (str-val / pos S valid_num_str char val index len has_minus has_dot temp_char_code)
+;; --- Допоміжна функція для вилучення числового значення після "g-" або "g" ---
+;; Вхід: str-val - рядок для аналізу
+;; Повертає: числове значення або nil, якщо "g-"/"g" або коректне число не знайдено
+(defun Helper:GetGValueFromString (str-val / pos S valid_num_str char val index len has_minus has_dot temp_char_code g_found)
+  (setq g_found nil)
   (if (setq pos (vl-string-search "g-" str-val)) ; Шукаємо "g-"
     (progn
-      (setq S (substr str-val (+ pos 1 (strlen "g-")))) ; Рядок, що йде після "g-"
+      (setq S (substr str-val (+ pos 2))) ; Рядок, що йде після "g-"
+      (setq g_found T)
+    )
+    (if (setq pos (vl-string-search "g" str-val)) ; Якщо "g-" не знайдено, шукаємо "g"
+      (progn
+        (setq S (substr str-val (+ pos 1))) ; Рядок, що йде після "g"
+        (setq g_found T)
+      )
+    )
+  )
+  (if g_found
+    (progn
       (setq len (strlen S)
             index 1
             valid_num_str ""
@@ -51,10 +66,10 @@
                (not (equal valid_num_str ".")) ; Не просто "."
                (not (equal valid_num_str "-.")) ; Не просто "-."
                (if has_dot
-                 (wcmatch valid_num_str "*[0-9]*") 
+                 (wcmatch valid_num_str "*[0-9]*")
                  (if has_minus
                    (> (strlen valid_num_str) 1)
-                   T 
+                   T
                  )
                )
           )
@@ -62,7 +77,7 @@
       )
       val ; Повертаємо число або nil
     )
-    nil ; "g-" не знайдено в початковому рядку
+    nil ; "g-" або "g" не знайдено в початковому рядку
   )
 )
 
