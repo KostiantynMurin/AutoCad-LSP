@@ -939,10 +939,10 @@
 ;;    б. Вставляє символ з буфера обміну в ту ж точку вставки (якщо буфер містить дані AutoCAD).
 
 (defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
-                                  attrValOtmetka otmetkaValue targetBlockEnt targetBlockData
-                                  targetAttrEname targetAttrEdata foundTargetAttr oldCmdecho
-                                  fuzz attEname attEdata attTag
-                                 )
+                            attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
+                            foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
+                            userHeight prompt_str inputHeight userAngle prompt_angle_str inputAngle
+                           )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
@@ -958,39 +958,19 @@
 
   ;; --- Ініціалізація ---
   (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
-        attrValOtmetka nil otmetkaValue targetBlockEnt nil targetBlockData nil
-        targetAttrEname nil targetAttrEdata foundTargetAttr nil oldCmdecho nil
-        fuzz 1e-9 attEname nil attEdata nil attTag nil
+        attrValOtmetka nil otmetkaValue nil ssTextLayer nil j 0 textEnt nil textData nil textPt nil
+        foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
+        userHeight nil prompt_str nil inputHeight nil
+        userAngle nil prompt_angle_str nil inputAngle nil
   )
   (setq oldCmdecho (getvar "CMDECHO"))
 
-  ;; --- Запит блоку-приймача ---
-  (princ "\nВиберіть блок, в атрибут 'ВІДМІТКА' якого будуть скопійовані значення з блоків 'PIKET': ")
-  (setq targetBlockEnt (entsel))
-  (if (not targetBlockEnt)
-    (progn (princ "\nБлок-приймач не вибрано. Вихід.") (exit))
-  )
-  (setq targetBlockEnt (car targetBlockEnt))
-  (if (/= (cdr (assoc 0 (setq targetBlockData (entget targetBlockEnt)))) "INSERT")
-    (progn (princ "\nВибраний об'єкт не є блоком. Вихід.") (exit))
-  )
-
-  ;; --- Перевірка наявності атрибута "ВІДМІТКА" у блоці-приймачі ---
-  (setq targetAttrEname (entnext targetBlockEnt))
-  (setq foundTargetAttr nil)
-  (while targetAttrEname
-    (setq targetAttrEdata (entget targetAttrEname))
-    (if (= (cdr (assoc 0 targetAttrEdata)) "ATTRIB")
-      (if (eq (strcase (cdr (assoc 2 targetAttrEdata))) "ВІДМІТКА")
-        (setq foundTargetAttr T targetAttrEname nil)
-        (setq targetAttrEname (entnext targetAttrEname))
-      )
-      (setq targetAttrEname (entnext targetAttrEname))
+  ;; --- Перевірка буфера обміну ---
+  (if (= 0 (getvar "CLIPROPS"))
+    (progn
+      (alert "Буфер обміну порожній або не містить даних AutoCAD.\nСпочатку скопіюйте умовне позначення відмітки.")
+      (exit)
     )
-  )
-
-  (if (not foundTargetAttr)
-    (progn (alert "У вибраному блоці-приймачі не знайдено атрибута з тегом 'ВІДМІТКА'. Вихід.") (exit))
   )
 
   ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
@@ -1013,7 +993,7 @@
     ;; 3. Запросити користувача вибрати об'єкти (ЯКЩО НІЧОГО НЕ ЗНАЙДЕНО)
     (T
      (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
-     (princ "\nВиберіть блоки 'PIKET', значення атрибута 'ОТМЕТКА' з яких будуть скопійовані: ")
+     (princ "\nВиберіть блоки 'PIKET' для створення відсутніх відміток: ")
      (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) ; Фільтр для PIKET з атрибутами
      (if ss
        (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " об.)"))
@@ -1025,48 +1005,98 @@
   ;; --- Основна логіка ---
   (if ss
     (progn
+      ;; --- Запит ВИСОТИ тексту ---
+      (if (or (null (boundp '*g_create_zmarker_last_height*)) (null *g_create_zmarker_last_height*) (not (numberp *g_create_zmarker_last_height*)))
+          (setq *g_create_zmarker_last_height* 0.9))
+      (setq prompt_str (strcat "\nВведіть висоту тексту [1:1000=1.8, 1:500=0.9] <" (rtos *g_create_zmarker_last_height* 2 4) ">: "))
+      (initget (+ 2 4)) ; Дозволити Enter, заборонити 0 та негативні
+      (setq inputHeight (getreal prompt_str))
+      (if inputHeight (setq userHeight inputHeight) (setq userHeight *g_create_zmarker_last_height*))
+      (setq *g_create_zmarker_last_height* userHeight)
+
+      ;; --- Запит КУТА ПОВОРОТУ тексту ---
+      (if (or (null (boundp '*g_create_zmarker_last_angle*)) (null *g_create_zmarker_last_angle*) (not (numberp *g_create_zmarker_last_angle*)))
+          (setq *g_create_zmarker_last_angle* 0.0))
+      (setq prompt_angle_str (strcat "\nВведіть кут повороту тексту (градуси) <" (angtos *g_create_zmarker_last_angle* 0 4) ">: "))
+      ;; (initget) ; Не обмежуємо, щоб Enter повернув nil
+      (setq inputAngle (getangle prompt_angle_str))
+      (if inputAngle (setq userAngle inputAngle) (setq userAngle *g_create_zmarker_last_angle*))
+      (setq *g_create_zmarker_last_angle* userAngle)
+
       (setvar "CMDECHO" 0) ; Вимкнути ехо команд тепер
-      (command "_.UNDO" "_Begin")
 
       (setq totalCount (sslength ss))
-      (princ (strcat "\nОбробка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
+      (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
+
+      (setq ssTextLayer (ssget "_X" '((0 . "TEXT,MTEXT") (8 . "21 ВІДМІТКИ"))))
+      (if (null ssTextLayer) (princ "\nПопередження: У кресленні не знайдено текстів на шарі '21 ВІДМІТКИ'."))
+
+      (command "_.UNDO" "_Begin")
 
       ;; --- Цикл по вибраних блоках PIKET ---
       (setq i 0)
       (repeat totalCount
         (setq piketEnt (ssname ss i))
-        (setq attrValOtmetka nil)
+        (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactText nil)
 
         (if (setq piketData (entget piketEnt))
           (progn
-            ;; Пошук атрибута "ОТМЕТКА" в блоці PIKET
-            (setq attEname (entnext piketEnt))
-            (while attEname
-              (setq attEdata (entget attEname))
-              (if (= (cdr (assoc 0 attEdata)) "ATTRIB")
-                (if (eq (strcase (cdr (assoc 2 attEdata))) "ОТМЕТКА")
-                  (setq attrValOtmetka (cdr (assoc 1 attEdata)) attEname nil)
-                  (setq attEname (entnext attEname))
+            (setq piketPt (cdr (assoc 10 piketData)))
+            ;; Пошук атрибуту "ОТМЕТКА"
+            (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData))))
+              (progn
+                (setq attEname (entnext piketEnt))
+                (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
+                  (setq attTag (strcase (cdr (assoc 2 attEdata))))
+                  (if (eq "ОТМЕТКА" attTag)
+                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
+                    (setq attEname (entnext attEname))
+                  )
                 )
-                (setq attEname (entnext attEname))
+                (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
               )
             )
 
-            ;; Оновлення атрибута "ВІДМІТКА" в блоці-приймачі
-            (if attrValOtmetka
+            ;; Перевірка наявності існуючого тексту ТОЧНО в точці вставки
+            (if (and piketPt otmetkaValue (/= "" otmetkaValue))
               (progn
-                (setq targetAttrEname (entnext targetBlockEnt))
-                (while targetAttrEname
-                  (setq targetAttrEdata (entget targetAttrEname))
-                  (if (= (cdr (assoc 0 targetAttrEdata)) "ATTRIB")
-                    (if (eq (strcase (cdr (assoc 2 targetAttrEdata))) "ВІДМІТКА")
-                      (entmod (subst (cons 1 attrValOtmetka) (assoc 1 targetAttrEdata) targetAttrEdata))
+                (setq foundExactText nil)
+                (if ssTextLayer
+                  (progn
+                    (setq j 0)
+                    (while (and (< j (sslength ssTextLayer)) (not foundExactText))
+                      (setq textEnt (ssname ssTextLayer j))
+                      (if (setq textData (entget textEnt))
+                        (progn
+                          (setq textPt (cdr (assoc 10 textData)))
+                          (if (equal piketPt textPt fuzz) (setq foundExactText T))
+                        )
+                      )
+                      (setq j (1+ j))
                     )
                   )
-                  (setq targetAttrEname (entnext targetAttrEname))
+                )
+
+                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ, якщо не знайдено існуючий в точці
+                (if (not foundExactText)
+                  (progn
+                    ;; Створення DXF списку для нового тексту
+                    (setq newTextDxf (list
+                                       '(0 . "TEXT") '(100 . "AcDbEntity") '(8 . "21 ВІДМІТКИ") '(100 . "AcDbText")
+                                       (cons 10 piketPt) (cons 40 userHeight) (cons 1 (strcat " " otmetkaValue)) '(7 . "Д-431") (cons 50 userAngle) '(72 . 0) '(73 . 0)
+                                     )
+                    )
+                    ;; Створення тексту
+                    (if (entmake newTextDxf)
+                      (progn
+                        (setq createdCount (1+ createdCount))
+                        (command "_.PASTECLIP" piketPt)
+                      )
+                      (princ (strcat "\n  ! Помилка створення тексту для блоку <" (vl-princ-to-string piketEnt) ">"))
+                    )
+                  )
                 )
               )
-              (princ (strcat "\n  ! Блок PIKET <" (vl-princ-to-string piketEnt) "> не має атрибута 'ОТМЕТКА'."))
             )
           )
         )
@@ -1076,7 +1106,10 @@
       (command "_.UNDO" "_End")
 
       ;; Фінальне повідомлення
-      (princ (strcat "\nОбробку завершено. Значення атрибута 'ОТМЕТКА' з " (itoa totalCount) " блоків 'PIKET' скопійовано в атрибут 'ВІДМІТКА' вибраного блоку."))
+      (if (> createdCount 0)
+          (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " відсутніх пар (текст відмітки + символ)..."))
+          (princ "\nОбробку завершено. Відсутніх текстових відміток у точках вставки не знайдено...")
+      )
 
     ) ; end progn IF ss
     (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
