@@ -1137,6 +1137,230 @@
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:CREATE_ZMARKER
 
+(defun c:CREATE_ZMARKER_BLOCK ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
+                           attrValOtmetka otmetkaValue ssBlockMarkers k blockEnt blockEntData blockPt
+                           foundExactBlockMarker createdCount oldCmdecho fuzz attEname attEdata attTag
+                           userAngle prompt_angle_str inputAngle
+                           templateBlockEnt templateBlockData templateBlockName newBlockEnt newBlockData
+                           tempAttEnt tempAttData currentAttTag targetLayer
+                          )
+  ;; --- Функція обробки помилок ---
+  (defun *error* (msg)
+    (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+    (if oldAttdia (setvar "ATTDIA" oldAttdia)) ; Відновити ATTDIA
+    (if oldAttreq (setvar "ATTREQ" oldAttreq)) ; Відновити ATTREQ
+    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
+    (cond ((not msg))
+          ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
+          ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
+          (T (princ (strcat "\nПомилка в CREATE_ZMARKER: " msg)))
+    )
+    (setq *error* nil)
+    (princ)
+  )
+
+  ;; --- Ініціалізація ---
+  (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
+        attrValOtmetka nil otmetkaValue nil ssBlockMarkers nil k 0 blockEnt nil blockEntData nil blockPt nil
+        foundExactBlockMarker nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil
+        userAngle nil prompt_angle_str nil inputAngle nil
+        templateBlockEnt nil templateBlockData nil templateBlockName nil newBlockEnt nil newBlockData nil
+        tempAttEnt nil tempAttData nil currentAttTag nil
+        targetLayer "21 ВІДМІТКИ" ; Цільовий шар для нових маркерів
+        oldAttdia nil oldAttreq nil
+  )
+  (setq oldCmdecho (getvar "CMDECHO"))
+  (setq oldAttdia (getvar "ATTDIA")) ; Зберегти поточне значення ATTDIA
+  (setq oldAttreq (getvar "ATTREQ")) ; Зберегти поточне значення ATTREQ
+  (setvar "CMDECHO" 0)
+  (setvar "ATTDIA" 0) ; Вимкнути діалог атрибутів під час вставки
+  (setvar "ATTREQ" 1) ; Переконатися, що атрибути створюються
+
+  ;; --- Запит користувача на вибір блоку-шаблону ---
+  (princ "\nОберіть існуючий екземпляр блоку-маркера на кресленні.")
+  (setq templateBlockEnt (car (entsel "\n>> Оберіть блок-маркер: ")))
+  (if (null templateBlockEnt)
+    (progn (princ "\nБлок-маркер не обрано. Роботу скрипта скасовано.") (*error* "Вибір блоку скасовано") (exit))
+  )
+  (setq templateBlockData (entget templateBlockEnt))
+  (if (or (null templateBlockData) (not (assoc 2 templateBlockData)) (/= "INSERT" (cdr (assoc 0 templateBlockData))))
+    (progn (princ "\nОбраний об'єкт не є блоком або не вдалося отримати його дані. Роботу скрипта скасовано.") (*error* "Некоректний вибір блоку") (exit))
+  )
+  (setq templateBlockName (cdr (assoc 2 templateBlockData)))
+  (if (or (null templateBlockName) (= "" templateBlockName))
+      (progn (princ "\nНе вдалося отримати ім'я обраного блоку. Роботу скрипта скасовано.") (*error* "Не вдалося отримати ім'я блоку") (exit))
+  )
+  (princ (strcat "\nБуде використовуватись блок-маркер: '" templateBlockName "'."))
+
+  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
+  (setq ss nil ss_source "") ; Ініціалізація
+  (cond
+    ((setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
+     (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
+    )
+    ((and (null ss) (boundp '*g_last_search_result*) *g_last_search_result* (= 'PICKSET (type *g_last_search_result*)) (> (sslength *g_last_search_result*) 0))
+     (setq ss *g_last_search_result*)
+     (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
+    )
+    (T
+     (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
+     (princ "\nВиберіть блоки 'PIKET' для створення відсутніх маркерів: ")
+     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
+     (if ss
+       (setq ss_source (strcat "щойно вибраних блоків (" (itoa (sslength ss)) " об.)"))
+       (progn (princ "\nБлоки 'PIKET' не вибрано.") (*error* "Блоки PIKET не вибрано") (exit))
+     )
+    )
+  )
+
+  ;; --- Основна логіка ---
+  (if ss
+    (progn
+      ;; --- Запит КУТА ПОВОРОТУ блоку ---
+      (if (or (null (boundp '*g_create_zmarker_last_angle*)) (null *g_create_zmarker_last_angle*) (not (numberp *g_create_zmarker_last_angle*)))
+          (setq *g_create_zmarker_last_angle* 0.0))
+      (setq prompt_angle_str (strcat "\nВведіть кут повороту для маркерів (градуси) <" (angtos *g_create_zmarker_last_angle* 0 4) ">: "))
+      (setq inputAngle (getangle prompt_angle_str)) ; getangle повертає кут в радіанах
+      (if inputAngle (setq userAngle inputAngle) (setq userAngle *g_create_zmarker_last_angle*))
+      (setq *g_create_zmarker_last_angle* userAngle)
+
+      (setq totalCount (sslength ss))
+      (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
+
+      ;; Отримати всі існуючі маркери (вставлені екземпляри templateBlockName) для перевірки на дублікати
+      ;; Припускаємо, що маркери також можуть бути на шарі targetLayer або будь-якому іншому, якщо не вказано шар для templateBlockName
+      (setq ssBlockMarkers (ssget "_X" (list '(0 . "INSERT") (cons 2 templateBlockName))))
+      (if (null ssBlockMarkers) (princ (strcat "\nПопередження: У кресленні не знайдено існуючих екземплярів блоку '" templateBlockName "' для перевірки на дублікати.")))
+
+      (command "_.UNDO" "_Begin")
+
+      ;; --- Цикл по вибраних блоках PIKET ---
+      (setq i 0)
+      (repeat totalCount
+        (setq piketEnt (ssname ss i))
+        (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactBlockMarker nil)
+
+        (if (setq piketData (entget piketEnt))
+          (progn
+            (setq piketPt (cdr (assoc 10 piketData)))
+            ;; Пошук атрибуту "ОТМЕТКА" в блоці PIKET
+            (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData))))
+              (progn
+                (setq attEname (entnext piketEnt))
+                (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
+                  (setq attTag (strcase (cdr (assoc 2 attEdata))))
+                  (if (eq "ОТМЕТКА" attTag)
+                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
+                    (setq attEname (entnext attEname))
+                  )
+                )
+                (if attrValOtmetka (setq otmetkaValue attrValOtmetka))
+              )
+            )
+
+            ;; Перевірка наявності існуючого блоку-маркера ТОЧНО в точці вставки
+            (if (and piketPt otmetkaValue (/= "" otmetkaValue))
+              (progn
+                (setq foundExactBlockMarker nil)
+                (if ssBlockMarkers
+                  (progn
+                    (setq k 0)
+                    (while (and (< k (sslength ssBlockMarkers)) (not foundExactBlockMarker))
+                      (setq blockEnt (ssname ssBlockMarkers k))
+                      (if (setq blockEntData (entget blockEnt))
+                        (progn
+                          (setq blockPt (cdr (assoc 10 blockEntData)))
+                          ;; Перевірка точки вставки
+                          (if (equal piketPt blockPt fuzz)
+                              (progn
+                                ;; Додатково: можна перевірити значення атрибута "ВІДМІТКА" існуючого блоку
+                                ;; Це зробить перевірку на дублікат більш надійною.
+                                ;; Для простоти, поки що вважаємо дублікатом, якщо блок того ж типу є в тій же точці.
+                                (setq foundExactBlockMarker T)
+                                ;; (princ (strcat "\n  Знайдено існуючий маркер '" templateBlockName "' в точці: " (vl-princ-to-string piketPt)))
+                              )
+                          )
+                        )
+                      )
+                      (setq k (1+ k))
+                    )
+                  )
+                )
+
+                ;; Створення нового блоку-маркера, якщо не знайдено існуючий
+                (if (not foundExactBlockMarker)
+                  (progn
+                    ;; Вставка блоку-шаблону
+                    ;; Використовуємо vl-cmdf для кращого контролю і щоб уникнути проблем з ATTDIA/ATTREQ, які вже налаштовані
+                    (vl-cmdf "_.INSERT" templateBlockName "_S" "1" "_R" "0" "_non" piketPt)
+                    (setq newBlockEnt (entlast)) ; Отримати щойно вставлений блок
+
+                    (if newBlockEnt
+                      (progn
+                        ;; Змінити шар вставленого блоку
+                        (command "_.CHPROP" newBlockEnt "" "_LA" targetLayer "")
+
+                        ;; Оновлення атрибута "ВІДМІТКА" у новому блоці
+                        (if (and (setq newBlockData (entget newBlockEnt)) (assoc 66 newBlockData) (= 1 (cdr (assoc 66 newBlockData))))
+                          (progn
+                            (setq tempAttEnt (entnext newBlockEnt))
+                            (while (and tempAttEnt (setq tempAttData (entget tempAttEnt)) (= "ATTRIB" (cdr (assoc 0 tempAttData))))
+                              (setq currentAttTag (strcase (cdr (assoc 2 tempAttData))))
+                              (if (eq "ВІДМІТКА" currentAttTag) ; Шукаємо атрибут "ВІДМІТКА"
+                                (progn
+                                  (setq tempAttData (subst (cons 1 otmetkaValue) (assoc 1 tempAttData) tempAttData))
+                                  (entmod tempAttData)
+                                  (entupd newBlockEnt) ; Оновити відображення блоку
+                                  (setq tempAttEnt nil) ; Атрибут знайдено та оновлено, вихід з циклу
+                                )
+                                (setq tempAttEnt (entnext tempAttEnt)) ; Перехід до наступного атрибута
+                              )
+                            )
+                          )
+                          (princ (strcat "\n  ! Попередження: Вставлений блок <" (vl-princ-to-string newBlockEnt) "> не має атрибутів або їх не вдалося прочитати."))
+                        )
+
+                        ;; Поворот вставленого блоку
+                        (command "_.ROTATE" newBlockEnt "" "_non" piketPt (rtos (/ (* userAngle 180.0) pi) 2 8))
+                        (setq createdCount (1+ createdCount))
+                        ;; (princ (strcat "\n  Створено маркер: " templateBlockName " в " (vl-princ-to-string piketPt) " з відміткою: " otmetkaValue))
+                      )
+                      (princ (strcat "\n  ! Помилка вставки блоку '" templateBlockName "' для PIKET: <" (vl-princ-to-string piketEnt) ">"))
+                    )
+                  )
+                  (princ (strcat "\n  Маркер для PIKET <" (vl-princ-to-string piketEnt) "> в точці " (vl-princ-to-string piketPt) " вже існує або має таке ж значення. Пропущено."))
+                )
+              )
+            )
+          )
+        )
+        (setq i (1+ i))
+      ) ; end repeat
+
+      (command "_.UNDO" "_End")
+
+      ;; Фінальне повідомлення
+      (if (> createdCount 0)
+          (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " нових маркерів ('" templateBlockName "')..."))
+          (princ (strcat "\nОбробку завершено. Нових маркерів ('" templateBlockName "') не створено (можливо, всі вже існували або не було знайдено блоків PIKET з атрибутом 'ОТМЕТКА')..."))
+      )
+
+    ) ; end progn IF ss
+    (princ "\nНе вдалося визначити об'єкти 'PIKET' для обробки.")
+  ) ; end if ss
+
+  ;; --- Відновлення середовища та вихід ---
+  (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
+  (if oldAttdia (setvar "ATTDIA" oldAttdia)) ; Відновити ATTDIA
+  (if oldAttreq (setvar "ATTREQ" oldAttreq)) ; Відновити ATTREQ
+  (setq *error* nil)
+  (princ) ;; Чистий вихід
+) ;; кінець defun c:CREATE_ZMARKER_BLOCK
+
+(princ "\nФункція CREATE_ZMARKER_BLOCK (версія для блоків) завантажена. Введіть CREATE_ZMARKER_BLOCK для запуску.")
+(princ)
+
+
 
 ;; --- Повідомлення про завантаження ---
 (princ "\nLISP-скрипти (v6.0 - Фінальна версія) завантажено.")
@@ -1148,5 +1372,6 @@
 (princ "\n  REPLACENAME         - Заміна підстроки в атрибуті 'НОМЕРА' блоків 'PIKET'.")
 (princ "\n  RENAME_OKM          - Оновлення тексту ('№...') біля блоків 'PIKET' (Опор Контактної Мережі).")
 (princ "\n  CREATE_ZMARKER      - Створює текст висотної відмітки та вставляє умовне позначення з буфера в точках PIKET.")
+(princ "\n  CREATE_ZMARKER_BLOCK- вставляє обраний блок зі значенням відмітки в точках PIKET.")
 
 (princ) ;; Чистий вихід
