@@ -939,10 +939,11 @@
 ;;    б. Вставляє символ з буфера обміну в ту ж точку вставки (якщо буфер містить дані AutoCAD).
 
 (defun c:CREATE_ZMARKER ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
-                            attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
-                            foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
-                            userHeight prompt_str inputHeight userAngle prompt_angle_str inputAngle
-                           )
+                           attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
+                           foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
+                           userHeight prompt_str inputHeight userAngle prompt_angle_str inputAngle
+                           pastedEnt ; Додано для збереження вставленого об'єкта
+                          )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
@@ -962,6 +963,7 @@
         foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
         userHeight nil prompt_str nil inputHeight nil
         userAngle nil prompt_angle_str nil inputAngle nil
+        pastedEnt nil ; Ініціалізація нової змінної
   )
   (setq oldCmdecho (getvar "CMDECHO"))
 
@@ -1014,12 +1016,12 @@
       (if inputHeight (setq userHeight inputHeight) (setq userHeight *g_create_zmarker_last_height*))
       (setq *g_create_zmarker_last_height* userHeight)
 
-      ;; --- Запит КУТА ПОВОРОТУ тексту ---
+      ;; --- Запит КУТА ПОВОРОТУ тексту (і тепер об'єкта з буфера) ---
       (if (or (null (boundp '*g_create_zmarker_last_angle*)) (null *g_create_zmarker_last_angle*) (not (numberp *g_create_zmarker_last_angle*)))
           (setq *g_create_zmarker_last_angle* 0.0))
-      (setq prompt_angle_str (strcat "\nВведіть кут повороту тексту (градуси) <" (angtos *g_create_zmarker_last_angle* 0 4) ">: "))
+      (setq prompt_angle_str (strcat "\nВведіть кут повороту тексту та об'єкта (градуси) <" (angtos *g_create_zmarker_last_angle* 0 4) ">: "))
       ;; (initget) ; Не обмежуємо, щоб Enter повернув nil
-      (setq inputAngle (getangle prompt_angle_str))
+      (setq inputAngle (getangle prompt_angle_str)) ; getangle повертає кут в радіанах
       (if inputAngle (setq userAngle inputAngle) (setq userAngle *g_create_zmarker_last_angle*))
       (setq *g_create_zmarker_last_angle* userAngle)
 
@@ -1049,7 +1051,7 @@
                 (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                   (setq attTag (strcase (cdr (assoc 2 attEdata))))
                   (if (eq "ОТМЕТКА" attTag)
-                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
+                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) ; Знайшли, виходимо з циклу по атрибутах
                     (setq attEname (entnext attEname))
                   )
                 )
@@ -1077,33 +1079,53 @@
                   )
                 )
 
-                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ, якщо не знайдено існуючий в точці
+                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ (з поворотом), якщо не знайдено існуючий в точці
                 (if (not foundExactText)
                   (progn
                     ;; Створення DXF списку для нового тексту
                     (setq newTextDxf (list
                                        '(0 . "TEXT") '(100 . "AcDbEntity") '(8 . "21 ВІДМІТКИ") '(100 . "AcDbText")
-                                       (cons 10 piketPt) (cons 40 userHeight) (cons 1 (strcat " " otmetkaValue)) '(7 . "Д-431") (cons 50 userAngle) '(72 . 0) '(73 . 0)
+                                       (cons 10 piketPt) (cons 40 userHeight) (cons 1 (strcat " " otmetkaValue))
+                                       '(7 . "Д-431") (cons 50 userAngle) ; userAngle тут в радіанах, що коректно для DXF 50
+                                       '(72 . 0) '(73 . 0)
                                      )
                     )
                     ;; Створення тексту
                     (if (entmake newTextDxf)
                       (progn
                         (setq createdCount (1+ createdCount))
-                        (command "_.PASTECLIP" piketPt)
+                        (command "_.PASTECLIP" "_non" piketPt) ; Вставка об'єкта з буфера обміну в точку piketPt
+                        
+                        ;; --- МОДИФІКАЦІЯ: Поворот вставленого з буфера об'єкта ---
+                        (if (> (getvar "CLIPROPS") 0) ; Перевірка, чи буфер обміну містить дані AutoCAD
+                            (progn
+                                (setq pastedEnt (entlast)) ; Отримати останній створений об'єкт (вставлений з буфера)
+                                (if pastedEnt
+                                    (progn
+                                        ; Команда ROTATE очікує кут в градусах, якщо передається як рядок.
+                                        ; userAngle зберігається в радіанах.
+                                        (command "_.ROTATE" pastedEnt "" "_non" piketPt (rtos (/ (* userAngle 180.0) pi) 2 8))
+                                        ; (princ (strcat "\nПовернуто вставлений об'єкт. Кут (рад): " (rtos userAngle) ", Кут (град): " (rtos (/ (* userAngle 180.0) pi)))) ; Для відладки
+                                    )
+                                    ; (princ "\nПомилка: не вдалося отримати вставлений об'єкт для повороту.") ; Для відладки
+                                )
+                            )
+                            ; (princ "\nПопередження: буфер обміну порожній або містить невідповідні дані після PASTECLIP.") ; Для відладки
+                        )
+                        ;; --- КІНЕЦЬ МОДИФІКАЦІЇ ---
                       )
                       (princ (strcat "\n  ! Помилка створення тексту для блоку <" (vl-princ-to-string piketEnt) ">"))
                     )
                   )
                 )
               )
-            )
           )
         )
         (setq i (1+ i))
       ) ; end repeat
 
-      (command "_.UNDO" "_End")
+      (command  )
+           "_.UNDO" "_End")
 
       ;; Фінальне повідомлення
       (if (> createdCount 0)
