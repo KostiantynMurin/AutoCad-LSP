@@ -1137,53 +1137,115 @@
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:CREATE_ZMARKER
 
+;;; CREATE_ZMARKER_BLOCK
+;;; Вставляє екземпляри обраного блоку-маркера в точки вставки блоків "PIKET",
+;;; зчитує значення атрибута "ОТМЕТКА" з "PIKET" та записує його
+;;; в атрибут "ВІДМІТКА" нового блоку-маркера.
+;;; Використовує ActiveX для надійної вставки та оновлення атрибутів.
+
 (defun c:CREATE_ZMARKER_BLOCK ( / *error* ss ss_source totalCount i piketEnt piketData piketPt
                            attrValOtmetka otmetkaValue k blockEnt blockEntData blockPt
                            foundExactBlockMarker createdCount oldCmdecho fuzz attEname attEdata attTag
                            userAngle prompt_angle_str inputAngle
-                           templateBlockEnt templateBlockData templateBlockName newBlockEnt newBlockData
-                           tempAttEnt tempAttData currentAttTag targetLayer
-                           oldAttdia oldAttreq tolerance pMin pMax ssBlockMarkersInVicinity
-                           entBeforeInsert ; Додано для перевірки нового об'єкта
+                           templateBlockEnt templateBlockData templateBlockName
+                           targetLayer oldAttdia oldAttreq tolerance pMin pMax ssBlockMarkersInVicinity
+                           ;; ActiveX related variables
+                           acadApp acadDoc modelSpace insertionPoint newBlockVLAObject
+                           vlaErrorOccurred att_tag_to_set
                           )
+  ;; --- Локальна допоміжна функція для перевірки наявності атрибуту у визначенні блоку ---
+  (defun LM:CheckBlockAttribDef (blockname att_tag_check / blk_obj_def attdef_found blocks_collection)
+    (setq attdef_found nil)
+    (if (not acadDoc) (setq acadDoc (vla-get-ActiveDocument (vlax-get-acad-object))))
+    (setq blocks_collection (vla-get-Blocks acadDoc))
+    (if (not (vl-catch-all-error-p (setq blk_obj_def (vla-item blocks_collection blockname))))
+      (vlax-for entity blk_obj_def
+        (if (= "AcDbAttributeDefinition" (vla-get-ObjectName entity))
+          (if (= (strcase (vla-get-TagString entity)) (strcase att_tag_check))
+            (setq attdef_found T)
+          )
+        )
+      )
+      (princ (strcat "\n  Помилка: Блок з ім'ям '" blockname "' не знайдено в таблиці блоків."))
+    )
+    attdef_found
+  )
+
+  ;; --- Локальна допоміжна функція для встановлення значення атрибуту VLA ---
+  (defun LM:SetAttributeValueVLA (block_vla att_tag_str new_val_str / attributes_col att_obj current_tag_str found_att)
+    (setq found_att nil)
+    (if (and block_vla (= (type block_vla) 'VLA-OBJECT) (not (vlax-object-released-p block_vla)))
+      (if (= (vla-get-HasAttributes block_vla) :vlax-true)
+        (progn
+          (setq attributes_col (vl-catch-all-apply 'vla-GetAttributes (list block_vla)))
+          (if (vl-catch-all-error-p attributes_col)
+            (princ (strcat "\n    Помилка отримання атрибутів для блоку: " (vl-catch-all-error-message attributes_col)))
+            (if (and attributes_col (vlax-variant-value attributes_col)) ; Перевірка, що варіант не порожній
+              (progn
+                (vlax-for att_obj (vlax-variant-value attributes_col)
+                  (setq current_tag_str (vla-get-TagString att_obj))
+                  (if (= (strcase current_tag_str) (strcase att_tag_str))
+                    (progn
+                      (vl-catch-all-apply 'vla-put-TextString (list att_obj new_val_str))
+                      (setq found_att T)
+                      ;; Можна додати break з циклу, якщо потрібно (для AutoLISP немає прямого break для vlax-for)
+                    )
+                  )
+                )
+                (if found_att (vla-Update block_vla)) ; Оновити відображення, якщо щось змінили
+              )
+              (princ (strcat "\n    Попередження: vla-GetAttributes повернула порожній варіант для блоку: " (vl-princ-to-string block_vla)))
+            )
+          )
+        )
+        (princ (strcat "\n    Попередження: Блок " (vla-get-Name block_vla) " не має атрибутів (HasAttributes is False)."))
+      )
+      (princ "\n    Помилка: Передано невалідний VLA-об'єкт блоку для LM:SetAttributeValueVLA.")
+    )
+    found_att
+  )
+
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-    (if oldAttdia (setvar "ATTDIA" oldAttdia)) ; Відновити ATTDIA
-    (if oldAttreq (setvar "ATTREQ" oldAttreq)) ; Відновити ATTREQ
-    (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
+    (if oldAttdia (setvar "ATTDIA" oldAttdia))
+    (if oldAttreq (setvar "ATTREQ" oldAttreq))
+    (if acadDoc (if (= 8 (logand 8 (getvar "UNDOCTL"))) (vla-EndUndoMark acadDoc)))
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
           ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
-          (T (princ (strcat "\nПомилка в CREATE_ZMARKER_BLOCK: " msg))) ; Оновлено назву функції в повідомленні про помилку
+          (T (princ (strcat "\nПомилка в CREATE_ZMARKER_BLOCK: " msg)))
     )
-    (setq *error* nil)
+    (setq *error* nil acadApp nil acadDoc nil modelSpace nil) ; Clear VLA objects
     (princ)
   )
 
   ;; --- Ініціалізація ---
+  (if (null vlax-get-acad-object) (vl-load-com))
+
   (setq ss nil ss_source nil totalCount 0 i 0 piketEnt nil piketData nil piketPt nil
         attrValOtmetka nil otmetkaValue nil k 0 blockEnt nil blockEntData nil blockPt nil
-        foundExactBlockMarker nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil
+        foundExactBlockMarker nil createdCount 0 oldCmdecho (getvar "CMDECHO") fuzz 1e-9
+        attEname nil attEdata nil attTag nil
         userAngle nil prompt_angle_str nil inputAngle nil
-        templateBlockEnt nil templateBlockData nil templateBlockName nil newBlockEnt nil newBlockData nil
-        tempAttEnt nil tempAttData nil currentAttTag nil
-        targetLayer "21 ВІДМІТКИ" ; Цільовий шар для нових маркерів
-        oldAttdia nil oldAttreq nil
-        tolerance 0.01 ; Допуск для пошуку існуючих блоків навколо точки
-        pMin nil pMax nil ssBlockMarkersInVicinity nil
-        entBeforeInsert nil
+        templateBlockEnt nil templateBlockData nil templateBlockName nil
+        targetLayer "21 ВІДМІТКИ" att_tag_to_set "ВІДМІТКА"
+        oldAttdia (getvar "ATTDIA") oldAttreq (getvar "ATTREQ")
+        tolerance 0.01 pMin nil pMax nil ssBlockMarkersInVicinity nil
+        vlaErrorOccurred nil
   )
-  (setq oldCmdecho (getvar "CMDECHO"))
-  (setq oldAttdia (getvar "ATTDIA")) ; Зберегти поточне значення ATTDIA
-  (setq oldAttreq (getvar "ATTREQ")) ; Зберегти поточне значення ATTREQ
+  
   (setvar "CMDECHO" 0)
-  (setvar "ATTDIA" 0) ; Вимкнути діалог атрибутів під час вставки
-  (setvar "ATTREQ" 1) ; Переконатися, що атрибути створюються (хоча ми їх оновлюємо вручну)
+  (setvar "ATTDIA" 0)
+  (setvar "ATTREQ" 1) 
+
+  (setq acadApp (vlax-get-acad-object))
+  (setq acadDoc (vla-get-ActiveDocument acadApp))
+  (setq modelSpace (vla-get-ModelSpace acadDoc))
 
   ;; --- Запит користувача на вибір блоку-шаблону ---
   (princ "\nОберіть існуючий екземпляр блоку-маркера на кресленні.")
-  (setq templateBlockEnt (car (entsel "\n>> Оберіть блок-маркер: ")))
+  (setq templateBlockEnt (car (entsel (strcat "\n>> Оберіть блок-маркер (має містити атрибут '" att_tag_to_set "'): "))))
   (if (null templateBlockEnt)
     (progn (princ "\nБлок-маркер не обрано. Роботу скрипта скасовано.") (*error* "Вибір блоку скасовано") (exit))
   )
@@ -1191,14 +1253,26 @@
   (if (or (null templateBlockData) (not (assoc 2 templateBlockData)) (/= "INSERT" (cdr (assoc 0 templateBlockData))))
     (progn (princ "\nОбраний об'єкт не є блоком або не вдалося отримати його дані. Роботу скрипта скасовано.") (*error* "Некоректний вибір блоку") (exit))
   )
-  (setq templateBlockName (cdr (assoc 2 templateBlockData)))
+  ;; Для vla-InsertBlock краще використовувати EffectiveName, якщо блок є частиною XREF, але для простоти тут беремо Name
+  (setq templateBlockName (vla-get-Name (vlax-ename->vla-object templateBlockEnt))) 
+  ;(setq templateBlockName (cdr (assoc 2 templateBlockData))) ; Старий варіант
+
   (if (or (null templateBlockName) (= "" templateBlockName))
       (progn (princ "\nНе вдалося отримати ім'я обраного блоку. Роботу скрипта скасовано.") (*error* "Не вдалося отримати ім'я блоку") (exit))
+  )
+  ;; Перевірка, чи блок-шаблон містить потрібний атрибут
+  (if (not (LM:CheckBlockAttribDef templateBlockName att_tag_to_set))
+      (progn
+        (princ (strcat "\n*** Помилка: Обраний блок-шаблон '" templateBlockName "' не містить визначення атрибуту з тегом '" att_tag_to_set "'."))
+        (princ "\nБудь ласка, оберіть інший блок або додайте необхідний атрибут до цього блоку.")
+        (*error* (strcat "Атрибут " att_tag_to_set " не знайдено у визначенні блоку " templateBlockName))
+        (exit)
+      )
   )
   (princ (strcat "\nБуде використовуватись блок-маркер: '" templateBlockName "'."))
 
   ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
-  (setq ss nil ss_source "") ; Ініціалізація
+  (setq ss nil ss_source "")
   (cond
     ((setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1))))
      (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
@@ -1221,35 +1295,31 @@
   ;; --- Основна логіка ---
   (if ss
     (progn
-      ;; --- Запит КУТА ПОВОРОТУ блоку ---
+      (vla-StartUndoMark acadDoc)
       (if (or (null (boundp '*g_create_zmarker_last_angle*)) (null *g_create_zmarker_last_angle*) (not (numberp *g_create_zmarker_last_angle*)))
           (setq *g_create_zmarker_last_angle* 0.0))
       (setq prompt_angle_str (strcat "\nВведіть кут повороту для маркерів (градуси) <" (angtos *g_create_zmarker_last_angle* 0 4) ">: "))
-      (setq inputAngle (getangle prompt_angle_str)) ; getangle повертає кут в радіанах
+      (setq inputAngle (getangle prompt_angle_str))
       (if inputAngle (setq userAngle inputAngle) (setq userAngle *g_create_zmarker_last_angle*))
       (setq *g_create_zmarker_last_angle* userAngle)
 
       (setq totalCount (sslength ss))
       (princ (strcat "\nПеревірка " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
 
-      (command "_.UNDO" "_Begin")
-
-      ;; --- Цикл по вибраних блоках PIKET ---
       (setq i 0)
       (repeat totalCount
         (setq piketEnt (ssname ss i))
-        (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactBlockMarker nil newBlockEnt nil) ; Скидання newBlockEnt
+        (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactBlockMarker nil newBlockVLAObject nil vlaErrorOccurred nil)
 
         (if (setq piketData (entget piketEnt))
           (progn
             (setq piketPt (cdr (assoc 10 piketData)))
-            ;; Пошук атрибуту "ОТМЕТКА" в блоці PIKET
             (if (and piketPt (assoc 66 piketData) (= 1 (cdr (assoc 66 piketData))))
               (progn
                 (setq attEname (entnext piketEnt))
                 (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                   (setq attTag (strcase (cdr (assoc 2 attEdata))))
-                  (if (eq "ОТМЕТКА" attTag)
+                  (if (eq "ОТМЕТКА" attTag) ; Атрибут в блоці PIKET
                     (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil))
                     (setq attEname (entnext attEname))
                   )
@@ -1261,7 +1331,6 @@
             (if (and piketPt otmetkaValue (/= "" otmetkaValue))
               (progn
                 (setq foundExactBlockMarker nil)
-                ;; Оптимізована перевірка наявності існуючого блоку-маркера
                 (setq pMin (list (- (car piketPt) tolerance) (- (cadr piketPt) tolerance) (- (caddr piketPt) tolerance)))
                 (setq pMax (list (+ (car piketPt) tolerance) (+ (cadr piketPt) tolerance) (+ (caddr piketPt) tolerance)))
                 (setq ssBlockMarkersInVicinity (ssget "_C" pMin pMax (list '(0 . "INSERT") (cons 2 templateBlockName))))
@@ -1273,69 +1342,41 @@
                       (setq blockEnt (ssname ssBlockMarkersInVicinity k))
                       (setq blockEntData (entget blockEnt))
                       (setq blockPt (cdr (assoc 10 blockEntData)))
-                      (if (equal piketPt blockPt fuzz) ; Точна перевірка координат
-                          (setq foundExactBlockMarker T)
-                      )
+                      (if (equal piketPt blockPt fuzz) (setq foundExactBlockMarker T))
                       (setq k (1+ k))
                     )
                   )
                 )
 
-                ;; Створення нового блоку-маркера, якщо не знайдено існуючий
                 (if (not foundExactBlockMarker)
                   (progn
-                    (setq entBeforeInsert (entlast)) ; Запам'ятовуємо останній об'єкт перед вставкою
-
-                    ;; Вставка блоку-шаблону за допомогою КОМАНДИ, а не vl-cmdf
-                    (command "_.INSERT"
-                             (if (vl-string-search " " templateBlockName) ; Якщо ім'я блоку містить пробіл
-                                 (strcat "\"" templateBlockName "\"")     ; Беремо його в лапки
-                                 templateBlockName                        ; Інакше передаємо як є
-                             )
-                             "_NONE" piketPt ; Точка вставки без об'єктної прив'язки
-                             "1"             ; Масштаб X (і Y, якщо наступний аргумент порожній)
-                             ""              ; Масштаб Y (порожній - такий же як X)
-                             (rtos (/ (* userAngle 180.0) pi) 2 8) ; Кут повороту в градусах
-                    )
-                    (setq newBlockEnt (entlast)) ; Отримати останній об'єкт після команди INSERT
-
-                    ;; Перевірка, чи дійсно було створено новий об'єкт
-                    (if (or (null newBlockEnt) (eq newBlockEnt entBeforeInsert))
-                      (progn
-                        (princ (strcat "\n  !! Помилка: Не вдалося вставити блок '" templateBlockName "' або (entlast) не змінився для PIKET: " (vl-princ-to-string piketEnt) ". Можливо, сталася помилка команди INSERT."))
-                        (setq newBlockEnt nil) ; Скидаємо newBlockEnt, щоб не було подальших дій з ним
+                    (setq insertionPoint (vlax-3D-point piketPt))
+                    (setq newBlockVLAObject
+                      (vl-catch-all-apply
+                        'vla-InsertBlock
+                        (list modelSpace insertionPoint templateBlockName 1.0 1.0 1.0 userAngle)
                       )
                     )
 
-                    (if newBlockEnt
+                    (if (vl-catch-all-error-p newBlockVLAObject)
                       (progn
-                        ;; 1. Змінити шар вставленого блоку (якщо потрібно)
-                        (entmod (list (cons -1 newBlockEnt) (cons 8 targetLayer)))
-
-                        ;; 2. Оновлення атрибута "ВІДМІТКА" у новому блоці
-                        (setq newBlockData (entget newBlockEnt)) ; Отримати дані блоку для перевірки наявності атрибутів
-                        (if (and newBlockData (assoc 66 newBlockData) (= 1 (cdr (assoc 66 newBlockData))))
-                          (progn
-                            (setq tempAttEnt (entnext newBlockEnt))
-                            (while (and tempAttEnt (setq tempAttData (entget tempAttEnt)) (= "ATTRIB" (cdr (assoc 0 tempAttData))))
-                              (setq currentAttTag (strcase (cdr (assoc 2 tempAttData))))
-                              (if (eq "ВІДМІТКА" currentAttTag) ; Шукаємо атрибут "ВІДМІТКА"
-                                (progn
-                                  (setq tempAttData (subst (cons 1 otmetkaValue) (assoc 1 tempAttData) tempAttData))
-                                  (entmod tempAttData)
-                                  (setq tempAttEnt nil) ; Атрибут знайдено та оновлено, вихід з циклу
-                                )
-                                (setq tempAttEnt (entnext tempAttEnt)) ; Перехід до наступного атрибута
-                              )
-                            )
-                          )
+                        (princ (strcat "\n  !! Помилка ActiveX: Не вдалося вставити блок '" templateBlockName "' для PIKET: " (vl-princ-to-string piketEnt) ". Причина: " (vl-catch-all-error-message newBlockVLAObject)))
+                        (setq vlaErrorOccurred T newBlockVLAObject nil) ; Скидаємо newBlockVLAObject
+                      )
+                      (setq newBlockVLAObject (vl-catch-all-error-object newBlockVLAObject)) ; Отримуємо сам об'єкт, якщо немає помилки
+                    )
+                    
+                    (if (and (not vlaErrorOccurred) newBlockVLAObject (= (type newBlockVLAObject) 'VLA-OBJECT)) ; Перевірка типу
+                      (progn
+                        (vl-catch-all-apply 'vla-put-Layer (list newBlockVLAObject targetLayer))
+                        (if (not (LM:SetAttributeValueVLA newBlockVLAObject att_tag_to_set otmetkaValue))
+                            (princ (strcat "\n    ! Попередження: Не вдалося встановити атрибут '" att_tag_to_set "' для щойно вставленого блоку в точці " (vl-princ-to-string piketPt)))
                         )
-                        ;; 3. Оновити відображення блоку (після всіх змін)
-                        (entupd newBlockEnt)
                         (setq createdCount (1+ createdCount))
                       )
-                      ;; Це повідомлення тепер виводиться, якщо newBlockEnt став nil через помилку вставки
-                      ;; (princ (strcat "\n  ! Помилка обробки блоку '" templateBlockName "' для PIKET: <" (vl-princ-to-string piketEnt) "> після спроби вставки."))
+                      (if (not vlaErrorOccurred) ; Якщо не було помилки ActiveX, але newBlockVLAObject не є VLA-OBJECT
+                          (princ (strcat "\n  !! Помилка: vla-InsertBlock не повернув очікуваний об'єкт для PIKET: " (vl-princ-to-string piketEnt)))
+                      )
                     )
                   )
                   (princ (strcat "\n  Маркер для PIKET <" (vl-princ-to-string piketEnt) "> в точці " (vl-princ-to-string piketPt) " вже існує. Пропущено."))
@@ -1346,26 +1387,24 @@
         )
         (setq i (1+ i))
       ) ; end repeat
-
-      (command "_.UNDO" "_End")
-
-      ;; Фінальне повідомлення
+      (vla-EndUndoMark acadDoc)
       (if (> createdCount 0)
           (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " нових маркерів ('" templateBlockName "')..."))
-          (princ (strcat "\nОбробку завершено. Нових маркерів ('" templateBlockName "') не створено (можливо, всі вже існували або не було знайдено блоків PIKET з атрибутом 'ОТМЕТКА', або виникли помилки під час вставки)..."))
-      )
-
-    ) ; end progn IF ss
+          (princ (strcat "\nОбробку завершено. Нових маркерів ('" templateBlockName "') не створено.")))
+    )
     (princ "\nНе вдалося визначити об'єкти 'PIKET' для обробки.")
-  ) ; end if ss
+  )
 
-  ;; --- Відновлення середовища та вихід ---
   (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
-  (if oldAttdia (setvar "ATTDIA" oldAttdia)) ; Відновити ATTDIA
-  (if oldAttreq (setvar "ATTREQ" oldAttreq)) ; Відновити ATTREQ
-  (setq *error* nil)
-  (princ) ;; Чистий вихід
-) ;; кінець defun c:CREATE_ZMARKER_BLOCK
+  (if oldAttdia (setvar "ATTDIA" oldAttdia))
+  (if oldAttreq (setvar "ATTREQ" oldAttreq))
+  (setq acadApp nil acadDoc nil modelSpace nil insertionPoint nil newBlockVLAObject nil)
+  (princ)
+)
+
+(princ "\nФункція CREATE_ZMARKER_BLOCK (ActiveX v2) завантажена. Введіть CREATE_ZMARKER_BLOCK для запуску.")
+(princ)
+
 
 
 
