@@ -942,7 +942,7 @@
                            attrValOtmetka otmetkaValue ssTextLayer j textEnt textData textPt
                            foundExactText createdCount oldCmdecho fuzz attEname attEdata attTag newTextDxf
                            userHeight prompt_str inputHeight userAngle prompt_angle_str inputAngle
-                           pastedEnt ; Додано для збереження вставленого об'єкта
+                           pastedEnt entBeforePaste ; Додано entBeforePaste
                           )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
@@ -963,7 +963,7 @@
         foundExactText nil createdCount 0 oldCmdecho nil fuzz 1e-9 attEname nil attEdata nil attTag nil newTextDxf nil
         userHeight nil prompt_str nil inputHeight nil
         userAngle nil prompt_angle_str nil inputAngle nil
-        pastedEnt nil ; Ініціалізація нової змінної
+        pastedEnt nil entBeforePaste nil ; Ініціалізація нових змінних
   )
   (setq oldCmdecho (getvar "CMDECHO"))
 
@@ -1020,7 +1020,6 @@
       (if (or (null (boundp '*g_create_zmarker_last_angle*)) (null *g_create_zmarker_last_angle*) (not (numberp *g_create_zmarker_last_angle*)))
           (setq *g_create_zmarker_last_angle* 0.0))
       (setq prompt_angle_str (strcat "\nВведіть кут повороту тексту та об'єкта (градуси) <" (angtos *g_create_zmarker_last_angle* 0 4) ">: "))
-      ;; (initget) ; Не обмежуємо, щоб Enter повернув nil
       (setq inputAngle (getangle prompt_angle_str)) ; getangle повертає кут в радіанах
       (if inputAngle (setq userAngle inputAngle) (setq userAngle *g_create_zmarker_last_angle*))
       (setq *g_create_zmarker_last_angle* userAngle)
@@ -1051,7 +1050,7 @@
                 (while (and attEname (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                   (setq attTag (strcase (cdr (assoc 2 attEdata))))
                   (if (eq "ОТМЕТКА" attTag)
-                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) ; Знайшли, виходимо з циклу по атрибутах
+                    (progn (setq attrValOtmetka (cdr (assoc 1 attEdata))) (setq attEname nil)) 
                     (setq attEname (entnext attEname))
                   )
                 )
@@ -1059,7 +1058,6 @@
               )
             )
 
-            ;; Перевірка наявності існуючого тексту ТОЧНО в точці вставки
             (if (and piketPt otmetkaValue (/= "" otmetkaValue))
               (progn
                 (setq foundExactText nil)
@@ -1079,38 +1077,34 @@
                   )
                 )
 
-                ;; Створення нового тексту ТА ВСТАВКА СИМВОЛУ (з поворотом), якщо не знайдено існуючий в точці
                 (if (not foundExactText)
                   (progn
-                    ;; Створення DXF списку для нового тексту
                     (setq newTextDxf (list
                                        '(0 . "TEXT") '(100 . "AcDbEntity") '(8 . "21 ВІДМІТКИ") '(100 . "AcDbText")
                                        (cons 10 piketPt) (cons 40 userHeight) (cons 1 (strcat " " otmetkaValue))
-                                       '(7 . "Д-431") (cons 50 userAngle) ; userAngle тут в радіанах, що коректно для DXF 50
+                                       '(7 . "Д-431") (cons 50 userAngle) 
                                        '(72 . 0) '(73 . 0)
                                      )
                     )
-                    ;; Створення тексту
                     (if (entmake newTextDxf)
                       (progn
                         (setq createdCount (1+ createdCount))
-                        (command "_.PASTECLIP" "_non" piketPt) ; Вставка об'єкта з буфера обміну в точку piketPt
+                        (setq entBeforePaste (entlast)) ; Запам'ятовуємо останній об'єкт (це має бути створений текст)
                         
+                        (command "_.PASTECLIP" "_non" piketPt) ; Вставка об'єкта з буфера обміну
+                        (setq pastedEnt (entlast)) ; Отримуємо останній об'єкт після вставки
+
                         ;; --- МОДИФІКАЦІЯ: Поворот вставленого з буфера об'єкта ---
-                        (if (> (getvar "CLIPROPS") 0) ; Перевірка, чи буфер обміну містить дані AutoCAD
+                        ;; Перевіряємо, чи pastedEnt існує і чи він відрізняється від об'єкта перед вставкою (тобто, чи PASTECLIP створив новий об'єкт)
+                        (if (and pastedEnt entBeforePaste (not (eq pastedEnt entBeforePaste)))
                             (progn
-                                (setq pastedEnt (entlast)) ; Отримати останній створений об'єкт (вставлений з буфера)
-                                (if pastedEnt
-                                    (progn
-                                        ; Команда ROTATE очікує кут в градусах, якщо передається як рядок.
-                                        ; userAngle зберігається в радіанах.
-                                        (command "_.ROTATE" pastedEnt "" "_non" piketPt (rtos (/ (* userAngle 180.0) pi) 2 8))
-                                        (princ (strcat "\nПовернуто вставлений об'єкт. Кут (рад): " (rtos userAngle) ", Кут (град): " (rtos (/ (* userAngle 180.0) pi)))) ; Для відладки
-                                    )
-                                    (princ "\nПомилка: не вдалося отримати вставлений об'єкт для повороту.") ; Для відладки
-                                )
+                                ;; (princ (strcat "\nDebug: Rotating pasted entity: " (vl-princ-to-string pastedEnt))) ; Для відладки
+                                (command "_.ROTATE" pastedEnt "" "_non" piketPt (rtos (/ (* userAngle 180.0) pi) 2 8))
                             )
-                            (princ "\nПопередження: буфер обміну порожній або містить невідповідні дані після PASTECLIP.") ; Для відладки
+                            (if (and pastedEnt (eq pastedEnt entBeforePaste))
+                                (princ (strcat "\nПопередження: PASTECLIP не створив новий об'єкт, відмінний від тексту (можливо, буфер обміну порожній або містить несумісні дані). Поворот об'єкта з буфера пропущено для PIKET: " (vl-princ-to-string piketEnt)))
+                                ;; else: pastedEnt is nil, or entBeforePaste was nil (less likely here)
+                            )
                         )
                         ;; --- КІНЕЦЬ МОДИФІКАЦІЇ ---
                       )
@@ -1119,13 +1113,13 @@
                   )
                 )
               )
+            )
           )
         )
         (setq i (1+ i))
       ) ; end repeat
 
-      (command  )
-           "_.UNDO" "_End")
+      (command "_.UNDO" "_End") ; Виправлено синтаксис
 
       ;; Фінальне повідомлення
       (if (> createdCount 0)
