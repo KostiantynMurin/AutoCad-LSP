@@ -1144,6 +1144,7 @@
                            templateBlockEnt templateBlockData templateBlockName newBlockEnt newBlockData
                            tempAttEnt tempAttData currentAttTag targetLayer
                            oldAttdia oldAttreq tolerance pMin pMax ssBlockMarkersInVicinity
+                           entBeforeInsert ; Додано для перевірки нового об'єкта
                           )
   ;; --- Функція обробки помилок ---
   (defun *error* (msg)
@@ -1154,7 +1155,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg) (princ "\nСкасовано."))
           ((vl-string-search "quit / exit abort" msg) (princ "\nСкасовано."))
-          (T (princ (strcat "\nПомилка в CREATE_ZMARKER: " msg)))
+          (T (princ (strcat "\nПомилка в CREATE_ZMARKER_BLOCK: " msg))) ; Оновлено назву функції в повідомленні про помилку
     )
     (setq *error* nil)
     (princ)
@@ -1171,6 +1172,7 @@
         oldAttdia nil oldAttreq nil
         tolerance 0.01 ; Допуск для пошуку існуючих блоків навколо точки
         pMin nil pMax nil ssBlockMarkersInVicinity nil
+        entBeforeInsert nil
   )
   (setq oldCmdecho (getvar "CMDECHO"))
   (setq oldAttdia (getvar "ATTDIA")) ; Зберегти поточне значення ATTDIA
@@ -1236,7 +1238,7 @@
       (setq i 0)
       (repeat totalCount
         (setq piketEnt (ssname ss i))
-        (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactBlockMarker nil)
+        (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactBlockMarker nil newBlockEnt nil) ; Скидання newBlockEnt
 
         (if (setq piketData (entget piketEnt))
           (progn
@@ -1282,14 +1284,28 @@
                 ;; Створення нового блоку-маркера, якщо не знайдено існуючий
                 (if (not foundExactBlockMarker)
                   (progn
-                    ;; Вставка блоку-шаблону з масштабом 1 та заданим поворотом
-                    (vl-cmdf "_.INSERT" templateBlockName
+                    (setq entBeforeInsert (entlast)) ; Запам'ятовуємо останній об'єкт перед вставкою
+
+                    ;; Вставка блоку-шаблону за допомогою КОМАНДИ, а не vl-cmdf
+                    (command "_.INSERT"
+                             (if (vl-string-search " " templateBlockName) ; Якщо ім'я блоку містить пробіл
+                                 (strcat "\"" templateBlockName "\"")     ; Беремо його в лапки
+                                 templateBlockName                        ; Інакше передаємо як є
+                             )
                              "_NONE" piketPt ; Точка вставки без об'єктної прив'язки
                              "1"             ; Масштаб X (і Y, якщо наступний аргумент порожній)
                              ""              ; Масштаб Y (порожній - такий же як X)
                              (rtos (/ (* userAngle 180.0) pi) 2 8) ; Кут повороту в градусах
                     )
-                    (setq newBlockEnt (entlast)) ; Отримати щойно вставлений блок
+                    (setq newBlockEnt (entlast)) ; Отримати останній об'єкт після команди INSERT
+
+                    ;; Перевірка, чи дійсно було створено новий об'єкт
+                    (if (or (null newBlockEnt) (eq newBlockEnt entBeforeInsert))
+                      (progn
+                        (princ (strcat "\n  !! Помилка: Не вдалося вставити блок '" templateBlockName "' або (entlast) не змінився для PIKET: " (vl-princ-to-string piketEnt) ". Можливо, сталася помилка команди INSERT."))
+                        (setq newBlockEnt nil) ; Скидаємо newBlockEnt, щоб не було подальших дій з ним
+                      )
+                    )
 
                     (if newBlockEnt
                       (progn
@@ -1313,15 +1329,13 @@
                               )
                             )
                           )
-                          ;; Повідомлення про відсутність атрибутів можна залишити для відладки, але зазвичай воно не потрібне, якщо блок-шаблон коректний
-                          ;; (princ (strcat "\n  ! Попередження: Вставлений блок <" (vl-princ-to-string newBlockEnt) "> не має атрибутів або їх не вдалося прочитати."))
                         )
-
                         ;; 3. Оновити відображення блоку (після всіх змін)
                         (entupd newBlockEnt)
                         (setq createdCount (1+ createdCount))
                       )
-                      (princ (strcat "\n  ! Помилка вставки блоку '" templateBlockName "' для PIKET: <" (vl-princ-to-string piketEnt) ">"))
+                      ;; Це повідомлення тепер виводиться, якщо newBlockEnt став nil через помилку вставки
+                      ;; (princ (strcat "\n  ! Помилка обробки блоку '" templateBlockName "' для PIKET: <" (vl-princ-to-string piketEnt) "> після спроби вставки."))
                     )
                   )
                   (princ (strcat "\n  Маркер для PIKET <" (vl-princ-to-string piketEnt) "> в точці " (vl-princ-to-string piketPt) " вже існує. Пропущено."))
@@ -1338,7 +1352,7 @@
       ;; Фінальне повідомлення
       (if (> createdCount 0)
           (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " нових маркерів ('" templateBlockName "')..."))
-          (princ (strcat "\nОбробку завершено. Нових маркерів ('" templateBlockName "') не створено (можливо, всі вже існували або не було знайдено блоків PIKET з атрибутом 'ОТМЕТКА')..."))
+          (princ (strcat "\nОбробку завершено. Нових маркерів ('" templateBlockName "') не створено (можливо, всі вже існували або не було знайдено блоків PIKET з атрибутом 'ОТМЕТКА', або виникли помилки під час вставки)..."))
       )
 
     ) ; end progn IF ss
@@ -1352,6 +1366,7 @@
   (setq *error* nil)
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:CREATE_ZMARKER_BLOCK
+
 
 
 
