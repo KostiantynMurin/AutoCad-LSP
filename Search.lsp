@@ -1151,7 +1151,7 @@
                            targetLayer oldAttdia oldAttreq tolerance pMin pMax ssBlockMarkersInVicinity
                            ;; ActiveX related variables
                            acadApp acadDoc modelSpace insertionPoint newBlockVLAObject
-                           att_tag_to_set insert_attempt_result ; Видалено vlaErrorOccurred, додано insert_attempt_result
+                           att_tag_to_set insert_attempt_result
                           )
   ;; --- Локальна допоміжна функція для перевірки наявності атрибуту у визначенні блоку ---
   (defun LM:CheckBlockAttribDef (blockname att_tag_check / blk_obj_def attdef_found blocks_collection)
@@ -1171,29 +1171,41 @@
     attdef_found
   )
 
-  ;; --- Локальна допоміжна функція для встановлення значення атрибуту VLA ---
-  (defun LM:SetAttributeValueVLA (block_vla att_tag_str new_val_str / attributes_col att_obj current_tag_str found_att)
+  ;; --- Локальна допоміжна функція для встановлення значення атрибуту VLA (оновлена) ---
+  (defun LM:SetAttributeValueVLA (block_vla att_tag_str new_val_str / attributes_variant attributes_safearray attribute_list att_obj current_tag_str found_att)
     (setq found_att nil)
     (if (and block_vla (= (type block_vla) 'VLA-OBJECT) (not (vlax-object-released-p block_vla)))
       (if (= (vla-get-HasAttributes block_vla) :vlax-true)
         (progn
-          (setq attributes_col (vl-catch-all-apply 'vla-GetAttributes (list block_vla)))
-          (if (vl-catch-all-error-p attributes_col)
-            (princ (strcat "\n    Помилка отримання атрибутів для блоку: " (vl-catch-all-error-message attributes_col)))
-            (if (and attributes_col (vlax-variant-value attributes_col)) ; Перевірка, що варіант не порожній
-              (progn
-                (vlax-for att_obj (vlax-variant-value attributes_col)
-                  (setq current_tag_str (vla-get-TagString att_obj))
-                  (if (= (strcase current_tag_str) (strcase att_tag_str))
-                    (progn
-                      (vl-catch-all-apply 'vla-put-TextString (list att_obj new_val_str))
-                      (setq found_att T)
+          (setq attributes_variant (vl-catch-all-apply 'vla-GetAttributes (list block_vla))) ; Отримуємо Variant або помилку
+          
+          (if (vl-catch-all-error-p attributes_variant) ; Спочатку перевіряємо на помилку
+            (princ (strcat "\n    Помилка отримання атрибутів для блоку: " (vl-catch-all-error-message attributes_variant)))
+            (progn ; Помилки не було, attributes_variant - це Variant
+              (setq attributes_safearray (vlax-variant-value attributes_variant)) ; Витягуємо значення з Variant (має бути SafeArray)
+              
+              (if (and attributes_safearray (= (type attributes_safearray) 'SAFEARRAY)) ; Перевіряємо, чи це дійсно SafeArray
+                (progn
+                  (setq attribute_list (vlax-safearray->list attributes_safearray)) ; Конвертуємо SafeArray в список LISP
+                  (foreach att_obj attribute_list ; Ітеруємо по списку
+                    (if (and att_obj (= (type att_obj) 'VLA-OBJECT)) ; Переконуємося, що кожен елемент - VLA-об'єкт
+                       (progn
+                          (setq current_tag_str (vla-get-TagString att_obj))
+                          (if (= (strcase current_tag_str) (strcase att_tag_str))
+                            (progn
+                              (vl-catch-all-apply 'vla-put-TextString (list att_obj new_val_str))
+                              (setq found_att T)
+                              ;; Можна було б додати (setq attribute_list nil) для виходу з foreach, але це не завжди надійно
+                            )
+                          )
+                       )
+                       (princ (strcat "\n    Попередження: Елемент у списку атрибутів не є VLA-OBJECT: " (vl-princ-to-string att_obj)))
                     )
                   )
+                  (if found_att (vla-Update block_vla)) ; Оновлюємо блок, якщо атрибут було змінено
                 )
-                (if found_att (vla-Update block_vla)) 
+                (princ (strcat "\n    Попередження: vla-GetAttributes не повернула очікуваний SafeArray. Тип значення варіанту: " (vl-princ-to-string (type attributes_safearray))))
               )
-              (princ (strcat "\n    Попередження: vla-GetAttributes повернула порожній варіант для блоку: " (vl-princ-to-string block_vla)))
             )
           )
         )
@@ -1305,7 +1317,6 @@
       (setq i 0)
       (repeat totalCount
         (setq piketEnt (ssname ss i))
-        ;; Скидання змінних для кожної ітерації
         (setq attrValOtmetka nil otmetkaValue nil piketPt nil foundExactBlockMarker nil newBlockVLAObject nil insert_attempt_result nil) 
 
         (if (setq piketData (entget piketEnt))
@@ -1348,23 +1359,21 @@
                 (if (not foundExactBlockMarker)
                   (progn
                     (setq insertionPoint (vlax-3D-point piketPt))
-                    (setq insert_attempt_result ; Зберігаємо результат виклику (об'єкт або помилку)
+                    (setq insert_attempt_result 
                       (vl-catch-all-apply
                         'vla-InsertBlock
                         (list modelSpace insertionPoint templateBlockName 1.0 1.0 1.0 userAngle)
                       )
                     )
 
-                    (if (vl-catch-all-error-p insert_attempt_result) ; Перевіряємо, чи була помилка
+                    (if (vl-catch-all-error-p insert_attempt_result) 
                       (progn
                         (princ (strcat "\n  !! Помилка ActiveX: Не вдалося вставити блок '" templateBlockName "' для PIKET: " 
                                        (vl-princ-to-string piketEnt) ". Причина: " 
                                        (vl-catch-all-error-message insert_attempt_result)))
-                        ;; newBlockVLAObject залишається nil
                       )
-                      ;; ELSE: Помилки не було, insert_attempt_result - це VLA-об'єкт
                       (progn
-                        (setq newBlockVLAObject insert_attempt_result) ; Присвоюємо дійсний VLA-об'єкт
+                        (setq newBlockVLAObject insert_attempt_result) 
                         (if (and newBlockVLAObject (= (type newBlockVLAObject) 'VLA-OBJECT))
                           (progn
                             (vl-catch-all-apply 'vla-put-Layer (list newBlockVLAObject targetLayer))
@@ -1404,7 +1413,7 @@
   (princ)
 )
 
-(princ "\nФункція CREATE_ZMARKER_BLOCK (ActiveX v3 - виправлення помилки) завантажена. Введіть CREATE_ZMARKER_BLOCK для запуску.")
+(princ "\nФункція CREATE_ZMARKER_BLOCK (ActiveX v4 - виправлення типу аргумента) завантажена. Введіть CREATE_ZMARKER_BLOCK для запуску.")
 (princ)
 
 
