@@ -790,9 +790,9 @@
                 (setq p1_fuzz (list (- (car blockPt) fuzz_dist) (- (cadr blockPt) fuzz_dist) (- (caddr blockPt) fuzz_dist)))
                 (setq p2_fuzz (list (+ (car blockPt) fuzz_dist) (+ (cadr blockPt) fuzz_dist) (+ (caddr blockPt) fuzz_dist)))
                 
-                (setq ssSupportBlock (ssget "_CP" p1_fuzz p2_fuzz ; Метод і точки
-                                            ;; Список фільтрів як ОДИН наступний аргумент
-                                            (list 
+                ;; Використовуємо режим "_C" (Crossing Window)
+                (setq ssSupportBlock (ssget "_C" p1_fuzz p2_fuzz 
+                                            (list ; Список фільтрів як ОДИН аргумент
                                               '(0 . "INSERT")
                                               (cons 2 support_block_name) 
                                               (cons 410 (getvar "CTAB"))
