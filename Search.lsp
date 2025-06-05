@@ -768,11 +768,12 @@
               )
             )
 
-            ;; --- Вилучення номера з атрибуту "НОМЕРА" (оновлена логіка) ---
-            (setq extractedNum nil) ; Ініціалізуємо як не знайдений
-            (if attrValNomera
+            ;; --- Вилучення номера з атрибуту "НОМЕРА" (оновлена логіка v3 - постфікси скрізь) ---
+            ;; Передбачається, що attrValNomera вже є рядком (після конвертації з attrValNomera_raw)
+            (setq extractedNum nil) 
+            (if (and attrValNomera (> (strlen attrValNomera) 0)) ; Працюємо тільки з не порожнім рядком
               (progn
-                ;; -- СПРОБА 1: Шукаємо номер у перших дужках (напр., ОКМ(22)123) --
+                ;; -- СПРОБА 1: Шукаємо АЛФАВІТНО-ЦИФРОВИЙ номер у перших дужках (напр., ОКМ(22a)XYZ або ОКМ(22)XYZ) --
                 (setq openParen_v1 (vl-string-search "(" attrValNomera))
                 (if openParen_v1
                   (progn
@@ -780,7 +781,8 @@
                     (if (and closeParen_v1 (> closeParen_v1 openParen_v1))
                       (progn
                         (setq candidate_v1 (substr attrValNomera (+ openParen_v1 2) (- closeParen_v1 openParen_v1 1)))
-                        (if (app:string-is-all-digits-p candidate_v1)
+                        ;; Тепер використовуємо app:string-is-alphanumeric-p
+                        (if (app:string-is-alphanumeric-p candidate_v1) 
                           (setq extractedNum candidate_v1)
                         )
                       )
@@ -788,24 +790,25 @@
                   )
                 )
 
-                ;; -- СПРОБА 2: Якщо не знайдено в дужках, шукаємо ОКМ<номер>(...) (напр., ОКМ22(g-2.34)123) --
-                (if (not extractedNum) ; Тільки якщо СПРОБА 1 не вдалася
+                ;; -- СПРОБА 2: Якщо СПРОБА 1 не вдалася, шукаємо ОКМ<алфавітно-цифровий номер>(...) 
+                ;;    (напр., ОКМ236a(g-4.38)1295) --
+                (if (not extractedNum) ; Тільки якщо СПРОБА 1 не дала результату
                   (let ((prefix_str "ОКМ") prefix_len prefix_pos_v2 openParen_v2 num_start_idx num_len candidate_v2)
                     (setq prefix_len (strlen prefix_str))
-                    ;; Перевіряємо, чи рядок починається з префіксу "ОКМ"
                     (setq prefix_pos_v2 (vl-string-search prefix_str attrValNomera))
+                    
                     (if (and prefix_pos_v2 (= 0 prefix_pos_v2)) ; Якщо "ОКМ" на самому початку
                       (progn
-                        ;; Шукаємо першу '(' ПІСЛЯ префіксу
                         (setq openParen_v2 (vl-string-search "(" attrValNomera (+ prefix_pos_v2 prefix_len)))
-                        (if openParen_v2
+                        (if openParen_v2 ; Дужка ПІСЛЯ потенційного номера ОБОВ'ЯЗКОВА для цього патерну
                           (progn
-                            (setq num_start_idx (+ prefix_pos_v2 prefix_len)) ; Позиція першої цифри номера (0-based)
-                            (setq num_len (- openParen_v2 num_start_idx))     ; Довжина числового рядка
+                            (setq num_start_idx (+ prefix_pos_v2 prefix_len)) 
+                            (setq num_len (- openParen_v2 num_start_idx))     
                             (if (> num_len 0)
                               (progn
                                 (setq candidate_v2 (substr attrValNomera (+ num_start_idx 1) num_len))
-                                (if (app:string-is-all-digits-p candidate_v2)
+                                ;; Використовуємо app:string-is-alphanumeric-p
+                                (if (app:string-is-alphanumeric-p candidate_v2) 
                                   (setq extractedNum candidate_v2)
                                 )
                               )
@@ -818,7 +821,7 @@
                 )
               )
             )
-            ;; Тепер extractedNum містить або знайдений числовий рядок, або nil
+            ;; Тепер extractedNum містить або знайдений алфавітно-цифровий рядок, або nil
 
             (if (and extractedNum blockPt)
               (progn
@@ -977,13 +980,21 @@
 
 
 ;; ====================================================================
-;; Допоміжна функція: Перевіряє, чи рядок складається тільки з цифр
+;; Допоміжна функція: Перевіряє, чи рядок складається тільки з
+;; ЛАТИНСЬКИХ літер та/або цифр.
 ;; ====================================================================
-(defun app:string-is-all-digits-p (str / char-code-list)
+(defun app:string-is-alphanumeric-p (str / char-code-list)
   (if (and str (> (strlen str) 0)) ; Рядок існує і не порожній
       (progn
         (setq char-code-list (mapcar 'ascii (vl-string->list str)))
-        (vl-every '(lambda (char-code) (<= (ascii "0") char-code (ascii "9")))
+        (vl-every '(lambda (char-code)
+                     (or
+                       (<= (ascii "0") char-code (ascii "9"))  ; Цифра
+                       (<= (ascii "A") char-code (ascii "Z"))  ; Велика латинська літера
+                       (<= (ascii "a") char-code (ascii "z"))  ; Мала латинська літера
+                       ;; При необхідності сюди можна додати перевірку на кириличні літери
+                     )
+                   )
                   char-code-list
         )
       )
