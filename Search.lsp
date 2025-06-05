@@ -664,6 +664,12 @@
 ;; 6. Якщо підтверджено, оновлює атрибути "НОМЕР".
 ;; 7. Виводить список блоків "PIKET", для яких не знайдено відповідний блок опори.
 
+;; ====================================================================
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.4.4 - збільшено fuzz_dist)
+;; ====================================================================
+;; Команда: RENAME_OKM_SUPPORT
+;; ... (решта опису) ...
+
 (defun c:RENAME_OKM_SUPPORT ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
                            attrValNomera blockPt openParen closeParen
                            extractedNum processed_support_ents_list
@@ -704,7 +710,7 @@
         answer nil
         pikets_missing_support_block nil
         support_block_name "Опора КМ (з.б.)" 
-        fuzz_dist 0.001 
+        fuzz_dist 0.5 ; << ЗБІЛЬШЕНО ДОПУСК (був 0.001, різниця до 0.2)
   )
   (setq oldCmdecho (getvar "CMDECHO"))
   ;(setvar "CMDECHO" 0) 
@@ -784,7 +790,8 @@
                 (princ "\nDEBUG: Значення support_block_name ПЕРЕД ssget: ")
                 (princ support_block_name)
                 (princ (strcat " | Тип: " (vl-prin1-to-string (type support_block_name))))
-                (princ (strcat " | blockPt: " (vl-prin1-to-string blockPt)))
+                (princ (strcat " | blockPt (DXF 10): " (vl-prin1-to-string blockPt)))
+                (princ (strcat " | fuzz_dist: " (rtos fuzz_dist 2 8)))
                 (terpri) 
                 
                 (setq ssSupportBlock (ssget "_C" p1_fuzz p2_fuzz 
@@ -794,17 +801,7 @@
                                               (cons 410 (getvar "CTAB"))
                                             )
                                      ))
-                
-                ;; --- ТИМЧАСОВИЙ БЛОК ДЛЯ НАЛАГОДЖЕННЯ ---
-                (if ssSupportBlock
-                    (princ (strcat "\nDEBUG: ssSupportBlock знайдено, кількість: " (itoa (sslength ssSupportBlock))))
-                    (princ "\nDEBUG: ssSupportBlock НЕ знайдено (nil).")
-                )
-                (princ "\nDEBUG: Дійшли до кінця обробки одного PIKET (після тимчасового блоку).")
-                (terpri)
-                ;; --- КІНЕЦЬ ТИМЧАСОВОГО БЛОКУ ---
                                      
-#| ;; ПОЧАТОК ЗАКОМЕНТОВАНОГО ОРИГІНАЛЬНОГО БЛОКУ COND
                 (cond
                   ((and ssSupportBlock (= 1 (sslength ssSupportBlock))) 
                    (setq supportBlockEnt (ssname ssSupportBlock 0))
@@ -822,13 +819,11 @@
                    (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Знайдено кілька (" (itoa (sslength ssSupportBlock)) ") блоків '" support_block_name "' ДУЖЕ БЛИЗЬКО до точки PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
                    (setq pikets_missing_support_block (cons enamePiket pikets_missing_support_block))
                   )
-                  (T 
-                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Блок '" support_block_name "' не знайдено ДУЖЕ БЛИЗЬКО до точки PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
+                  (T  ; Ця гілка тепер менш імовірна, якщо fuzz_dist достатній
+                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Блок '" support_block_name "' не знайдено в радіусі " (rtos fuzz_dist 2 3) " від точки PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
                    (setq pikets_missing_support_block (cons enamePiket pikets_missing_support_block))
                   )
                 )
-|# ;; КІНЕЦЬ ЗАКОМЕНТОВАНОГО ОРИГІНАЛЬНОГО БЛОКУ COND
-
               )
               (if (not extractedNum) (princ (strcat "\n   ! Не вдалося вилучити номер з атрибуту 'НОМЕРА' для PIKET <" (vl-princ-to-string enamePiket) ">.")))
             )
@@ -837,8 +832,6 @@
         (setq i (1+ i))
       ) 
 
-      ;; Ця частина коду (оновлення) не буде виконана, якщо texts_to_update_info порожній
-      ;; через закоментований блок (cond)
       (if (> potentialUpdateCount 0)
         (progn
           (princ (strcat "\n\nЗнайдено " (itoa potentialUpdateCount) " блоків '" support_block_name "', атрибути 'НОМЕР' яких потребують оновлення."))
@@ -914,9 +907,8 @@
           )
         )
         (progn
-          ;; Це повідомлення може з'явитися, оскільки texts_to_update_info не заповнюється
-          (if (= processedCount totalCount) ; Якщо всі пікети оброблені
-            (princ "\n\nНе знайдено блоків '" support_block_name "' для оновлення атрибутів (або оригінальний блок cond закоментовано).")
+          (if (= processedCount totalCount) 
+            (princ "\n\nНе знайдено блоків '" support_block_name "' для оновлення атрибутів.")
           )
         )
       )
@@ -924,19 +916,18 @@
       (princ (strcat "\n\nОперацію завершено."))
       (princ (strcat "\nВсього блоків 'PIKET' для обробки (з " ss_source "): " (itoa totalCount)))
       (princ (strcat "\nРеально оброблено блоків 'PIKET': " (itoa processedCount)))
-      ;; Наступні рядки можуть показувати 0, оскільки texts_to_update_info не заповнюється
       (if (> potentialUpdateCount 0) (princ (strcat "\nЗ них знайдено відповідних блоків '" support_block_name "' для оновлення атрибуту: " (itoa potentialUpdateCount))))
       (if (eq answer "Так") (princ (strcat "\nФактично оновлено атрибутів 'НОМЕР' після підтвердження: " (itoa actualUpdateCount))))
 
       (if pikets_missing_support_block
           (progn
-            (princ (strcat "\n\nСписок блоків 'PIKET' (з оригінального блоку cond), для яких не знайдено відповідний блок '" support_block_name "':"))
+            (princ (strcat "\n\nСписок блоків 'PIKET', для яких не знайдено відповідний блок '" support_block_name "' (або знайдено декілька):"))
             (foreach piket_ent (reverse pikets_missing_support_block) 
               (princ (strcat "\n - <" (vl-princ-to-string piket_ent) ">"))
             )
           )
           (if (and ss (> totalCount 0) (= potentialUpdateCount 0) (= actualUpdateCount 0)) 
-            (princ (strcat "\nНе знайдено жодного блоку '" support_block_name "' для оновлення на основі оброблених PIKET-ів (в рамках закоментованої логіки)."))
+            (princ (strcat "\nНе знайдено жодного блоку '" support_block_name "' для оновлення на основі оброблених PIKET-ів."))
           )
       )
 
@@ -950,7 +941,7 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.4.3 - діагностика) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.4.4 - збільшено fuzz_dist) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
 
 
