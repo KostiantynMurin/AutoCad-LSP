@@ -647,6 +647,24 @@
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:REPLACENAME
 
+;; --- Допоміжна функція: Перевіряє, чи рядок складається тільки з ЛАТИНСЬКИХ літер та/або цифр ---
+(defun app:string-is-alphanumeric-p (str / char-code-list)
+  (if (and str (> (strlen str) 0)) 
+      (progn
+        (setq char-code-list (mapcar 'ascii (vl-string->list str)))
+        (vl-every '(lambda (char-code)
+                     (or
+                       (<= (ascii "0") char-code (ascii "9"))  
+                       (<= (ascii "A") char-code (ascii "Z"))  
+                       (<= (ascii "a") char-code (ascii "z"))  
+                     )
+                   )
+                  char-code-list
+        )
+      )
+      nil 
+  )
+)
 
 ;; ====================================================================
 ;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.5.0 - стабільне ім'я опори)
@@ -748,7 +766,9 @@
 
       (setq i 0)
       (repeat totalCount
+        ;; ... початок циклу repeat ...
         (setq enamePiket (ssname ss i))
+        ;; Ініціалізація змінних для КОЖНОГО PIKET
         (setq extractedNum nil attrValNomera nil supportBlockEnt nil attrValNomera_raw nil) 
 
         (if (setq edataPiket (entget enamePiket))
@@ -760,60 +780,57 @@
             (if (and blockPt (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
               (progn
                 (setq attEname (entnext enamePiket))
-                ;; attrValNomera тут ще nil, бо ініціалізовано вище
-                (while (and attEname (not attrValNomera) ; Шукаємо, поки не знайдемо "НОМЕРА" АБО не присвоїмо attrValNomera
+                ;; attrValNomera тут ще nil
+                (while (and attEname (not attrValNomera) 
                               (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                   (if (eq "НОМЕРА" (strcase (cdr (assoc 2 attEdata))))
                     (progn
-                      (setq attrValNomera_raw (cdr (assoc 1 attEdata))) ; Отримуємо "сире" значення
-                      ;; --- БЛОК КОНВЕРТАЦІЇ ТИПУ (варіант без прямого виклику stringp) ---
+                      (setq attrValNomera_raw (cdr (assoc 1 attEdata)))
+                      
+                      ;; --- БЛОК КОНВЕРТАЦІЇ ТИПУ (варіант БЕЗ stringp) ---
                       (cond
-                        ((numberp attrValNomera_raw) ; Спочатку перевіряємо, чи це число
-                         (setq attrValNomera (rtos attrValNomera_raw 2 0))) ; Конвертуємо число в рядок "103"
-                        ((null attrValNomera_raw)    ; Потім перевіряємо, чи це nil (атрибут порожній)
-                         (setq attrValNomera ""))     ; Встановлюємо порожній рядок
-                        ((/= 'STR (type attrValNomera_raw)) ; Якщо це НЕ число, НЕ nil, І НЕ рядок
+                        ((numberp attrValNomera_raw) 
+                         (setq attrValNomera (rtos attrValNomera_raw 2 0))) 
+                        ((null attrValNomera_raw)    
+                         (setq attrValNomera ""))     
+                        ((/= 'STR (type attrValNomera_raw)) 
                          (princ (strcat "\n   ПОПЕРЕДЖЕННЯ (без stringp): Атрибут 'НОМЕРА' для PIKET <" 
                                         (vl-princ-to-string enamePiket) 
                                         "> має несподіваний тип: " 
                                         (vl-prin1-to-string (type attrValNomera_raw))
                                         ". Значення: " (vl-prin1-to-string attrValNomera_raw) ))
-                         (setq attrValNomera "")     ; Встановлюємо порожній рядок для безпеки
+                         (setq attrValNomera "")     
                         )
-                        (T                           ; Якщо не число, не nil, і пройшло попередню перевірку (тобто це рядок)
-                         (setq attrValNomera attrValNomera_raw)) ; Використовуємо як є
+                        (T                           
+                         (setq attrValNomera attrValNomera_raw)) 
                       )
-                      ;; --- КІНЕЦЬ БЛОКУ КОНВЕРТАЦІЇ (варіант без прямого виклику stringp) ---
-                      ;; Оскільки attrValNomera тепер точно встановлено (або як рядок, або як ""),
-                      ;; ми можемо зупинити пошук атрибутів.
+                      ;; --- КІНЕЦЬ БЛОКУ КОНВЕРТАЦІЇ ---
                       (setq attEname nil) 
                     )
                   )
-                  (if attEname (setq attEname (entnext attEname))) ; Якщо це був не "НОМЕРА" або він вже оброблений, беремо наступний
+                  (if attEname (setq attEname (entnext attEname))) 
                 )
               )
             )
             
             ;; --- Налагоджувальний друк ПІСЛЯ конвертації attrValNomera ---
-            (if blockPt ; Друкуємо, тільки якщо є сенс (блок існує, точка є)
+            (if blockPt 
                 (progn
-                  (princ (strcat "\nDEBUG: Для PIKET <" (vl-princ-to-string enamePiket) ">:"))
-                  (if attrValNomera ; Якщо атрибут "НОМЕРА" був знайдений і оброблений
+                  (princ (strcat "\nDEBUG (після конвертації): Для PIKET <" (vl-princ-to-string enamePiket) ">:"))
+                  (if attrValNomera
                       (princ (strcat " attrValNomera= \"" attrValNomera "\" (Тип: " (vl-prin1-to-string (type attrValNomera)) ")"))
-                      (princ " Атрибут 'НОМЕРА' не знайдено або його значення було nil.")
+                      (princ " Атрибут 'НОМЕРА' не знайдено або його значення було nil, стало \"\".")
                   )
-                  (terpri) ; Новий рядок
+                  (terpri)
                 )
             )
             ;; --- Кінець налагоджувального друку ---
 
-            ;; --- Вилучення номера з атрибуту "НОМЕРА" (оновлена логіка v3 - постфікси скрізь) ---
-            ;; Передбачається, що attrValNomera вже є рядком (після конвертації з attrValNomera_raw)
-           ;; 2. ВИЛУЧЕННЯ extractedNum З attrValNomera (який тепер гарантовано рядок або nil)
-            (setq extractedNum nil) ; Ініціалізуємо перед спробами
-            (if (and attrValNomera (> (strlen attrValNomera) 0)) ; Працюємо тільки, якщо attrValNomera - не порожній рядок
+            ;; 2. ВИЛУЧЕННЯ extractedNum З attrValNomera (який тепер гарантовано рядок або nil)
+            (setq extractedNum nil) 
+            (if (and attrValNomera (> (strlen attrValNomera) 0)) 
               (progn
-                ;; -- СПРОБА 1: Шукаємо АЛФАВІТНО-ЦИФРОВИЙ номер у перших дужках (напр., ОКМ(22a)XYZ або ОКМ(22)XYZ) --
+                ;; -- СПРОБА 1: (АЛФАВІТНО-ЦИФРОВИЙ номер у дужках) --
                 (setq openParen_v1 (vl-string-search "(" attrValNomera))
                 (if openParen_v1
                   (progn
@@ -828,22 +845,17 @@
                     )
                   )
                 )
-
-                ;; -- СПРОБА 2: Якщо СПРОБА 1 не вдалася, шукаємо ОКМ<алфавітно-цифровий номер>(...) 
-                ;;    (напр., ОКМ236a(g-4.38)1295 або ОКМ22a(g-2.34)XYZ) --
-                (if (not extractedNum) ; Тільки якщо СПРОБА 1 не дала результату
-                  (let ((prefix_str "ОКМ") num_start_idx num_len candidate_v2 openParen_v2_local) 
-                        ; Змінні prefix_len, prefix_pos_v2 не потрібні, якщо перевірка на початок рядка інша
-                    ;; Перевіряємо, чи рядок починається з префіксу "ОКМ"
-                    (if (and (>= (strlen attrValNomera) (strlen prefix_str)) ; Перевірка довжини перед vl-string-search
+                ;; -- СПРОБА 2: ОКМ<алфавітно-цифровий номер>(...) --
+                (if (not extractedNum) 
+                  (let ((prefix_str "ОКМ")) 
+                    (if (and (>= (strlen attrValNomera) (strlen prefix_str))
                              (= 0 (vl-string-search prefix_str attrValNomera))) 
                       (progn
-                        ;; Шукаємо першу '(' ПІСЛЯ префіксу
-                        (setq openParen_v2_local (vl-string-search "(" attrValNomera (strlen prefix_str)))
-                        (if openParen_v2_local ; Дужка ПІСЛЯ потенційного номера ОБОВ'ЯЗКОВА для цього патерну
+                        (setq openParen_v2 (vl-string-search "(" attrValNomera (strlen prefix_str)))
+                        (if openParen_v2 
                           (progn
-                            (setq num_start_idx (strlen prefix_str)) ; Позиція першої цифри/літери номера (0-based)
-                            (setq num_len (- openParen_v2_local num_start_idx))     ; Довжина числового/алфавітного рядка
+                            (setq num_start_idx (strlen prefix_str)) 
+                            (setq num_len (- openParen_v2 num_start_idx))     
                             (if (> num_len 0)
                               (progn
                                 (setq candidate_v2 (substr attrValNomera (+ num_start_idx 1) num_len))
@@ -860,6 +872,7 @@
                 )
               )
             )
+            ;; ... решта логіки для пошуку ssSupportBlock та оновлення ...
             ;; Тепер extractedNum містить або знайдений алфавітно-цифровий рядок, або nil
             ;; Тепер extractedNum містить або знайдений алфавітно-цифровий рядок, або nil
 
@@ -1017,26 +1030,6 @@
 
 (princ "\nКоманду RENAME_OKM_SUPPORT (v5.5.0 - стабільне ім'я) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
-
-
-;; --- Допоміжна функція: Перевіряє, чи рядок складається тільки з ЛАТИНСЬКИХ літер та/або цифр ---
-(defun app:string-is-alphanumeric-p (str / char-code-list)
-  (if (and str (> (strlen str) 0)) 
-      (progn
-        (setq char-code-list (mapcar 'ascii (vl-string->list str)))
-        (vl-every '(lambda (char-code)
-                     (or
-                       (<= (ascii "0") char-code (ascii "9"))  
-                       (<= (ascii "A") char-code (ascii "Z"))  
-                       (<= (ascii "a") char-code (ascii "z"))  
-                     )
-                   )
-                  char-code-list
-        )
-      )
-      nil 
-  )
-)
 
 
 ;; ====================================================================
