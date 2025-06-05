@@ -768,15 +768,57 @@
               )
             )
 
+            ;; --- Вилучення номера з атрибуту "НОМЕРА" (оновлена логіка) ---
+            (setq extractedNum nil) ; Ініціалізуємо як не знайдений
             (if attrValNomera
               (progn
-                (setq openParen (vl-string-search "(" attrValNomera))
-                (setq closeParen (vl-string-search ")" attrValNomera (if openParen (+ openParen 1) 0)))
-                (if (and openParen closeParen (> closeParen openParen))
-                  (setq extractedNum (substr attrValNomera (+ openParen 2) (- closeParen openParen 1)))
+                ;; -- СПРОБА 1: Шукаємо номер у перших дужках (напр., ОКМ(22)123) --
+                (setq openParen_v1 (vl-string-search "(" attrValNomera))
+                (if openParen_v1
+                  (progn
+                    (setq closeParen_v1 (vl-string-search ")" attrValNomera (+ openParen_v1 1)))
+                    (if (and closeParen_v1 (> closeParen_v1 openParen_v1))
+                      (progn
+                        (setq candidate_v1 (substr attrValNomera (+ openParen_v1 2) (- closeParen_v1 openParen_v1 1)))
+                        (if (app:string-is-all-digits-p candidate_v1)
+                          (setq extractedNum candidate_v1)
+                        )
+                      )
+                    )
+                  )
+                )
+
+                ;; -- СПРОБА 2: Якщо не знайдено в дужках, шукаємо ОКМ<номер>(...) (напр., ОКМ22(g-2.34)123) --
+                (if (not extractedNum) ; Тільки якщо СПРОБА 1 не вдалася
+                  (let ((prefix_str "ОКМ") prefix_len prefix_pos_v2 openParen_v2 num_start_idx num_len candidate_v2)
+                    (setq prefix_len (strlen prefix_str))
+                    ;; Перевіряємо, чи рядок починається з префіксу "ОКМ"
+                    (setq prefix_pos_v2 (vl-string-search prefix_str attrValNomera))
+                    (if (and prefix_pos_v2 (= 0 prefix_pos_v2)) ; Якщо "ОКМ" на самому початку
+                      (progn
+                        ;; Шукаємо першу '(' ПІСЛЯ префіксу
+                        (setq openParen_v2 (vl-string-search "(" attrValNomera (+ prefix_pos_v2 prefix_len)))
+                        (if openParen_v2
+                          (progn
+                            (setq num_start_idx (+ prefix_pos_v2 prefix_len)) ; Позиція першої цифри номера (0-based)
+                            (setq num_len (- openParen_v2 num_start_idx))     ; Довжина числового рядка
+                            (if (> num_len 0)
+                              (progn
+                                (setq candidate_v2 (substr attrValNomera (+ num_start_idx 1) num_len))
+                                (if (app:string-is-all-digits-p candidate_v2)
+                                  (setq extractedNum candidate_v2)
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
                 )
               )
             )
+            ;; Тепер extractedNum містить або знайдений числовий рядок, або nil
 
             (if (and extractedNum blockPt)
               (progn
@@ -932,6 +974,22 @@
 
 (princ "\nКоманду RENAME_OKM_SUPPORT (v5.5.0 - стабільне ім'я) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
+
+
+;; ====================================================================
+;; Допоміжна функція: Перевіряє, чи рядок складається тільки з цифр
+;; ====================================================================
+(defun app:string-is-all-digits-p (str / char-code-list)
+  (if (and str (> (strlen str) 0)) ; Рядок існує і не порожній
+      (progn
+        (setq char-code-list (mapcar 'ascii (vl-string->list str)))
+        (vl-every '(lambda (char-code) (<= (ascii "0") char-code (ascii "9")))
+                  char-code-list
+        )
+      )
+      nil ; Якщо рядок порожній або nil
+  )
+)
 
 
 ;; ====================================================================
