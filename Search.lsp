@@ -766,21 +766,24 @@
                   (if (eq "НОМЕРА" (strcase (cdr (assoc 2 attEdata))))
                     (progn
                       (setq attrValNomera_raw (cdr (assoc 1 attEdata))) ; Отримуємо "сире" значення
-                      ;; --- БЛОК КОНВЕРТАЦІЇ ТИПУ ---
+                      ;; --- БЛОК КОНВЕРТАЦІЇ ТИПУ (варіант без прямого виклику stringp) ---
                       (cond
-                        ((stringp attrValNomera_raw) (setq attrValNomera attrValNomera_raw))
-                        ((numberp attrValNomera_raw) (setq attrValNomera (rtos attrValNomera_raw 2 0))) ; число -> "103"
-                        ((null attrValNomera_raw)    (setq attrValNomera "")) ; nil -> ""
-                        (T ; Інший несподіваний тип
-                         (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: Атрибут 'НОМЕРА' для PIKET <" 
+                        ((numberp attrValNomera_raw) ; Спочатку перевіряємо, чи це число
+                         (setq attrValNomera (rtos attrValNomera_raw 2 0))) ; Конвертуємо число в рядок "103"
+                        ((null attrValNomera_raw)    ; Потім перевіряємо, чи це nil (атрибут порожній)
+                         (setq attrValNomera ""))     ; Встановлюємо порожній рядок
+                        ((/= 'STR (type attrValNomera_raw)) ; Якщо це НЕ число, НЕ nil, І НЕ рядок
+                         (princ (strcat "\n   ПОПЕРЕДЖЕННЯ (без stringp): Атрибут 'НОМЕРА' для PIKET <" 
                                         (vl-princ-to-string enamePiket) 
                                         "> має несподіваний тип: " 
                                         (vl-prin1-to-string (type attrValNomera_raw))
                                         ". Значення: " (vl-prin1-to-string attrValNomera_raw) ))
-                         (setq attrValNomera "") ; Встановлюємо порожній рядок для безпеки
+                         (setq attrValNomera "")     ; Встановлюємо порожній рядок для безпеки
                         )
+                        (T                           ; Якщо не число, не nil, і пройшло попередню перевірку (тобто це рядок)
+                         (setq attrValNomera attrValNomera_raw)) ; Використовуємо як є
                       )
-                      ;; --- КІНЕЦЬ БЛОКУ КОНВЕРТАЦІЇ ---
+                      ;; --- КІНЕЦЬ БЛОКУ КОНВЕРТАЦІЇ (варіант без прямого виклику stringp) ---
                       ;; Оскільки attrValNomera тепер точно встановлено (або як рядок, або як ""),
                       ;; ми можемо зупинити пошук атрибутів.
                       (setq attEname nil) 
