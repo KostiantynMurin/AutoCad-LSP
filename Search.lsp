@@ -785,12 +785,18 @@
             ;; --- Пошук блоку опори, ЯКЩО номер вилучено ---
             (if (and extractedNum blockPt)
               (progn
-                ;; Шукаємо блок опори точно в точці вставки блоку PIKET
-                (setq ssSupportBlock (ssget "_X" (list '(0 . "INSERT")
-                                                       (cons 2 support_block_name)
-                                                       (cons 10 blockPt) ; Точна координата
-                                                       (cons 410 (getvar "CTAB")) ; В поточному просторі
-                                                 )))
+                ;; Шукаємо блок опори в невеликому вікні навколо точки вставки блоку PIKET
+                (setq fuzz_dist 0.001) ; Дуже мала відстань для допуску (можна підібрати, наприклад, 0.01 або 0.0001)
+                (setq p1_fuzz (list (- (car blockPt) fuzz_dist) (- (cadr blockPt) fuzz_dist) (- (caddr blockPt) fuzz_dist)))
+                (setq p2_fuzz (list (+ (car blockPt) fuzz_dist) (+ (cadr blockPt) fuzz_dist) (+ (caddr blockPt) fuzz_dist)))
+                
+                (setq ssSupportBlock (ssget "_CP" p1_fuzz p2_fuzz ; _CP для 3D січного вікна/куба
+                                            (list '(0 . "INSERT")
+                                                  (cons 2 support_block_name) ; Фільтруємо за іменем
+                                                  (cons 410 (getvar "CTAB"))  ; В поточному просторі
+                                            )
+                                     ))
+                                     
                 (cond
                   ((and ssSupportBlock (= 1 (sslength ssSupportBlock))) ; Знайдено рівно один блок опори
                    (setq supportBlockEnt (ssname ssSupportBlock 0))
@@ -806,11 +812,11 @@
                    )
                   )
                   ((and ssSupportBlock (> (sslength ssSupportBlock) 1)) ; Знайдено більше одного блоку опори
-                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Знайдено кілька (" (itoa (sslength ssSupportBlock)) ") блоків '" support_block_name "' в точці PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
+                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Знайдено кілька (" (itoa (sslength ssSupportBlock)) ") блоків '" support_block_name "' ДУЖЕ БЛИЗЬКО до точки PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
                    (setq pikets_missing_support_block (cons enamePiket pikets_missing_support_block))
                   )
                   (T ; Блок опори не знайдено
-                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Блок '" support_block_name "' не знайдено в точці PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
+                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Блок '" support_block_name "' не знайдено ДУЖЕ БЛИЗЬКО до точки PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
                    (setq pikets_missing_support_block (cons enamePiket pikets_missing_support_block))
                   )
                 )
