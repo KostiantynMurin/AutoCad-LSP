@@ -752,15 +752,20 @@
                   (if (eq "НОМЕРА" (strcase (cdr (assoc 2 attEdata))))
                     (progn
                       (setq attrValNomera_raw (cdr (assoc 1 attEdata)))
-                      ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (без stringp)
+                     ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (виправлена версія)
                       (cond
-                        ((numberp attrValNomera_raw) (setq attrValNomera (rtos attrValNomera_raw 2 0)))
-                        ((null attrValNomera_raw)    (setq attrValNomera ""))
-                        ((/= 'STR (type attrValNomera_raw))
-                         (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
-                         (setq attrValNomera "")
+                        ((stringp attrValNomera_raw) ; Якщо це вже рядок
+                          (setq attrValNomera attrValNomera_raw)
                         )
-                        (T (setq attrValNomera attrValNomera_raw))
+                        ((numberp attrValNomera_raw) ; Якщо це число
+                          (setq attrValNomera (rtos attrValNomera_raw 2 0)) ; Перетворюємо його на рядок
+                        )
+                        (t ; Для всіх інших випадків (nil, помилкові дані тощо)
+                          (if (and attrValNomera_raw (/= 'STR (type attrValNomera_raw))) ; Попередження, якщо тип несподіваний, але не nil
+                              (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
+                          )
+                          (setq attrValNomera "") ; Призначаємо порожній рядок
+                        )
                       )
                     )
                   )
