@@ -648,18 +648,9 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.6.2 - Універсальна версія)
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.6.3-debug - Діагностична версія)
 ;; ====================================================================
 ;; Команда: RENAME_OKM_SUPPORT 
-;; Опис:
-;; Бере набір вибірки "PIKET". Для кожного блоку:
-;; 1. Отримує значення атрибута "НОМЕРА", коректно обробляючи як рядкові, так і числові значення.
-;; 2. Вилучає алфавітно-цифровий номер за двома патернами:
-;;    - З перших дужок: ОКМ(22a)XYZ -> "22a"
-;;    - Після префіксу "ОКМ" і до наступних дужок: ОКМ22a(...)XYZ -> "22a"
-;; 3. Шукає блок "Опора КМ (з.б.)" за точним іменем дуже близько до точки вставки блоку "PIKET".
-;; 4. Якщо блок опори знайдено, збирає інформацію для оновлення його атрибута "НОМЕР".
-;; 5. Після перевірки всіх блоків, виділяє кандидатів і запитує підтвердження на оновлення.
 ;; ====================================================================
 
 
@@ -698,7 +689,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.6.2): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.6.3-debug): " msg)))
     )
     (setq *g_last_search_result* nil) 
     (setq *error* nil) 
@@ -712,7 +703,7 @@
         fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.6.2)..."))
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.6.3-debug)..."))
 
   (setq ss nil ss_source "") 
   (cond
@@ -753,23 +744,25 @@
                     (progn
                       (setq attrValNomera_raw (cdr (assoc 1 attEdata)))
                       
-                      ;; ======================= ВИПРАВЛЕНИЙ БЛОК (універсальна версія) =======================
-                      ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (без stringp)
-                      (cond
-                        ((= 'STR (type attrValNomera_raw)) ; Спочатку перевіряємо, чи це вже рядок
-                          (setq attrValNomera attrValNomera_raw)
-                        )
-                        ((numberp attrValNomera_raw) ; Потім перевіряємо, чи це число
-                          (setq attrValNomera (rtos attrValNomera_raw 2 0)) ; і перетворюємо його на рядок
-                        )
-                        (t ; Для всіх інших випадків (nil, помилкові дані тощо)
-                          (if attrValNomera_raw ; Якщо дані не пусті, виводимо попередження
-                              (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
+                      ;; ======================= ДІАГНОСТИЧНИЙ БЛОК =======================
+                      (princ (strcat "\n[DEBUG] Raw value: " (vl-princ-to-string attrValNomera_raw)))
+                      (princ (strcat "\n[DEBUG] Raw type: " (vl-princ-to-string (type attrValNomera_raw))))
+                      (if (numberp attrValNomera_raw)
+                          (progn
+                              (princ "\n[DEBUG] Path taken: Is a number. Converting to string.")
+                              (setq attrValNomera (rtos attrValNomera_raw 2 0))
                           )
-                          (setq attrValNomera "") ; Призначаємо порожній рядок
-                        )
+                          (progn
+                              (princ "\n[DEBUG] Path taken: Not a number. Treating as string or empty.")
+                              (if (= 'STR (type attrValNomera_raw))
+                                  (setq attrValNomera attrValNomera_raw)
+                                  (setq attrValNomera "")
+                              )
+                          )
                       )
-                      ;; ======================================================================================
+                      (princ (strcat "\n[DEBUG] Final value: " (vl-princ-to-string attrValNomera)))
+                      (princ (strcat "\n[DEBUG] Final type: " (vl-princ-to-string (type attrValNomera))))
+                      ;; ===================================================================
 
                     )
                   )
@@ -908,9 +901,8 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.6.2) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.6.3-debug) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
-
 
 ;; ====================================================================
 ;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА СИМВОЛІВ (v1.3)
