@@ -648,7 +648,7 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.8.0 - Фінальна версія)
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.9.0 - Виправлення синтаксису)
 ;; ====================================================================
 ;; Команда: RENAME_OKM_SUPPORT 
 ;; ====================================================================
@@ -683,7 +683,7 @@
                                targetAttEname targetAttData currentAttVal processedCount totalCount oldCmdecho 
                                fuzz_dist p1_fuzz p2_fuzz texts_to_update_info ssHighlight potentialUpdateCount 
                                answer actualUpdateCount pikets_missing_support_block found_attrib_for_update
-                               prefix prefix_pos paren_pos
+                               prefix prefix_pos paren_pos close_paren_pos candidate num_start num_len
                              )
 
   (defun *error* (msg)
@@ -692,7 +692,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.8.0): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.9.0): " msg)))
     )
     (setq *g_last_search_result* nil) 
     (setq *error* nil) 
@@ -706,7 +706,7 @@
         fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.8.0)..."))
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.9.0)..."))
 
   (setq ss nil ss_source "") 
   (cond
@@ -758,32 +758,38 @@
               )
             )
 
-            ;; 2. ВИЛУЧЕННЯ extractedNum
+            ;; =================================================================================
+            ;; 2. ВИЛУЧЕННЯ extractedNum (синтаксично виправлена версія)
+            ;; =================================================================================
             (setq extractedNum nil) 
-            (if attrValNomera
-              (if (> (strlen attrValNomera) 0)
-                (progn
-                  ;; =================== ОСЬ ВИПРАВЛЕННЯ ===================
-                  (setq prefix "OKM") ; Латинська "O"
-                  ;; =======================================================
-                  (setq prefix_pos (vl-string-search prefix attrValNomera))
-                  (setq paren_pos (vl-string-search "(" attrValNomera))
-
-                  (if (and prefix_pos paren_pos)
-                    (if (= paren_pos (+ prefix_pos (strlen prefix)))
-                      ;; ПРАВИЛО 2: OKM(240)
-                      (let ((close_paren_pos (vl-string-search ")" attrValNomera (+ paren_pos 1))))
-                        (if close_paren_pos
-                          (let ((candidate (substr attrValNomera (+ paren_pos 2) (- close_paren_pos paren_pos 1))))
-                            (if (app:string-is-alphanumeric-p candidate) (setq extractedNum candidate))
+            (if (and attrValNomera (> (strlen attrValNomera) 0))
+              (progn
+                (setq prefix "OKM")
+                (setq prefix_pos (vl-string-search prefix attrValNomera))
+                (setq paren_pos (vl-string-search "(" attrValNomera))
+                (if (and prefix_pos paren_pos)
+                  (if (= paren_pos (+ prefix_pos (strlen prefix)))
+                    ;; ПРАВИЛО 2: OKM(240)
+                    (progn
+                      (setq close_paren_pos (vl-string-search ")" attrValNomera (+ paren_pos 1)))
+                      (if close_paren_pos
+                        (progn
+                          (setq candidate (substr attrValNomera (+ paren_pos 2) (- close_paren_pos paren_pos 1)))
+                          (if (app:string-is-alphanumeric-p candidate)
+                            (setq extractedNum candidate)
                           )
                         )
                       )
-                      ;; ПРАВИЛО 1: OKM239(...)
-                      (let* ((num_start (+ prefix_pos (strlen prefix))) (num_len (- paren_pos num_start)))
-                        (if (> num_len 0)
-                          (let ((candidate (substr attrValNomera (+ num_start 1) num_len)))
-                            (if (app:string-is-alphanumeric-p candidate) (setq extractedNum candidate))
+                    )
+                    ;; ПРАВИЛО 1: OKM239(...) (else-частина для if)
+                    (progn
+                      (setq num_start (+ prefix_pos (strlen prefix)))
+                      (setq num_len (- paren_pos num_start))
+                      (if (> num_len 0)
+                        (progn
+                          (setq candidate (substr attrValNomera (+ num_start 1) num_len))
+                          (if (app:string-is-alphanumeric-p candidate)
+                            (setq extractedNum candidate)
                           )
                         )
                       )
@@ -886,7 +892,7 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.8.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.9.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
 
 
