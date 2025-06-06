@@ -648,7 +648,7 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.6.0 - Фінальна версія)
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.6.2 - Універсальна версія)
 ;; ====================================================================
 ;; Команда: RENAME_OKM_SUPPORT 
 ;; Опис:
@@ -684,13 +684,13 @@
 
 ;; --- Основна функція ---
 (defun c:RENAME_OKM_SUPPORT ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
-                           attrValNomera attrValNomera_raw openParen_v1 closeParen_v1 candidate_v1 
-                           extractedNum processed_support_ents_list support_block_name ssSupportBlock 
-                           supportBlockEnt supportBlockData targetAttTag targetAttEname targetAttData 
-                           currentAttVal processedCount totalCount oldCmdecho fuzz_dist p1_fuzz p2_fuzz 
-                           texts_to_update_info ssHighlight potentialUpdateCount answer actualUpdateCount
-                           pikets_missing_support_block found_attrib_for_update
-                         )
+                               attrValNomera attrValNomera_raw openParen_v1 closeParen_v1 candidate_v1 
+                               extractedNum processed_support_ents_list support_block_name ssSupportBlock 
+                               supportBlockEnt supportBlockData targetAttTag targetAttEname targetAttData 
+                               currentAttVal processedCount totalCount oldCmdecho fuzz_dist p1_fuzz p2_fuzz 
+                               texts_to_update_info ssHighlight potentialUpdateCount answer actualUpdateCount
+                               pikets_missing_support_block found_attrib_for_update
+                             )
 
   (defun *error* (msg)
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
@@ -698,7 +698,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.6.0): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.6.2): " msg)))
     )
     (setq *g_last_search_result* nil) 
     (setq *error* nil) 
@@ -712,7 +712,7 @@
         fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.6.0)..."))
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.6.2)..."))
 
   (setq ss nil ss_source "") 
   (cond
@@ -752,23 +752,25 @@
                   (if (eq "НОМЕРА" (strcase (cdr (assoc 2 attEdata))))
                     (progn
                       (setq attrValNomera_raw (cdr (assoc 1 attEdata)))
-                     ;; ======================= ВИПРАВЛЕНИЙ БЛОК (універсальна версія) =======================
-                        ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (без stringp)
-                        (cond
-                          ((= 'STR (type attrValNomera_raw)) ; Спочатку перевіряємо, чи це вже рядок
-                            (setq attrValNomera attrValNomera_raw)
-                          )
-                          ((numberp attrValNomera_raw) ; Потім перевіряємо, чи це число
-                            (setq attrValNomera (rtos attrValNomera_raw 2 0)) ; і перетворюємо його на рядок
-                          )
-                          (t ; Для всіх інших випадків (nil, помилкові дані тощо)
-                            (if attrValNomera_raw ; Якщо дані не пусті, виводимо попередження
-                                (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
-                            )
-                            (setq attrValNomera "") ; Призначаємо порожній рядок
-                          )
+                      
+                      ;; ======================= ВИПРАВЛЕНИЙ БЛОК (універсальна версія) =======================
+                      ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (без stringp)
+                      (cond
+                        ((= 'STR (type attrValNomera_raw)) ; Спочатку перевіряємо, чи це вже рядок
+                          (setq attrValNomera attrValNomera_raw)
                         )
-                        ;; ======================================================================================
+                        ((numberp attrValNomera_raw) ; Потім перевіряємо, чи це число
+                          (setq attrValNomera (rtos attrValNomera_raw 2 0)) ; і перетворюємо його на рядок
+                        )
+                        (t ; Для всіх інших випадків (nil, помилкові дані тощо)
+                          (if attrValNomera_raw ; Якщо дані не пусті, виводимо попередження
+                              (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
+                          )
+                          (setq attrValNomera "") ; Призначаємо порожній рядок
+                        )
+                      )
+                      ;; ======================================================================================
+
                     )
                   )
                   (if attrValNomera (setq attEname nil) (setq attEname (entnext attEname)))
@@ -842,7 +844,7 @@
                   )
                 )
               )
-              (if (and (not extractedNum) attrValNomera)
+              (if (and (not extractedNum) attrValNomera (> (strlen attrValNomera) 0))
                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Не вдалося вилучити номер з \"" attrValNomera "\" для PIKET <" (vl-princ-to-string enamePiket) ">."))
               )
             )
@@ -906,7 +908,7 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.6.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.6.2) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
 
 
