@@ -647,6 +647,22 @@
   (princ) ;; Чистий вихід
 ) ;; кінець defun c:REPLACENAME
 
+;; ====================================================================
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.6.0 - Фінальна версія)
+;; ====================================================================
+;; Команда: RENAME_OKM_SUPPORT 
+;; Опис:
+;; Бере набір вибірки "PIKET". Для кожного блоку:
+;; 1. Отримує значення атрибута "НОМЕРА", коректно обробляючи як рядкові, так і числові значення.
+;; 2. Вилучає алфавітно-цифровий номер за двома патернами:
+;;    - З перших дужок: ОКМ(22a)XYZ -> "22a"
+;;    - Після префіксу "ОКМ" і до наступних дужок: ОКМ22a(...)XYZ -> "22a"
+;; 3. Шукає блок "Опора КМ (з.б.)" за точним іменем дуже близько до точки вставки блоку "PIKET".
+;; 4. Якщо блок опори знайдено, збирає інформацію для оновлення його атрибута "НОМЕР".
+;; 5. Після перевірки всіх блоків, виділяє кандидатів і запитує підтвердження на оновлення.
+;; ====================================================================
+
+
 ;; --- Допоміжна функція: Перевіряє, чи рядок складається тільки з ЛАТИНСЬКИХ літер та/або цифр ---
 (defun app:string-is-alphanumeric-p (str / char-code-list)
   (if (and str (> (strlen str) 0)) 
@@ -666,110 +682,62 @@
   )
 )
 
-;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.5.0 - стабільне ім'я опори)
-;; ====================================================================
-;; Команда: RENAME_OKM_SUPPORT 
-;; Бере набір вибірки "PIKET".
-;; Для кожного блоку "PIKET":
-;; 1. Вилучає номер з дужок в атрибуті "НОМЕРА".
-;; 2. Шукає блок "Опора КМ (з.б.)" (за іменем) дуже близько до точки вставки блоку "PIKET".
-;; 3. Якщо блок "Опора КМ (з.б.)" знайдено І ВІН ЩЕ НЕ БУВ ОБРОБЛЕНИЙ:
-;;    - Збирає інформацію про потенційне оновлення його атрибуту "НОМЕР".
-;; Після перевірки всіх блоків:
-;; 4. ВИДІЛЯЄ всі блоки "Опора КМ (з.б.)", атрибути яких потребують оновлення.
-;; 5. Запитує користувача підтвердження на зміну.
-;; 6. Якщо підтверджено, оновлює атрибути "НОМЕР".
-;; 7. Виводить список блоків "PIKET", для яких не знайдено відповідний блок опори.
-;; ====================================================================
-
+;; --- Основна функція ---
 (defun c:RENAME_OKM_SUPPORT ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
-                           attrValNomera attrValNomera_raw ; Додано _raw
-                           openParen_v1 closeParen_v1 candidate_v1 ; Для патерну 1
-                           ;; Змінні для патерну 2 (деякі можуть бути новими або використовуватися в let)
-                           ;; prefix_str, prefix_len, prefix_pos_v2, openParen_v2, num_start_idx, num_len, candidate_v2 
-                           extractedNum processed_support_ents_list
-                           support_block_name ssSupportBlock supportBlockEnt supportBlockData
-                           targetAttTag targetAttEname targetAttData currentAttVal
-                           processedCount totalCount
-                           oldCmdecho fuzz_dist p1_fuzz p2_fuzz 
+                           attrValNomera attrValNomera_raw openParen_v1 closeParen_v1 candidate_v1 
+                           extractedNum processed_support_ents_list support_block_name ssSupportBlock 
+                           supportBlockEnt supportBlockData targetAttTag targetAttEname targetAttData 
+                           currentAttVal processedCount totalCount oldCmdecho fuzz_dist p1_fuzz p2_fuzz 
                            texts_to_update_info ssHighlight potentialUpdateCount answer actualUpdateCount
                            pikets_missing_support_block found_attrib_for_update
                          )
 
-  ;; --- Функція обробки помилок ---
   (defun *error* (msg)
     (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
     (if (= 8 (logand 8 (getvar "UNDOCTL"))) (command-s "_.UNDO" "_End"))
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.5.0): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.6.0): " msg)))
     )
     (setq *g_last_search_result* nil) 
-    (setq *error* nil) ; Скидаємо обробник помилок, щоб він не заважав наступним запускам
+    (setq *error* nil) 
     (princ)
   )
 
-  ;; --- Ініціалізація ---
-  (setq processedCount 0
-        oldCmdecho nil
-        ss nil
-        ss_source ""
-        texts_to_update_info nil
-        processed_support_ents_list nil 
-        ssHighlight nil
-        potentialUpdateCount 0
-        actualUpdateCount 0
-        answer nil
-        pikets_missing_support_block nil
-        support_block_name "Опора КМ (з.б.)" ; << ТОЧНЕ І СТАБІЛЬНЕ ІМ'Я БЛОКУ ОПОРИ
-        fuzz_dist 1e-6 ; << ДУЖЕ МАЛИЙ ДОПУСК для координат (якщо точки ідентичні)
-                       ; Можна збільшити до 0.001, якщо є сумніви
+  (setq processedCount 0 oldCmdecho nil ss nil ss_source "" texts_to_update_info nil
+        processed_support_ents_list nil ssHighlight nil potentialUpdateCount 0 
+        actualUpdateCount 0 answer nil pikets_missing_support_block nil
+        support_block_name "Опора КМ (з.б.)" 
+        fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  ;(setvar "CMDECHO" 0) 
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.6.0)..."))
 
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "'."))
-
-  ;; --- Визначення робочого набору вибірки (ss) для блоків PIKET ---
   (setq ss nil ss_source "") 
   (cond
     ((setq ss (ssget "_I" '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) 
-     (setq ss_source (strcat "поточної вибірки (відфільтровано до " (itoa (sslength ss)) " блоків 'PIKET')"))
+     (setq ss_source (strcat "поточної вибірки (" (itoa (sslength ss)) " PIKET)"))
     )
-    ((and (null ss) 
-          (boundp '*g_last_search_result*)
-          *g_last_search_result*
-          (= 'PICKSET (type *g_last_search_result*))
-          (> (sslength *g_last_search_result*) 0)
-     )
-     (setq ss *g_last_search_result*)
-     (setq ss_source (strcat "збереженого результату пошуку (" (itoa (sslength ss)) " об.)"))
+    ((and (null ss) (boundp '*g_last_search_result*) *g_last_search_result* (= 'PICKSET (type *g_last_search_result*)) (> (sslength *g_last_search_result*) 0) )
+     (setq ss *g_last_search_result*) (setq ss_source (strcat "збереженого пошуку (" (itoa (sslength ss)) " об.)"))
     )
     (T
-     (princ "\nНе знайдено попередньої вибірки або збереженого пошуку.")
-     (princ "\nВиберіть блоки 'PIKET', для яких потрібно оновити атрибути в блоках опори: ")
-     (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) 
-     (if ss
-       (setq ss_source (strcat "щойно вибраних блоків 'PIKET' (" (itoa (sslength ss)) " об.)"))
-       (progn (princ "\nБлоки 'PIKET' не вибрано. Команду скасовано.") (exit))
+     (princ "\nВиберіть блоки 'PIKET': ") (setq ss (ssget '((0 . "INSERT")(2 . "PIKET")(66 . 1)))) 
+     (if ss (setq ss_source (strcat "щойно вибраних (" (itoa (sslength ss)) " PIKET)"))
+       (progn (princ "\nPIKET не вибрано. Команду скасовано.") (exit))
      )
     )
   ) 
 
-  ;; --- Основна логіка пошуку блоків опор та збору кандидатів на оновлення ---
   (if ss
     (progn
       (setq totalCount (sslength ss))
-      (princ (strcat "\nПошук відповідних блоків '" support_block_name "' біля " (itoa totalCount) " блоків 'PIKET' з " ss_source "..."))
-
+      (princ (strcat "\nПошук опор біля " (itoa totalCount) " PIKET з " ss_source "..."))
       (setq i 0)
       (repeat totalCount
-        ;; ... початок циклу repeat ...
         (setq enamePiket (ssname ss i))
-        ;; Ініціалізація змінних для КОЖНОГО PIKET
-        (setq extractedNum nil attrValNomera nil supportBlockEnt nil attrValNomera_raw nil) 
+        (setq extractedNum nil attrValNomera nil attrValNomera_raw nil)
 
         (if (setq edataPiket (entget enamePiket))
           (progn
@@ -780,57 +748,32 @@
             (if (and blockPt (assoc 66 edataPiket) (= 1 (cdr (assoc 66 edataPiket))))
               (progn
                 (setq attEname (entnext enamePiket))
-                ;; attrValNomera тут ще nil
-                (while (and attEname (not attrValNomera) 
-                              (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
+                (while (and attEname (not attrValNomera) (eq "ATTRIB" (cdr (assoc 0 (setq attEdata (entget attEname))))))
                   (if (eq "НОМЕРА" (strcase (cdr (assoc 2 attEdata))))
                     (progn
                       (setq attrValNomera_raw (cdr (assoc 1 attEdata)))
-                      
-                      ;; --- БЛОК КОНВЕРТАЦІЇ ТИПУ (варіант БЕЗ stringp) ---
+                      ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (без stringp)
                       (cond
-                        ((numberp attrValNomera_raw) 
-                         (setq attrValNomera (rtos attrValNomera_raw 2 0))) 
-                        ((null attrValNomera_raw)    
-                         (setq attrValNomera ""))     
-                        ((/= 'STR (type attrValNomera_raw)) 
-                         (princ (strcat "\n   ПОПЕРЕДЖЕННЯ (без stringp): Атрибут 'НОМЕРА' для PIKET <" 
-                                        (vl-princ-to-string enamePiket) 
-                                        "> має несподіваний тип: " 
-                                        (vl-prin1-to-string (type attrValNomera_raw))
-                                        ". Значення: " (vl-prin1-to-string attrValNomera_raw) ))
-                         (setq attrValNomera "")     
+                        ((numberp attrValNomera_raw) (setq attrValNomera (rtos attrValNomera_raw 2 0)))
+                        ((null attrValNomera_raw)    (setq attrValNomera ""))
+                        ((/= 'STR (type attrValNomera_raw))
+                         (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
+                         (setq attrValNomera "")
                         )
-                        (T                           
-                         (setq attrValNomera attrValNomera_raw)) 
+                        (T (setq attrValNomera attrValNomera_raw))
                       )
-                      ;; --- КІНЕЦЬ БЛОКУ КОНВЕРТАЦІЇ ---
-                      (setq attEname nil) 
                     )
                   )
-                  (if attEname (setq attEname (entnext attEname))) 
+                  (if attrValNomera (setq attEname nil) (setq attEname (entnext attEname)))
                 )
               )
             )
-            
-            ;; --- Налагоджувальний друк ПІСЛЯ конвертації attrValNomera ---
-            (if blockPt 
-                (progn
-                  (princ (strcat "\nDEBUG (після конвертації): Для PIKET <" (vl-princ-to-string enamePiket) ">:"))
-                  (if attrValNomera
-                      (princ (strcat " attrValNomera= \"" attrValNomera "\" (Тип: " (vl-prin1-to-string (type attrValNomera)) ")"))
-                      (princ " Атрибут 'НОМЕРА' не знайдено або його значення було nil, стало \"\".")
-                  )
-                  (terpri)
-                )
-            )
-            ;; --- Кінець налагоджувального друку ---
 
-            ;; 2. ВИЛУЧЕННЯ extractedNum З attrValNomera (який тепер гарантовано рядок або nil)
+            ;; 2. ВИЛУЧЕННЯ extractedNum З attrValNomera
             (setq extractedNum nil) 
-            (if (and attrValNomera (> (strlen attrValNomera) 0)) 
+            (if (and attrValNomera (> (strlen attrValNomera) 0))
               (progn
-                ;; -- СПРОБА 1: (АЛФАВІТНО-ЦИФРОВИЙ номер у дужках) --
+                ;; СПРОБА 1: (АЛФАВІТНО-ЦИФРОВИЙ номер у дужках)
                 (setq openParen_v1 (vl-string-search "(" attrValNomera))
                 (if openParen_v1
                   (progn
@@ -838,30 +781,22 @@
                     (if (and closeParen_v1 (> closeParen_v1 openParen_v1))
                       (progn
                         (setq candidate_v1 (substr attrValNomera (+ openParen_v1 2) (- closeParen_v1 openParen_v1 1)))
-                        (if (app:string-is-alphanumeric-p candidate_v1) 
-                          (setq extractedNum candidate_v1)
-                        )
+                        (if (app:string-is-alphanumeric-p candidate_v1) (setq extractedNum candidate_v1))
                       )
                     )
                   )
                 )
-                ;; -- СПРОБА 2: ОКМ<алфавітно-цифровий номер>(...) --
+                ;; СПРОБА 2: ОКМ<алфавітно-цифровий номер>(...)
                 (if (not extractedNum) 
-                  (let ((prefix_str "ОКМ")) 
-                    (if (and (>= (strlen attrValNomera) (strlen prefix_str))
-                             (= 0 (vl-string-search prefix_str attrValNomera))) 
-                      (progn
-                        (setq openParen_v2 (vl-string-search "(" attrValNomera (strlen prefix_str)))
+                  (let ((prefix_str "ОКМ"))
+                    (if (and (>= (strlen attrValNomera) (strlen prefix_str)) (= 0 (vl-string-search prefix_str attrValNomera))) 
+                      (let ((openParen_v2 (vl-string-search "(" attrValNomera (strlen prefix_str))))
                         (if openParen_v2 
-                          (progn
-                            (setq num_start_idx (strlen prefix_str)) 
-                            (setq num_len (- openParen_v2 num_start_idx))     
+                          (let* ((num_start_idx (strlen prefix_str))
+                                 (num_len (- openParen_v2 num_start_idx)))
                             (if (> num_len 0)
-                              (progn
-                                (setq candidate_v2 (substr attrValNomera (+ num_start_idx 1) num_len))
-                                (if (app:string-is-alphanumeric-p candidate_v2) 
-                                  (setq extractedNum candidate_v2)
-                                )
+                              (let ((candidate_v2 (substr attrValNomera (+ num_start_idx 1) num_len)))
+                                (if (app:string-is-alphanumeric-p candidate_v2) (setq extractedNum candidate_v2))
                               )
                             )
                           )
@@ -872,23 +807,13 @@
                 )
               )
             )
-            ;; ... решта логіки для пошуку ssSupportBlock та оновлення ...
-            ;; Тепер extractedNum містить або знайдений алфавітно-цифровий рядок, або nil
-            ;; Тепер extractedNum містить або знайдений алфавітно-цифровий рядок, або nil
 
+            ;; 3. ПОШУК БЛОКУ ОПОРИ ТА ЗБІР КАНДИДАТІВ
             (if (and extractedNum blockPt)
               (progn
                 (setq p1_fuzz (list (- (car blockPt) fuzz_dist) (- (cadr blockPt) fuzz_dist) (- (caddr blockPt) fuzz_dist)))
                 (setq p2_fuzz (list (+ (car blockPt) fuzz_dist) (+ (cadr blockPt) fuzz_dist) (+ (caddr blockPt) fuzz_dist)))
-                                
-                (setq ssSupportBlock (ssget "_C" p1_fuzz p2_fuzz 
-                                            (list 
-                                              '(0 . "INSERT")
-                                              (cons 2 support_block_name) ; << ВИКОРИСТОВУЄМО ТОЧНЕ ІМ'Я
-                                              (cons 410 (getvar "CTAB"))
-                                            )
-                                     ))
-                                     
+                (setq ssSupportBlock (ssget "_C" p1_fuzz p2_fuzz (list '(0 . "INSERT") (cons 2 support_block_name) (cons 410 (getvar "CTAB")))))
                 (cond
                   ((and ssSupportBlock (= 1 (sslength ssSupportBlock))) 
                    (setq supportBlockEnt (ssname ssSupportBlock 0))
@@ -897,138 +822,84 @@
                        (setq texts_to_update_info (cons (list supportBlockEnt extractedNum enamePiket) texts_to_update_info))
                        (setq processed_support_ents_list (cons supportBlockEnt processed_support_ents_list))
                        (setq potentialUpdateCount (1+ potentialUpdateCount))
-                       (princ (strcat "\n   * Кандидат: Блок <" (vl-princ-to-string supportBlockEnt) "> ('" support_block_name "') буде оновлено значенням '" extractedNum "' (з PIKET <" (vl-princ-to-string enamePiket) ">)"))
                      )
-                     (princ (strcat "\n   ! Увага: Блок опори <" (vl-princ-to-string supportBlockEnt) "> вже був запланований для оновлення іншим PIKET. Пропускається для PIKET <" (vl-princ-to-string enamePiket) ">."))
                    )
                   )
                   ((and ssSupportBlock (> (sslength ssSupportBlock) 1)) 
-                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Знайдено кілька (" (itoa (sslength ssSupportBlock)) ") блоків '" support_block_name "' в радіусі " (rtos fuzz_dist 2 6) " від точки PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
+                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Знайдено кілька (" (itoa (sslength ssSupportBlock)) ") блоків '" support_block_name "' біля PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
                    (setq pikets_missing_support_block (cons enamePiket pikets_missing_support_block))
                   )
                   (T 
-                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Блок '" support_block_name "' не знайдено в радіусі " (rtos fuzz_dist 2 6) " від точки PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
+                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Блок '" support_block_name "' не знайдено біля PIKET <" (vl-princ-to-string enamePiket) ">. Пропускається."))
                    (setq pikets_missing_support_block (cons enamePiket pikets_missing_support_block))
                   )
                 )
               )
-              (if (not extractedNum) (princ (strcat "\n   ! Не вдалося вилучити номер з атрибуту 'НОМЕРА' для PIKET <" (vl-princ-to-string enamePiket) ">.")))
+              (if (and (not extractedNum) attrValNomera)
+                  (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Не вдалося вилучити номер з \"" attrValNomera "\" для PIKET <" (vl-princ-to-string enamePiket) ">."))
+              )
             )
           )
         ) 
         (setq i (1+ i))
       ) 
-
+      ;; --- Подальша логіка оновлення (залишається без змін) ---
       (if (> potentialUpdateCount 0)
         (progn
-          (princ (strcat "\n\nЗнайдено " (itoa potentialUpdateCount) " блоків '" support_block_name "', атрибути 'НОМЕР' яких потребують оновлення."))
+          (princ (strcat "\nЗнайдено кандидатів на оновлення: " (itoa potentialUpdateCount)))
           (setq ssHighlight (ssadd))
-          (foreach item texts_to_update_info
-            (if (entget (car item)) 
-                (ssadd (car item) ssHighlight)
-            )
-          )
-
+          (foreach item texts_to_update_info (if (entget (car item)) (ssadd (car item) ssHighlight)))
           (if (> (sslength ssHighlight) 0)
             (progn
-              (princ (strcat "\nВиділено " (itoa (sslength ssHighlight)) " блоків '" support_block_name "' для перевірки."))
               (sssetfirst nil ssHighlight) 
-
               (initget "Так Ні")
-              (setq answer (getkword (strcat "\n\nОновити атрибути 'НОМЕР' у виділених блоках '" support_block_name "'? [Так/Ні]: ")))
-
+              (setq answer (getkword (strcat "\nОновити атрибути 'НОМЕР' у " (itoa (sslength ssHighlight)) " виділених блоках? [Так/Ні]: ")))
               (if (eq answer "Так")
                 (progn
-                  (princ "\nВиконую оновлення атрибутів...")
-                  (command "_.UNDO" "_Begin")
+                  (princ "\nВиконую оновлення...") (command "_.UNDO" "_Begin")
                   (foreach item texts_to_update_info
-                    (setq supportBlockEnt (car item))  
-                    (setq extractedNum (cadr item)) 
-                    (setq enamePiket (caddr item))  
-
+                    (setq supportBlockEnt (car item) extractedNum (cadr item))
                     (if (setq supportBlockData (entget supportBlockEnt))
                       (if (and (assoc 66 supportBlockData) (= 1 (cdr (assoc 66 supportBlockData)))) 
                         (progn
-                          (setq targetAttEname (entnext supportBlockEnt))
-                          (setq found_attrib_for_update nil)
-                          (while (and targetAttEname
-                                      (eq "ATTRIB" (cdr (assoc 0 (setq targetAttData (entget targetAttEname)))))
-                                      (not found_attrib_for_update)
-                                 )
-                            (setq targetAttTag (strcase (cdr (assoc 2 targetAttData))))
-                            (if (eq "НОМЕР" targetAttTag) 
+                          (setq targetAttEname (entnext supportBlockEnt) found_attrib_for_update nil)
+                          (while (and targetAttEname (eq "ATTRIB" (cdr (assoc 0 (setq targetAttData (entget targetAttEname))))) (not found_attrib_for_update))
+                            (if (eq "НОМЕР" (strcase (cdr (assoc 2 targetAttData)))) 
                               (progn
                                 (setq currentAttVal (cdr (assoc 1 targetAttData)))
-                                (setq targetAttData (subst (cons 1 extractedNum) (assoc 1 targetAttData) targetAttData))
-                                (if (entmod targetAttData)
-                                  (progn
-                                    (princ (strcat "\n   Оновлено: Атрибут 'НОМЕР' блоку <" (vl-princ-to-string supportBlockEnt) "> ('" currentAttVal "' -> '" extractedNum "') (з PIKET <" (vl-princ-to-string enamePiket) ">)"))
-                                    (setq actualUpdateCount (1+ actualUpdateCount))
-                                  )
-                                  (princ (strcat "\n   ПОМИЛКА оновлення атрибуту 'НОМЕР' для <" (vl-princ-to-string supportBlockEnt) ">"))
-                                )
-                                (setq found_attrib_for_update T) 
+                                (entmod (subst (cons 1 extractedNum) (assoc 1 targetAttData) targetAttData))
+                                (setq actualUpdateCount (1+ actualUpdateCount) found_attrib_for_update T)
                               )
                             )
                             (if (not found_attrib_for_update) (setq targetAttEname (entnext targetAttEname)))
                           )
-                          (if (not found_attrib_for_update) ; Ця перевірка тепер важлива
-                              (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: Атрибут 'НОМЕР' не знайдено в блоці '" support_block_name "' <" (vl-princ-to-string supportBlockEnt) "> під час спроби оновлення."))
-                          )
                         )
-                        (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: Блок '" support_block_name "' <" (vl-princ-to-string supportBlockEnt) "> не має атрибутів (код 66 відсутній або 0)."))
                       )
-                      (princ (strcat "\n   ПОМИЛКА: Не вдалося отримати дані для блоку '" support_block_name "' <" (vl-princ-to-string supportBlockEnt) "> під час спроби оновлення."))
                     )
-                  )
-                  (command "_.UNDO" "_End")
-                  (princ (strcat "\nУспішно оновлено " (itoa actualUpdateCount) " атрибутів 'НОМЕР'."))
-                )
-                (progn
-                  (princ "\nЗміни скасовано користувачем. Атрибути не оновлено.")
-                  (sssetfirst nil nil) 
-                )
+                  ) (command "_.UNDO" "_End") (princ (strcat "\nУспішно оновлено " (itoa actualUpdateCount) " атрибутів.")))
+                (progn (princ "\nЗміни скасовано.") (sssetfirst nil nil))
               )
             )
-            (princ "\nНе вдалося створити набір вибірки для виділення блоків опори.")
           )
         )
-        (progn
-          (if (= processedCount totalCount) 
-            (princ (strcat "\n\nНе знайдено блоків '" support_block_name "' для оновлення атрибутів."))
-          )
-        )
+        (if (= processedCount totalCount) (princ "\nНе знайдено кандидатів на оновлення."))
       )
-
-      (princ (strcat "\n\nОперацію завершено."))
-      (princ (strcat "\nВсього блоків 'PIKET' для обробки (з " ss_source "): " (itoa totalCount)))
-      (princ (strcat "\nРеально оброблено блоків 'PIKET': " (itoa processedCount)))
-      (if (> potentialUpdateCount 0) (princ (strcat "\nЗ них знайдено відповідних блоків '" support_block_name "' для оновлення атрибуту: " (itoa potentialUpdateCount))))
-      (if (eq answer "Так") (princ (strcat "\nФактично оновлено атрибутів 'НОМЕР' після підтвердження: " (itoa actualUpdateCount))))
-
+      (princ (strcat "\n\nОперацію завершено. Оброблено PIKET: " (itoa processedCount) "."))
       (if pikets_missing_support_block
-          (progn
-            (princ (strcat "\n\nСписок блоків 'PIKET', для яких не знайдено відповідний блок '" support_block_name "' (або знайдено декілька):"))
-            (foreach piket_ent (reverse pikets_missing_support_block) 
-              (princ (strcat "\n - <" (vl-princ-to-string piket_ent) ">"))
-            )
-          )
-          (if (and ss (> totalCount 0) (= potentialUpdateCount 0) (= actualUpdateCount 0)) 
-            (princ (strcat "\nНе знайдено жодного блоку '" support_block_name "' для оновлення на основі оброблених PIKET-ів."))
+          (progn (princ (strcat "\nPIKET, для яких не знайдено опору '" support_block_name "':"))
+                 (foreach p (reverse pikets_missing_support_block) (princ (strcat "\n - <" (vl-princ-to-string p) ">")))
           )
       )
-
     ) 
-    (princ "\nНе вдалося визначити об'єкти для обробки (немає блоків 'PIKET' у вибірці).")
+    (princ "\nНе вдалося визначити PIKET для обробки.")
   ) 
-
   (if oldCmdecho (setvar "CMDECHO" oldCmdecho))
   (setq *g_last_search_result* nil) 
   (setq *error* nil) 
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.5.0 - стабільне ім'я) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.6.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
 
 
