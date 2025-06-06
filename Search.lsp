@@ -648,39 +648,50 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.6.3-debug - Діагностична версія)
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.7.0 - Оновлена логіка вилучення)
 ;; ====================================================================
 ;; Команда: RENAME_OKM_SUPPORT 
+;; Опис:
+;; Бере набір вибірки "PIKET". Для кожного блоку:
+;; 1. Отримує значення атрибута "НОМЕРА", коректно обробляючи як рядкові, так і числові значення.
+;; 2. Вилучає номер опори за чіткими правилами:
+;;    - Якщо структура "ОКМ<номер>(...)", вилучає <номер>.
+;;    - Якщо структура "ОКМ(<номер>)...", вилучає <номер>.
+;; 3. Шукає блок "Опора КМ (з.б.)" дуже близько до точки вставки блоку "PIKET".
+;; 4. Якщо блок опори знайдено, готує його до оновлення.
+;; 5. Після перевірки всіх блоків, запитує підтвердження на оновлення.
 ;; ====================================================================
 
 
-;; --- Допоміжна функція: Перевіряє, чи рядок складається тільки з ЛАТИНСЬКИХ літер та/або цифр ---
-(defun app:string-is-alphanumeric-p (str / char-code-list)
-  (if (and str (> (strlen str) 0)) 
-      (progn
-        (setq char-code-list (mapcar 'ascii (vl-string->list str)))
-        (vl-every '(lambda (char-code)
-                     (or
-                       (<= (ascii "0") char-code (ascii "9"))  
-                       (<= (ascii "A") char-code (ascii "Z"))  
-                       (<= (ascii "a") char-code (ascii "z"))  
-                     )
-                   )
-                  char-code-list
+;; --- Допоміжна функція (переписана для максимальної сумісності) ---
+(defun app:string-is-alphanumeric-p (str / i len char-code result)
+  (if (and str (> (strlen str) 0))
+    (progn
+      (setq i 1
+            len (strlen str)
+            result T) ; Припускаємо, що рядок коректний, поки не знайдемо інше
+      (while (and (<= i len) result)
+        (setq char-code (ascii (substr str i 1)))
+        (if (not (or (<= (ascii "0") char-code (ascii "9"))
+                     (<= (ascii "A") char-code (ascii "Z"))
+                     (<= (ascii "a") char-code (ascii "z"))))
+          (setq result nil) ; Знайдено некоректний символ
         )
+        (setq i (1+ i))
       )
-      nil 
+      result
+    )
+    nil
   )
 )
 
 ;; --- Основна функція ---
-(defun c:RENAME_OKM_SUPPORT ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata attTag
-                               attrValNomera attrValNomera_raw openParen_v1 closeParen_v1 candidate_v1 
-                               extractedNum processed_support_ents_list support_block_name ssSupportBlock 
-                               supportBlockEnt supportBlockData targetAttTag targetAttEname targetAttData 
-                               currentAttVal processedCount totalCount oldCmdecho fuzz_dist p1_fuzz p2_fuzz 
-                               texts_to_update_info ssHighlight potentialUpdateCount answer actualUpdateCount
-                               pikets_missing_support_block found_attrib_for_update
+(defun c:RENAME_OKM_SUPPORT ( / *error* ss ss_source i enamePiket edataPiket attEname attEdata
+                               attrValNomera attrValNomera_raw extractedNum processed_support_ents_list 
+                               support_block_name ssSupportBlock supportBlockEnt supportBlockData 
+                               targetAttEname targetAttData currentAttVal processedCount totalCount oldCmdecho 
+                               fuzz_dist p1_fuzz p2_fuzz texts_to_update_info ssHighlight potentialUpdateCount 
+                               answer actualUpdateCount pikets_missing_support_block found_attrib_for_update
                              )
 
   (defun *error* (msg)
@@ -689,7 +700,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.6.3-debug): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.7.0): " msg)))
     )
     (setq *g_last_search_result* nil) 
     (setq *error* nil) 
@@ -703,7 +714,7 @@
         fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.6.3-debug)..."))
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.7.0)..."))
 
   (setq ss nil ss_source "") 
   (cond
@@ -743,27 +754,11 @@
                   (if (eq "НОМЕРА" (strcase (cdr (assoc 2 attEdata))))
                     (progn
                       (setq attrValNomera_raw (cdr (assoc 1 attEdata)))
-                      
-                      ;; ======================= ДІАГНОСТИЧНИЙ БЛОК =======================
-                      (princ (strcat "\n[DEBUG] Raw value: " (vl-princ-to-string attrValNomera_raw)))
-                      (princ (strcat "\n[DEBUG] Raw type: " (vl-princ-to-string (type attrValNomera_raw))))
-                      (if (numberp attrValNomera_raw)
-                          (progn
-                              (princ "\n[DEBUG] Path taken: Is a number. Converting to string.")
-                              (setq attrValNomera (rtos attrValNomera_raw 2 0))
-                          )
-                          (progn
-                              (princ "\n[DEBUG] Path taken: Not a number. Treating as string or empty.")
-                              (if (= 'STR (type attrValNomera_raw))
-                                  (setq attrValNomera attrValNomera_raw)
-                                  (setq attrValNomera "")
-                              )
-                          )
+                      (cond
+                        ((= 'STR (type attrValNomera_raw)) (setq attrValNomera attrValNomera_raw))
+                        ((numberp attrValNomera_raw) (setq attrValNomera (rtos attrValNomera_raw 2 0)))
+                        (t (setq attrValNomera ""))
                       )
-                      (princ (strcat "\n[DEBUG] Final value: " (vl-princ-to-string attrValNomera)))
-                      (princ (strcat "\n[DEBUG] Final type: " (vl-princ-to-string (type attrValNomera))))
-                      ;; ===================================================================
-
                     )
                   )
                   (if attrValNomera (setq attEname nil) (setq attEname (entnext attEname)))
@@ -771,41 +766,40 @@
               )
             )
 
-            ;; 2. ВИЛУЧЕННЯ extractedNum З attrValNomera
+            ;; =================================================================================
+            ;; 2. ВИЛУЧЕННЯ extractedNum З attrValNomera (ЗА НОВИМИ ПРАВИЛАМИ)
+            ;; =================================================================================
             (setq extractedNum nil) 
             (if (and attrValNomera (> (strlen attrValNomera) 0))
-              (progn
-                ;; СПРОБА 1: (АЛФАВІТНО-ЦИФРОВИЙ номер у дужках)
-                (setq openParen_v1 (vl-string-search "(" attrValNomera))
-                (if openParen_v1
-                  (progn
-                    (setq closeParen_v1 (vl-string-search ")" attrValNomera (+ openParen_v1 1)))
-                    (if (and closeParen_v1 (> closeParen_v1 openParen_v1))
-                      (progn
-                        (setq candidate_v1 (substr attrValNomera (+ openParen_v1 2) (- closeParen_v1 openParen_v1 1)))
-                        (if (app:string-is-alphanumeric-p candidate_v1) (setq extractedNum candidate_v1))
-                      )
+              (let* ( (prefix "ОКМ")
+                      (prefix_pos (vl-string-search prefix attrValNomera))
+                      (paren_pos (vl-string-search "(" attrValNomera))
                     )
-                  )
-                )
-                ;; СПРОБА 2: ОКМ<алфавітно-цифровий номер>(...)
-                (if (not extractedNum) 
-                  (let ((prefix_str "ОКМ"))
-                    (if (and (>= (strlen attrValNomera) (strlen prefix_str)) (= 0 (vl-string-search prefix_str attrValNomera))) 
-                      (let ((openParen_v2 (vl-string-search "(" attrValNomera (strlen prefix_str))))
-                        (if openParen_v2 
-                          (let* ((num_start_idx (strlen prefix_str))
-                                 (num_len (- openParen_v2 num_start_idx)))
-                            (if (> num_len 0)
-                              (let ((candidate_v2 (substr attrValNomera (+ num_start_idx 1) num_len)))
-                                (if (app:string-is-alphanumeric-p candidate_v2) (setq extractedNum candidate_v2))
+                (if (and prefix_pos paren_pos)
+                    ;; Якщо знайдено і "ОКМ", і "("
+                    (if (= paren_pos (+ prefix_pos (strlen prefix)))
+                        ;; ПРАВИЛО 2: Дужка йде відразу після "ОКМ". Приклад: ОКМ(240)
+                        (let ((close_paren_pos (vl-string-search ")" attrValNomera (+ paren_pos 1))))
+                          (if close_paren_pos
+                              (let ((candidate (substr attrValNomera (+ paren_pos 2) (- close_paren_pos paren_pos 1))))
+                                (if (app:string-is-alphanumeric-p candidate)
+                                    (setq extractedNum candidate)
+                                )
                               )
-                            )
                           )
                         )
-                      )
+                        ;; ПРАВИЛО 1: Є символи між "ОКМ" та "(". Приклад: ОКМ239(...)
+                        (let* ( (num_start (+ prefix_pos (strlen prefix)))
+                                (num_len (- paren_pos num_start)) )
+                          (if (> num_len 0)
+                              (let ((candidate (substr attrValNomera (+ num_start 1) num_len)))
+                                (if (app:string-is-alphanumeric-p candidate)
+                                    (setq extractedNum candidate)
+                                )
+                              )
+                          )
+                        )
                     )
-                  )
                 )
               )
             )
@@ -837,6 +831,7 @@
                   )
                 )
               )
+              ;; Попередження, якщо не вдалося вилучити номер
               (if (and (not extractedNum) attrValNomera (> (strlen attrValNomera) 0))
                   (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Не вдалося вилучити номер з \"" attrValNomera "\" для PIKET <" (vl-princ-to-string enamePiket) ">."))
               )
@@ -845,6 +840,7 @@
         ) 
         (setq i (1+ i))
       ) 
+      
       ;; --- Подальша логіка оновлення (залишається без змін) ---
       (if (> potentialUpdateCount 0)
         (progn
@@ -868,7 +864,6 @@
                           (while (and targetAttEname (eq "ATTRIB" (cdr (assoc 0 (setq targetAttData (entget targetAttEname))))) (not found_attrib_for_update))
                             (if (eq "НОМЕР" (strcase (cdr (assoc 2 targetAttData)))) 
                               (progn
-                                (setq currentAttVal (cdr (assoc 1 targetAttData)))
                                 (entmod (subst (cons 1 extractedNum) (assoc 1 targetAttData) targetAttData))
                                 (setq actualUpdateCount (1+ actualUpdateCount) found_attrib_for_update T)
                               )
@@ -901,9 +896,8 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.6.3-debug) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.7.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
-
 ;; ====================================================================
 ;; СКРИПТ 8: СТВОРЕННЯ ВІДСУТНІХ ТЕКСТОВИХ ВІДМІТОК Z ТА СИМВОЛІВ (v1.3)
 ;; ====================================================================
