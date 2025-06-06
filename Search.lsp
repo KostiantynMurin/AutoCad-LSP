@@ -648,13 +648,21 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.9.0 - Виправлення синтаксису)
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v6.0.0 - Фінальна версія)
 ;; ====================================================================
 ;; Команда: RENAME_OKM_SUPPORT 
+;; Опис:
+;; Бере набір вибірки "PIKET". Для кожного блоку:
+;; 1. Отримує значення атрибута "НОМЕРА".
+;; 2. Вилучає номер опори за чіткими правилами, підтримуючи латиницю та кирилицю (напр. "13н").
+;;    - Якщо структура "OKM<номер>(...)", вилучає <номер>.
+;;    - Якщо структура "OKM(<номер>)...", вилучає <номер>.
+;; 3. Шукає блок "Опора КМ (з.б.)" поблизу.
+;; 4. Готує та виконує оновлення атрибута "НОМЕР" в знайдених опорах.
 ;; ====================================================================
 
 
-;; --- Допоміжна функція (максимально сумісна) ---
+;; --- Допоміжна функція (з підтримкою кирилиці) ---
 (defun app:string-is-alphanumeric-p (str / i len char-code result)
   (if (and str (> (strlen str) 0))
     (progn
@@ -663,9 +671,16 @@
             result T)
       (while (and (<= i len) result)
         (setq char-code (ascii (substr str i 1)))
-        (if (not (or (<= (ascii "0") char-code (ascii "9"))
-                     (<= (ascii "A") char-code (ascii "Z"))
-                     (<= (ascii "a") char-code (ascii "z"))))
+        (if (not (or
+                   ;; --- Цифри ---
+                   (<= (ascii "0") char-code (ascii "9"))
+                   ;; --- Латиниця ---
+                   (<= (ascii "A") char-code (ascii "Z"))
+                   (<= (ascii "a") char-code (ascii "z"))
+                   ;; --- Кирилиця ---
+                   (<= (ascii "А") char-code (ascii "Я"))
+                   (<= (ascii "а") char-code (ascii "я"))
+                 ))
           (setq result nil)
         )
         (setq i (1+ i))
@@ -692,7 +707,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.9.0): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v6.0.0): " msg)))
     )
     (setq *g_last_search_result* nil) 
     (setq *error* nil) 
@@ -706,7 +721,7 @@
         fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.9.0)..."))
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v6.0.0)..."))
 
   (setq ss nil ss_source "") 
   (cond
@@ -758,9 +773,7 @@
               )
             )
 
-            ;; =================================================================================
-            ;; 2. ВИЛУЧЕННЯ extractedNum (синтаксично виправлена версія)
-            ;; =================================================================================
+            ;; 2. ВИЛУЧЕННЯ extractedNum
             (setq extractedNum nil) 
             (if (and attrValNomera (> (strlen attrValNomera) 0))
               (progn
@@ -892,7 +905,7 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.9.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v6.0.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
 
 
