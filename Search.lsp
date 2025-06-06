@@ -752,21 +752,23 @@
                   (if (eq "НОМЕРА" (strcase (cdr (assoc 2 attEdata))))
                     (progn
                       (setq attrValNomera_raw (cdr (assoc 1 attEdata)))
-                     ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (виправлена версія)
-                      (cond
-                        ((stringp attrValNomera_raw) ; Якщо це вже рядок
-                          (setq attrValNomera attrValNomera_raw)
-                        )
-                        ((numberp attrValNomera_raw) ; Якщо це число
-                          (setq attrValNomera (rtos attrValNomera_raw 2 0)) ; Перетворюємо його на рядок
-                        )
-                        (t ; Для всіх інших випадків (nil, помилкові дані тощо)
-                          (if (and attrValNomera_raw (/= 'STR (type attrValNomera_raw))) ; Попередження, якщо тип несподіваний, але не nil
-                              (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
+                     ;; ======================= ВИПРАВЛЕНИЙ БЛОК (універсальна версія) =======================
+                        ;; БЛОК КОНВЕРТАЦІЇ ТИПУ (без stringp)
+                        (cond
+                          ((= 'STR (type attrValNomera_raw)) ; Спочатку перевіряємо, чи це вже рядок
+                            (setq attrValNomera attrValNomera_raw)
                           )
-                          (setq attrValNomera "") ; Призначаємо порожній рядок
+                          ((numberp attrValNomera_raw) ; Потім перевіряємо, чи це число
+                            (setq attrValNomera (rtos attrValNomera_raw 2 0)) ; і перетворюємо його на рядок
+                          )
+                          (t ; Для всіх інших випадків (nil, помилкові дані тощо)
+                            (if attrValNomera_raw ; Якщо дані не пусті, виводимо попередження
+                                (princ (strcat "\n   ПОПЕРЕДЖЕННЯ: 'НОМЕРА' для <" (vl-princ-to-string enamePiket) "> має несподіваний тип: " (vl-prin1-to-string (type attrValNomera_raw))))
+                            )
+                            (setq attrValNomera "") ; Призначаємо порожній рядок
+                          )
                         )
-                      )
+                        ;; ======================================================================================
                     )
                   )
                   (if attrValNomera (setq attEname nil) (setq attEname (entnext attEname)))
