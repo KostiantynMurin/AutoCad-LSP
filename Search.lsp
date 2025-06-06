@@ -648,7 +648,7 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.7.1 - Посилена перевірка)
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.7.2 - Максимально надійна версія)
 ;; ====================================================================
 ;; Команда: RENAME_OKM_SUPPORT 
 ;; ====================================================================
@@ -660,13 +660,13 @@
     (progn
       (setq i 1
             len (strlen str)
-            result T) ; Припускаємо, що рядок коректний, поки не знайдемо інше
+            result T)
       (while (and (<= i len) result)
         (setq char-code (ascii (substr str i 1)))
         (if (not (or (<= (ascii "0") char-code (ascii "9"))
                      (<= (ascii "A") char-code (ascii "Z"))
                      (<= (ascii "a") char-code (ascii "z"))))
-          (setq result nil) ; Знайдено некоректний символ
+          (setq result nil)
         )
         (setq i (1+ i))
       )
@@ -683,6 +683,7 @@
                                targetAttEname targetAttData currentAttVal processedCount totalCount oldCmdecho 
                                fuzz_dist p1_fuzz p2_fuzz texts_to_update_info ssHighlight potentialUpdateCount 
                                answer actualUpdateCount pikets_missing_support_block found_attrib_for_update
+                               prefix prefix_pos paren_pos
                              )
 
   (defun *error* (msg)
@@ -691,7 +692,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.7.1): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.7.2): " msg)))
     )
     (setq *g_last_search_result* nil) 
     (setq *error* nil) 
@@ -705,7 +706,7 @@
         fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.7.1)..."))
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.7.2)..."))
 
   (setq ss nil ss_source "") 
   (cond
@@ -758,36 +759,35 @@
             )
 
             ;; =================================================================================
-            ;; 2. ВИЛУЧЕННЯ extractedNum (з посиленою перевіркою)
+            ;; 2. ВИЛУЧЕННЯ extractedNum (максимально надійна версія)
             ;; =================================================================================
             (setq extractedNum nil) 
-            ;; Спочатку перевіряємо, чи існує attrValNomera, і лише потім працюємо з ним
             (if attrValNomera
               (if (> (strlen attrValNomera) 0)
-                (let* ( (prefix "ОКМ")
-                        (prefix_pos (vl-string-search prefix attrValNomera))
-                        (paren_pos (vl-string-search "(" attrValNomera))
-                      )
+                (progn
+                  (setq prefix "ОКМ")
+                  (setq prefix_pos (vl-string-search prefix attrValNomera))
+                  (setq paren_pos (vl-string-search "(" attrValNomera))
+
                   (if (and prefix_pos paren_pos)
-                      (if (= paren_pos (+ prefix_pos (strlen prefix)))
-                          ;; ПРАВИЛО 2: ОКМ(240)
-                          (let ((close_paren_pos (vl-string-search ")" attrValNomera (+ paren_pos 1))))
-                            (if close_paren_pos
-                                (let ((candidate (substr attrValNomera (+ paren_pos 2) (- close_paren_pos paren_pos 1))))
-                                  (if (app:string-is-alphanumeric-p candidate) (setq extractedNum candidate))
-                                )
-                            )
+                    (if (= paren_pos (+ prefix_pos (strlen prefix)))
+                      ;; ПРАВИЛО 2: ОКМ(240)
+                      (let ((close_paren_pos (vl-string-search ")" attrValNomera (+ paren_pos 1))))
+                        (if close_paren_pos
+                          (let ((candidate (substr attrValNomera (+ paren_pos 2) (- close_paren_pos paren_pos 1))))
+                            (if (app:string-is-alphanumeric-p candidate) (setq extractedNum candidate))
                           )
-                          ;; ПРАВИЛО 1: ОКМ239(...)
-                          (let* ( (num_start (+ prefix_pos (strlen prefix)))
-                                  (num_len (- paren_pos num_start)) )
-                            (if (> num_len 0)
-                                (let ((candidate (substr attrValNomera (+ num_start 1) num_len)))
-                                  (if (app:string-is-alphanumeric-p candidate) (setq extractedNum candidate))
-                                )
-                            )
-                          )
+                        )
                       )
+                      ;; ПРАВИЛО 1: ОКМ239(...)
+                      (let* ((num_start (+ prefix_pos (strlen prefix))) (num_len (- paren_pos num_start)))
+                        (if (> num_len 0)
+                          (let ((candidate (substr attrValNomera (+ num_start 1) num_len)))
+                            (if (app:string-is-alphanumeric-p candidate) (setq extractedNum candidate))
+                          )
+                        )
+                      )
+                    )
                   )
                 )
               )
@@ -820,9 +820,7 @@
                   )
                 )
               )
-              ;; Попередження, якщо не вдалося вилучити номер
               (if (not extractedNum)
-                ;; Перевіряємо, чи був взагалі текст для аналізу
                 (if (and attrValNomera (> (strlen attrValNomera) 0))
                     (princ (strcat "\n   ! ПОПЕРЕДЖЕННЯ: Не вдалося вилучити номер з \"" attrValNomera "\" для PIKET <" (vl-princ-to-string enamePiket) ">."))
                 )
@@ -888,7 +886,7 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.7.1) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.7.2) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
 
 
