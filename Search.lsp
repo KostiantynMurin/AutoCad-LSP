@@ -648,7 +648,7 @@
 ) ;; кінець defun c:REPLACENAME
 
 ;; ====================================================================
-;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.7.2 - Максимально надійна версія)
+;; СКРИПТ 5.1: ОНОВЛЕННЯ АТРИБУТУ "НОМЕР" В БЛОЦІ ОПОРИ (v5.8.0 - Фінальна версія)
 ;; ====================================================================
 ;; Команда: RENAME_OKM_SUPPORT 
 ;; ====================================================================
@@ -692,7 +692,7 @@
     (cond ((not msg))
           ((vl-string-search "Function cancelled" msg))
           ((vl-string-search "quit / exit abort" msg))
-          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.7.2): " msg)))
+          (T (princ (strcat "\nПомилка в RENAME_OKM_SUPPORT (v5.8.0): " msg)))
     )
     (setq *g_last_search_result* nil) 
     (setq *error* nil) 
@@ -706,7 +706,7 @@
         fuzz_dist 1e-6 
   )
   (setq oldCmdecho (getvar "CMDECHO"))
-  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.7.2)..."))
+  (princ (strcat "\nОновлення атрибутів 'НОМЕР' для блоків '" support_block_name "' (v5.8.0)..."))
 
   (setq ss nil ss_source "") 
   (cond
@@ -758,20 +758,20 @@
               )
             )
 
-            ;; =================================================================================
-            ;; 2. ВИЛУЧЕННЯ extractedNum (максимально надійна версія)
-            ;; =================================================================================
+            ;; 2. ВИЛУЧЕННЯ extractedNum
             (setq extractedNum nil) 
             (if attrValNomera
               (if (> (strlen attrValNomera) 0)
                 (progn
-                  (setq prefix "ОКМ")
+                  ;; =================== ОСЬ ВИПРАВЛЕННЯ ===================
+                  (setq prefix "OKM") ; Латинська "O"
+                  ;; =======================================================
                   (setq prefix_pos (vl-string-search prefix attrValNomera))
                   (setq paren_pos (vl-string-search "(" attrValNomera))
 
                   (if (and prefix_pos paren_pos)
                     (if (= paren_pos (+ prefix_pos (strlen prefix)))
-                      ;; ПРАВИЛО 2: ОКМ(240)
+                      ;; ПРАВИЛО 2: OKM(240)
                       (let ((close_paren_pos (vl-string-search ")" attrValNomera (+ paren_pos 1))))
                         (if close_paren_pos
                           (let ((candidate (substr attrValNomera (+ paren_pos 2) (- close_paren_pos paren_pos 1))))
@@ -779,7 +779,7 @@
                           )
                         )
                       )
-                      ;; ПРАВИЛО 1: ОКМ239(...)
+                      ;; ПРАВИЛО 1: OKM239(...)
                       (let* ((num_start (+ prefix_pos (strlen prefix))) (num_len (- paren_pos num_start)))
                         (if (> num_len 0)
                           (let ((candidate (substr attrValNomera (+ num_start 1) num_len)))
@@ -831,7 +831,7 @@
         (setq i (1+ i))
       ) 
       
-      ;; --- Подальша логіка оновлення (залишається без змін) ---
+      ;; --- Подальша логіка оновлення ---
       (if (> potentialUpdateCount 0)
         (progn
           (princ (strcat "\nЗнайдено кандидатів на оновлення: " (itoa potentialUpdateCount)))
@@ -886,7 +886,7 @@
   (princ) 
 ) 
 
-(princ "\nКоманду RENAME_OKM_SUPPORT (v5.7.2) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
+(princ "\nКоманду RENAME_OKM_SUPPORT (v5.8.0) завантажено. Введіть RENAME_OKM_SUPPORT для запуску.")
 (princ)
 
 
