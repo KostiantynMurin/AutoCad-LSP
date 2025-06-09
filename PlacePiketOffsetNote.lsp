@@ -86,12 +86,12 @@
 )
 
 
-;; --- Основна функція команди (ОНОВЛЕНА) ---
+;; --- Основна функція команди (ОНОВЛЕНА І ВИПРАВЛЕНА) ---
 (defun c:PlacePiketOffsetNote ( / *error* old-osmode old-cmdecho doc блок-select ent-block data-block block-name 
                                   att-entity data-att att-tag att-value base-value calculated-value text-ins-pt 
                                   text-angle text-str text-height text-style cur-layer att-found
                                   num-str-period num-str-comma text-color
-                                  new-text-ename new-text-vla-obj acadDoc currentScale currentScaleResult
+                                  new-text-ename new-text-vla-obj acadDoc currentScale
                                )
   
   ;; Локальна функція обробки помилок
@@ -196,14 +196,22 @@
                   (progn
                     (setq new-text-vla-obj (vlax-ename->vla-object new-text-ename))
                     (vl-catch-all-apply 'vlax-put-property (list new-text-vla-obj 'Annotative :vlax-true))
-                    (setq acadDoc (vla-get-activedocument (vlax-get-acad-object)))
-                    (setq currentScaleResult (vl-catch-all-apply 'vla-get-CurrentAnnotationScale (list acadDoc)))
-                    (if (not (vl-catch-all-error-p currentScaleResult))
-                      (progn
-                        (setq currentScale currentScaleResult) 
-                        (vl-catch-all-apply 'vla-addscale (list new-text-vla-obj currentScale))
-                      )
+                    
+                    ;; --- ВИПРАВЛЕНИЙ БЛОК АНОТАТИВНОСТІ ---
+                    ;; Спочатку отримуємо об'єкт поточного простору (модель або аркуш)
+                    (setq acadDoc (vla-get-ActiveDocument (vlax-get-acad-object)))
+                    (setq activeSpace (if (= 1 (vla-get-ActiveSpace acadDoc))
+                                        (vla-get-PaperSpace acadDoc)
+                                        (vla-get-ModelSpace acadDoc)
+                                      )
                     )
+                    ;; Тепер безпечно намагаємося отримати масштаб
+                    (setq currentScale (vl-catch-all-apply 'vla-get-CurrentAnnotationScale (list activeSpace)))
+                    ;; Перевіряємо, чи не було помилки
+                    (if (not (vl-catch-all-error-p currentScale))
+                      (vl-catch-all-apply 'vla-addscale (list new-text-vla-obj currentScale))
+                    )
+                    ;; --- КІНЕЦЬ ВИПРАВЛЕНОГО БЛОКУ ---
                   )
                 )
                 (princ (strcat "\nСтворено текст: \"" text-str "\"."))
