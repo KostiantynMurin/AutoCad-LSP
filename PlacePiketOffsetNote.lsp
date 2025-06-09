@@ -2,15 +2,12 @@
 ;; |                                                                                               |
 ;; |          СКРИПТ ДЛЯ АВТОМАТИЧНОЇ РОЗСТАНОВКИ ПРИМІТОК З РОЗРАХУНКОВИХ ВІДСТАНЕЙ                  |
 ;; |                                                                                               |
-;; | Версія: 3.0                                                                            |
+;; | Версія: 5.1 (Без анотативності, висота тексту 0.75)                                           |
+;; | Автор: Адаптовано та зібрано Gemini                                                           |
+;; | Дата: 2025-06-09                                                                              |
 ;; |                                                                                               |
 ;; | Опис:                                                                                         |
-;; | Скрипт працює в циклічному режимі. Користувач послідовно обирає блоки "PIKET".                  |
-;; | Для кожного блоку:                                                                            |
-;; | 1. З атрибута "НОМЕРА" вилучається базове значення (формату "г-число").                         |
-;; | 2. До нього додається фіксоване значення 0.76.                                                 |
-;; | 3. Користувач вказує точку для вставки нового анотативного тексту.                             |
-;; | 4. Опрацьований блок "PIKET" автоматично переміщується на шар "22 ГЕОДЕЗИЧНА ОСНОВА".           |
+;; | Створює звичайний, не анотативний текст з фіксованою висотою 0.75.                             |
 ;; |                                                                                               |
 ;; | Команди для запуску: PlacePiketOffsetNote або PPON                                            |
 ;; |                                                                                               |
@@ -21,205 +18,105 @@
 
 
 ;; --- Допоміжна функція для вилучення числового значення після "g-" або "g" ---
-;; Вхід: str-val - рядок для аналізу
-;; Повертає: числове значення або nil, якщо "g-"/"g" або коректне число не знайдено
 (defun Helper:GetGValueFromString (str-val / pos S valid_num_str char val index len has_minus has_dot temp_char_code search_len)
-  (if (setq pos (vl-string-search (if (vl-string-search "g-" str-val) "g-" "g") str-val)) ; Шукаємо "g-" АБО "g"
+  (if (setq pos (vl-string-search (if (vl-string-search "g-" str-val) "g-" "g") str-val))
     (progn
       (setq search_len (if (vl-string-search "g-" str-val) (strlen "g-") (strlen "g")))
-      (setq S (substr str-val (+ pos 1 search_len))) ; Рядок, що йде після "g-" або "g"
+      (setq S (substr str-val (+ pos 1 search_len)))
       (setq len (strlen S) index 1 valid_num_str "" has_minus nil has_dot nil val nil)
-      ;; Проходимо по символах рядка S
       (while (<= index len)
         (setq char (substr S index 1))
-        (setq temp_char_code (ascii char)) ; ASCII-код поточного символу
+        (setq temp_char_code (ascii char))
         (cond
-          ;; Дозволяємо один мінус на самому початку числа
-          ((and (= char "-") (not has_minus) (= (strlen valid_num_str) 0))
-           (setq valid_num_str (strcat valid_num_str char) has_minus T)
-          )
-          ;; Дозволяємо одну десяткову крапку
-          ((and (= char ".") (not has_dot))
-           (setq valid_num_str (strcat valid_num_str char) has_dot T)
-          )
-          ;; Якщо символ - цифра
-          ((and (>= temp_char_code (ascii "0")) (<= temp_char_code (ascii "9")))
-           (setq valid_num_str (strcat valid_num_str char))
-          )
-          ;; Інший символ - вважаємо, що числова частина закінчилася
-          (T (setq index (1+ len))) ; Примусово завершуємо цикл while
+          ((and (= char "-") (not has_minus) (= (strlen valid_num_str) 0)) (setq valid_num_str (strcat valid_num_str char) has_minus T))
+          ((and (= char ".") (not has_dot)) (setq valid_num_str (strcat valid_num_str char) has_dot T))
+          ((and (>= temp_char_code (ascii "0")) (<= temp_char_code (ascii "9"))) (setq valid_num_str (strcat valid_num_str char)))
+          (T (setq index (1+ len)))
         )
         (setq index (1+ index))
       )
-      ;; Перевіряємо, чи сформований valid_num_str є коректним представленням числа
-      (if (and (> (strlen valid_num_str) 0) (not (equal valid_num_str "-")) (not (equal valid_num_str ".")) (not (equal valid_num_str "-."))
-               (if has_dot (wcmatch valid_num_str "*[0-9]*") (if has_minus (> (strlen valid_num_str) 1) T))
-          )
-        (setq val (distof valid_num_str)) ; Конвертуємо рядок в число
+      (if (and (> (strlen valid_num_str) 0) (not (equal valid_num_str "-")) (not (equal valid_num_str ".")) (not (equal valid_num_str "-.")) (if has_dot (wcmatch valid_num_str "*[0-9]*") (if has_minus (> (strlen valid_num_str) 1) T)))
+        (setq val (distof valid_num_str))
       )
-      val ; Повертаємо число або nil
+      val
     )
-    nil ; "g-" або "g" не знайдено в початковому рядку
+    nil
   )
 )
 
 
 ;; --- Допоміжна функція для переміщення об'єкта на вказаний шар ---
-;; Вхід: ent - ім'я сутності (об'єкта); layer-name - ім'я цільового шару
-;; Перевіряє існування шару, створює його при необхідності, і переміщує об'єкт.
 (defun Helper:MoveEntityToLayer (ent layer-name / doc layers layer-obj vla-ent-obj)
   (setq doc (vla-get-ActiveDocument (vlax-get-acad-object))
         layers (vla-get-Layers doc)
   )
-  ;; Перевіряємо, чи існує шар. Якщо ні - створюємо його.
   (if (vl-catch-all-error-p (vl-catch-all-apply 'vla-Item (list layers layer-name)))
-    (progn
-      (setq layer-obj (vla-Add layers layer-name))
-      (princ (strcat "\nСтворено новий шар: '" layer-name "'."))
-    )
+    (progn (setq layer-obj (vla-Add layers layer-name)) (princ (strcat "\nСтворено новий шар: '" layer-name "'.")))
   )
-  ;; Переміщуємо об'єкт на шар
   (if (and ent (setq vla-ent-obj (vlax-ename->vla-object ent)))
     (vla-put-Layer vla-ent-obj layer-name)
   )
-  (princ) ; Приховати повернення значення в командний рядок
+  (princ)
 )
 
 
-;; --- Основна функція команди (ОНОВЛЕНА І ВИПРАВЛЕНА) ---
+;; --- Основна функція команди (БЕЗ АНОТАТИВНОСТІ) ---
 (defun c:PlacePiketOffsetNote ( / *error* old-osmode old-cmdecho doc блок-select ent-block data-block block-name 
                                   att-entity data-att att-tag att-value base-value calculated-value text-ins-pt 
                                   text-angle text-str text-height text-style cur-layer att-found
                                   num-str-period num-str-comma text-color
-                                  new-text-ename new-text-vla-obj acadDoc currentScale
                                )
   
-  ;; Локальна функція обробки помилок
   (defun *error* (msg)
-    (if old-cmdecho (setvar "CMDECHO" old-cmdecho)) 
-    (if old-osmode (setvar "OSMODE" old-osmode))   
-    (if doc (vla-EndUndoMark doc))                
-    (if (not (member msg '("Function cancelled" "quit / exit abort" nil))) 
-      (princ (strcat "\nПомилка виконання: " msg))
-    )
-    (princ) 
-  )
+    (if old-cmdecho (setvar "CMDECHO" old-cmdecho)) (if old-osmode (setvar "OSMODE" old-osmode)) (if doc (vla-EndUndoMark doc)) (if (not (member msg '("Function cancelled" "quit / exit abort" nil))) (princ (strcat "\nПомилка виконання: " msg))) (princ))
 
-  (setq old-cmdecho (getvar "CMDECHO")
-        old-osmode (getvar "OSMODE")
-        doc (vla-get-ActiveDocument (vlax-get-acad-object))
-  )
-  ;; Встановлення параметрів стилізації
+  (setq old-cmdecho (getvar "CMDECHO") old-osmode (getvar "OSMODE") doc (vla-get-ActiveDocument (vlax-get-acad-object)))
+  
+  ;; Налаштування для звичайного тексту
   (setq text-style "Д-431"
-        text-height 0.75 ; Паперова висота для анотативного тексту
-        text-color 4     ; Блакитний (Cyan)
+        ;; Висота тексту в одиницях простору моделі
+        text-height 0.75 
+        text-color 4 ; Блакитний (Cyan)
   )
   
   (vla-StartUndoMark doc)
   (setvar "CMDECHO" 0) 
   (princ "\nСкрипт для розстановки приміток. Обирайте блоки 'PIKET' послідовно.")
 
-  ;; Початок основного циклу
   (while (setq блок-select (entsel "\nОберіть блок 'PIKET' (або Enter для завершення): "))
     (setq ent-block (car блок-select))
     (setq data-block (entget ent-block))
 
-    ;; Перевірка, чи є обраний об'єкт блоком "PIKET"
-    (if (and data-block 
-             (= (cdr (assoc 0 data-block)) "INSERT")
-             (equal (strcase "PIKET") (strcase (cdr (assoc 2 data-block))))
-        )
-      ;; Якщо так, виконуємо основну логіку
+    (if (and data-block (= (cdr (assoc 0 data-block)) "INSERT") (equal (strcase "PIKET") (strcase (cdr (assoc 2 data-block)))))
       (progn
-        ;; Обробка атрибута "НОМЕРА"
         (setq base-value nil att-found nil att-value "") 
         (if (= (cdr (assoc 66 data-block)) 1)
-          (progn
-            (setq att-entity (entnext ent-block))
-            (while (and att-entity (not att-found))
-              (setq data-att (entget att-entity))
-              (if (and data-att (= (cdr (assoc 0 data-att)) "ATTRIB"))
-                (progn
-                  (setq att-tag (cdr (assoc 2 data-att)))
-                  (if (equal (strcase "НОМЕРА") (strcase att-tag))
-                    (progn
-                      (setq att-value (cdr (assoc 1 data-att)))
-                      (setq base-value (Helper:GetGValueFromString att-value))
-                      (setq att-found T)
-                    )
-                  )
-                )
-                (setq att-entity nil)
-              )
-              (if (and att-entity (not att-found))
-                (setq att-entity (entnext att-entity))
-              )
-            )
-          )
-        )
+          (progn (setq att-entity (entnext ent-block)) (while (and att-entity (not att-found)) (setq data-att (entget att-entity)) (if (and data-att (= (cdr (assoc 0 data-att)) "ATTRIB")) (progn (setq att-tag (cdr (assoc 2 data-att))) (if (equal (strcase "НОМЕРА") (strcase att-tag)) (progn (setq att-value (cdr (assoc 1 data-att))) (setq base-value (Helper:GetGValueFromString att-value)) (setq att-found T)))) (setq att-entity nil)) (if (and att-entity (not att-found)) (setq att-entity (entnext att-entity))))))
         (if (not att-found) (princ "\nПопередження: В обраному блоці 'PIKET' відсутній атрибут 'НОМЕРА'."))
-        
-        ;; Якщо значення не знайдено автоматично, запитуємо користувача
         (if (and att-found (null base-value))
-          (progn
-            (princ (strcat "\nПідрядок 'g-число' не знайдено в атрибуті 'НОМЕРА' (значення: \"" att-value "\")."))
-            (setq base-value (getreal "\nВведіть базове числове значення для розрахунку: "))
-          )
-        )
+          (progn (princ (strcat "\nПідрядок 'g-число' не знайдено в атрибуті 'НОМЕРА' (значення: \"" att-value "\").")) (setq base-value (getreal "\nВведіть базове числове значення для розрахунку: "))))
         
-        ;; Якщо базове значення є, продовжуємо
         (if base-value
           (progn
-            ;; Розрахунок і форматування тексту
-            (setq calculated-value (+ base-value 0.76))
-            (setq num-str-period (rtos calculated-value 2 2)) 
-            (setq num-str-comma (vl-string-subst "," "." num-str-period)) 
-            (setq text-str (strcat "г-" num-str-comma)) 
-            
-            ;; Запит точки вставки
+            (setq calculated-value (+ base-value 0.76)) (setq num-str-period (rtos calculated-value 2 2)) (setq num-str-comma (vl-string-subst "," "." num-str-period)) (setq text-str (strcat "г-" num-str-comma)) 
             (setq text-ins-pt (getpoint "\nВкажіть точку вставки для тексту: "))
             
-            ;; Якщо користувач вказав точку, створюємо текст
             (if text-ins-pt
               (progn
-                (setq text-angle 0.0)
-                (setq cur-layer (getvar "CLAYER"))
+                (setq text-angle 0.0) (setq cur-layer (getvar "CLAYER"))
+                
+                ;; Створення звичайного тексту
                 (entmake
                   (list '(0 . "TEXT") (cons 1 text-str) (cons 10 text-ins-pt) (cons 40 text-height)
                         (cons 50 text-angle) (cons 7 text-style) (cons 8 cur-layer) (cons 62 text-color)
                         '(72 . 0) '(73 . 0)
                   )
                 )
-                ;; Робимо текст анотативним
-                (setq new-text-ename (entlast)) 
-                (if new-text-ename
-                  (progn
-                    (setq new-text-vla-obj (vlax-ename->vla-object new-text-ename))
-                    (vl-catch-all-apply 'vlax-put-property (list new-text-vla-obj 'Annotative :vlax-true))
-                    
-                    ;; --- ВИПРАВЛЕНИЙ БЛОК АНОТАТИВНОСТІ ---
-                    ;; Спочатку отримуємо об'єкт поточного простору (модель або аркуш)
-                    (setq acadDoc (vla-get-ActiveDocument (vlax-get-acad-object)))
-                    (setq activeSpace (if (= 1 (vla-get-ActiveSpace acadDoc))
-                                        (vla-get-PaperSpace acadDoc)
-                                        (vla-get-ModelSpace acadDoc)
-                                      )
-                    )
-                    ;; Тепер безпечно намагаємося отримати масштаб
-                    (setq currentScale (vl-catch-all-apply 'vla-get-CurrentAnnotationScale (list activeSpace)))
-                    ;; Перевіряємо, чи не було помилки
-                    (if (not (vl-catch-all-error-p currentScale))
-                      (vl-catch-all-apply 'vla-addscale (list new-text-vla-obj currentScale))
-                    )
-                    ;; --- КІНЕЦЬ ВИПРАВЛЕНОГО БЛОКУ ---
-                  )
-                )
+
                 (princ (strcat "\nСтворено текст: \"" text-str "\"."))
                 
-                ;; Переміщуємо опрацьований блок на інший шар
                 (Helper:MoveEntityToLayer ent-block "22 ГЕОДЕЗИЧНА ОСНОВА")
                 (princ (strcat " Блок переміщено на шар '22 ГЕОДЕЗИЧНА ОСНОВА'."))
-
               )
               (princ "\nПропущено. Точку вставки не вказано.")
             )
@@ -227,25 +124,21 @@
           (princ "\nПропущено. Не вдалося отримати базове значення для розрахунку.")
         )
       )
-      ;; Повідомлення, якщо обраний об'єкт не є блоком "PIKET"
       (princ "\nОбраний об'єкт не є блоком 'PIKET'. Спробуйте ще раз.")
     )
-  ) ; Кінець циклу while
+  )
   
   (princ "\n\nРоботу завершено.")
-  
-  ;; Відновлення початкових налаштувань
-  (setvar "CMDECHO" old-cmdecho)
-  (setvar "OSMODE" old-osmode)
-  (vla-EndUndoMark doc)
-  (princ) 
+  (setvar "CMDECHO" old-cmdecho) (setvar "OSMODE" old-osmode) (vla-EndUndoMark doc) (princ) 
 )
+
 
 ;; Створення короткого псевдоніма (аліаса) для команди
 (defun c:PPON () (c:PlacePiketOffsetNote))
 
+
 ;; Повідомлення про успішне завантаження скрипта
-(princ "\nКоманду 'PlacePiketOffsetNote' (циклічна версія + переміщення блоків) завантажено. Введіть PlacePiketOffsetNote або PPON.")
+(princ "\nКоманду 'PlacePiketOffsetNote' (версія без анотативності) завантажено. Введіть PPON.")
 (princ)
 
 ;;; --- КІНЕЦЬ ФАЙЛУ ---
