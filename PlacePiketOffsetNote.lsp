@@ -170,7 +170,7 @@
                           (cons 7 text-style)
                           (cons 8 cur-layer)
                           (cons 62 text-color)
-                          '(50 . 0.0) ; Кут повороту 0
+                          '(50 . text_angle) ; Кут повороту 0
                           ;; Рядки для вирівнювання "Середина по центру"
                           (cons 10 block_ins_pt)
                           (cons 11 block_ins_pt)
