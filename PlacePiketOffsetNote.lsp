@@ -69,7 +69,7 @@
                                   num-str-period num-str-comma text-color temp_str decimal_pos text_angle pi_val
                                )
   (defun *error* (msg)
-    (if old-cmdecho (setvar "CMDECHO" old-cmdecho))
+    (if old_cmdecho (setvar "CMDECHO" old-cmdecho))
     (if old-osmode (setvar "OSMODE" old-osmode))
     (if doc (vla-EndUndoMark doc))
     (if (not (member msg '("Function cancelled" "quit / exit abort" nil)))
@@ -162,7 +162,7 @@
                       )
                       (setq cur-layer (getvar "CLAYER"))
                       (entmake
-                        (list '(0 . "TEXT") (cons 1 text_str) (cons 40 text_height) (cons 7 text_style) (cons 8 cur-layer) (cons 62 text-color) (cons 50 text_angle) (cons 10 block_ins_pt) (cons 11 block_ins_pt) '(72 . 1) '(73 . 2))
+                        (list '(0 . "TEXT") (cons 1 text_str) (cons 40 text_height) (cons 7 text_style) (cons 8 cur-layer) (cons 62 text_color) (cons 50 text_angle) (cons 10 block_ins_pt) (cons 11 block_ins_pt) '(72 . 1) '(73 . 2))
                       )
                       (princ (strcat "\nСтворено текст: \"" text_str "\". Вкажіть його кінцеве положення."))
                       (command "_MOVE" "_LAST" "" block_ins_pt PAUSE)
