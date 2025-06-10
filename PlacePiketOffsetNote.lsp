@@ -1,11 +1,13 @@
 ;; =================================================================================================
 ;; |                                                                                               |
-;; |          СКРИПТ ДЛЯ АВТОМАТИЧНОЇ РОЗСТАНОВКИ ПРИМІТОК З РОЗРАХУНКОВИХ ВІДСТАНЕЙ               |
+;; |                      СКРИПТ ДЛЯ АВТОМАТИЧНОЇ РОЗСТАНОВКИ ПРИМІТОК                             |
 ;; |                                                                                               |
-;; | Версія: 5.1 (Без анотативності, висота тексту 0.75)                                           |
+;; | Версія: 6.0 (Додано форматування, вирівнювання та інтерактивне переміщення)                    |
 ;; |                                                                                               |
 ;; | Опис:                                                                                         |
-;; | Створює звичайний, не анотативний текст з фіксованою висотою 0.75.                            |
+;; | Обирає блок 'PIKET', розраховує значення і створює текст.                                     |
+;; | Текст має вирівнювання "Середина по центру", форматування до 2-х знаків                        |
+;; | і після створення "прилипає" до курсора для візуального розміщення.                           |
 ;; |                                                                                               |
 ;; | Команди для запуску: PlacePiketOffsetNote або PPON                                            |
 ;; |                                                                                               |
@@ -60,9 +62,9 @@
 
 ;; --- Основна функція команди (БЕЗ АНОТАТИВНОСТІ) ---
 (defun c:PlacePiketOffsetNote ( / *error* old-osmode old-cmdecho doc блок-select ent-block data-block block-name 
-                                  att-entity data-att att-tag att-value base-value calculated-value text-ins-pt 
-                                  text-angle text-str text-height text-style cur-layer att-found
-                                  num-str-period num-str-comma text-color
+                                  att-entity data-att att-tag att-value base-value calculated-value block_ins_pt
+                                  text-str text-height text-style cur-layer att-found
+                                  num-str-period num-str-comma text-color temp_str decimal_pos
                                )
   
   (defun *error* (msg)
@@ -96,28 +98,52 @@
         
         (if base-value
           (progn
-            (setq calculated-value (+ base-value 0.76)) (setq num-str-period (rtos calculated-value 2 2)) (setq num-str-comma (vl-string-subst "," "." num-str-period)) (setq text-str (strcat "г-" num-str-comma)) 
-            (setq text-ins-pt (getpoint "\nВкажіть точку вставки для тексту: "))
+            (setq calculated-value (+ base-value 0.76))
             
-            (if text-ins-pt
-              (progn
-                (setq text-angle 0.0) (setq cur-layer (getvar "CLAYER"))
-                
-                ;; Створення звичайного тексту
-                (entmake
-                  (list '(0 . "TEXT") (cons 1 text-str) (cons 10 text-ins-pt) (cons 40 text-height)
-                        (cons 50 text-angle) (cons 7 text-style) (cons 8 cur-layer) (cons 62 text-color)
-                        '(72 . 0) '(73 . 0)
-                  )
-                )
-
-                (princ (strcat "\nСтворено текст: \"" text-str "\"."))
-                
-                (Helper:MoveEntityToLayer ent-block "22 ГЕОДЕЗИЧНА ОСНОВА")
-                (princ (strcat " Блок переміщено на шар '22 ГЕОДЕЗИЧНА ОСНОВА'."))
+            ;; === ЗМІНА 1: Блок форматування рядка до двох знаків після коми ===
+            (setq temp_str (rtos calculated-value 2 2))
+            (setq decimal_pos (vl-string-search "." temp_str))
+            (if decimal_pos
+              (if (= 1 (- (strlen temp_str) (1+ decimal_pos)))
+                (setq num-str-period (strcat temp_str "0"))
+                (setq num-str-period temp_str)
               )
-              (princ "\nПропущено. Точку вставки не вказано.")
+              (setq num-str-period (strcat temp_str ".00"))
             )
+            ;; ==============================================================
+            
+            (setq num-str-comma (vl-string-subst "," "." num-str-period)) 
+            (setq text-str (strcat "г-" num-str-comma))
+
+            ;; === ЗМІНА 2 і 3: Створення та інтерактивне переміщення ===
+            (setq block_ins_pt (cdr (assoc 10 data-block))) ; Точка вставки блока для тимчасового розміщення тексту
+            (setq cur-layer (getvar "CLAYER"))
+            
+            ;; Створення тексту з вирівнюванням по центру
+            (entmake
+              (list
+                '(0 . "TEXT")
+                (cons 1 text-str)
+                (cons 40 text-height)
+                (cons 7 text-style)
+                (cons 8 cur-layer)
+                (cons 62 text-color)
+                '(50 . 0.0) ; Кут повороту 0
+                ;; Рядки для вирівнювання "Середина по центру"
+                (cons 10 block_ins_pt)
+                (cons 11 block_ins_pt)
+                '(72 . 1)
+                '(73 . 2)
+              )
+            )
+            
+            ;; Запуск команди переміщення для щойно створеного об'єкта
+            (princ (strcat "\nСтворено текст: \"" text-str "\". Вкажіть його кінцеве положення."))
+            (command "_MOVE" "_LAST" "" block_ins_pt PAUSE)
+            ;; =========================================================
+
+            (Helper:MoveEntityToLayer ent-block "22 ГЕОДЕЗИЧНА ОСНОВА")
+            (princ (strcat " Блок переміщено на шар '22 ГЕОДЕЗИЧНА ОСНОВА'."))
           )
           (princ "\nПропущено. Не вдалося отримати базове значення для розрахунку.")
         )
@@ -136,7 +162,7 @@
 
 
 ;; Повідомлення про успішне завантаження скрипта
-(princ "\nКоманду 'PlacePiketOffsetNote' (версія без анотативності) завантажено. Введіть PPON.")
+(princ "\nОновлену команду 'PlacePiketOffsetNote' (v6.0) завантажено. Введіть PPON.")
 (princ)
 
 ;;; --- КІНЕЦЬ ФАЙЛУ ---
