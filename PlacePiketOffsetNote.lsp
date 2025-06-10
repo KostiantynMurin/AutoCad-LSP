@@ -2,7 +2,7 @@
 ;; |                                                                                               |
 ;; |                      СКРИПТ ДЛЯ АВТОМАТИЧНОЇ РОЗСТАНОВКИ ПРИМІТОК                             |
 ;; |                                                                                               |
-;; | Версія: 10.1 (Синтаксичний фікс, інтерактивний поворот тексту)                                |
+;; | Версія: 10.2 (Виправлено помилку "неверная DXF-группа: (7)")                                   |
 ;; |                                                                                               |
 ;; | Опис:                                                                                         |
 ;; | Під час переміщення тексту, що слідує за курсором, права кнопка миші                           |
@@ -15,7 +15,7 @@
 ;; Завантаження функцій Visual LISP, якщо ще не завантажені
 (vl-load-com)
 
-;; --- Допоміжна функція для вилучення числового значення після "g-" або "g" ---
+;; --- Допоміжна функція для вилучення числового значення ---
 (defun Helper:GetGValueFromString (str-val / pos S valid_num_str char val index len has_minus has_dot temp_char_code search_len)
   (if (setq pos (vl-string-search (if (vl-string-search "g-" str-val) "g-" "g") str-val))
     (progn
@@ -42,7 +42,7 @@
   )
 )
 
-;; --- Допоміжна функція для переміщення об'єкта на вказаний шар ---
+;; --- Допоміжна функція для переміщення об'єкта на шар ---
 (defun Helper:MoveEntityToLayer (ent layer-name / doc layers layer-obj vla-ent-obj)
   (setq doc (vla-get-ActiveDocument (vlax-get-acad-object))
         layers (vla-get-Layers doc)
@@ -75,7 +75,10 @@
   )
 
   (setq old-cmdecho (getvar "CMDECHO") old-osmode (getvar "OSMODE") doc (vla-get-ActiveDocument (vlax-get-acad-object)))
-  (setq text-style "Д-431" text-height 0.75 text-color 4)
+  
+  ;; === ВИПРАВЛЕНО: назва змінної text-style на text_style ===
+  (setq text_style "Д-431" text_height 0.75 text_color 4)
+  
   (setq pi_val 3.14159265358979)
   
   (vla-StartUndoMark doc)
@@ -113,7 +116,7 @@
                   (setq cur-layer (getvar "CLAYER"))
                   (entmake
                     (list
-                      '(0 . "TEXT") (cons 1 text-str) (cons 40 text-height) (cons 7 text_style)
+                      '(0 . "TEXT") (cons 1 text_str) (cons 40 text_height) (cons 7 text_style)
                       (cons 8 cur-layer) (cons 62 text-color)
                       (cons 50 text_angle) (cons 10 block_ins_pt) (cons 11 block_ins_pt) '(72 . 1) '(73 . 2)
                     )
@@ -179,5 +182,5 @@
 
 (defun c:PPON () (c:PlacePiketOffsetNote))
 
-(princ "\nОновлену команду 'PlacePiketOffsetNote' (v10.1, синтаксичний фікс) завантажено.")
+(princ "\nОновлену команду 'PlacePiketOffsetNote' (v10.2, фікс помилки) завантажено.")
 (princ)
