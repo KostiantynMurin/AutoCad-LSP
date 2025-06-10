@@ -161,8 +161,22 @@
                         )
                       )
                       (setq cur-layer (getvar "CLAYER"))
+                      ;; Створення тексту з вирівнюванням по центру
                       (entmake
-                        (list '(0 . "TEXT") (cons 1 text_str) (cons 40 text_height) (cons 7 text_style) (cons 8 cur-layer) (cons 62 text_color) (cons 50 text_angle) (cons 10 block_ins_pt) (cons 11 block_ins_pt) '(72 . 1) '(73 . 2))
+                        (list
+                          '(0 . "TEXT")
+                          (cons 1 text-str)
+                          (cons 40 text-height)
+                          (cons 7 text-style)
+                          (cons 8 cur-layer)
+                          (cons 62 text-color)
+                          '(50 . 0.0) ; Кут повороту 0
+                          ;; Рядки для вирівнювання "Середина по центру"
+                          (cons 10 block_ins_pt)
+                          (cons 11 block_ins_pt)
+                          '(72 . 1)
+                          '(73 . 2)
+                        )
                       )
                       (princ (strcat "\nСтворено текст: \"" text_str "\". Вкажіть його кінцеве положення."))
                       (command "_MOVE" "_LAST" "" block_ins_pt PAUSE)
