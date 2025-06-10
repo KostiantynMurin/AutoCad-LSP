@@ -1,85 +1,99 @@
-;; =================================================================== ;;
-;; Скрипт для вимірювання ширини між двома полілініями.                ;;
-;; Версія 9.0: Принципово новий метод через вибір об'єктів.            ;;
-;; Команда для запуску: WWP                                              ;;
-;; =================================================================== ;;
+;; =================================================================================================
+;; |                                                                                               |
+;; |                      СКРИПТ ДЛЯ ВИМІРЮВАННЯ ВІДСТАНІ ТА ВСТАВКИ ТЕКСТУ                         |
+;; |                                                                                               |
+;; | Версія: 1.0                                                                                   |
+;; | Дата: 11.06.2024                                                                              |
+;; |                                                                                               |
+;; | Опис:                                                                                         |
+;; | Скрипт вимірює відстань між двома вказаними точками на полілініях.                             |
+;; | Потім створює текстовий об'єкт з результатом вимірювання та розміщує його                     |
+;; | у вказаному користувачем місці. Процес повторюється до натискання Esc.                        |
+;; |                                                                                               |
+;; | Команди для запуску: DistText або DT                                                          |
+;; |                                                                                               |
+;; =================================================================================================
 
-(defun c:WWP ( / *error* old_cmdecho old_osmode pline1 pline2 pline1_vla pline2_vla
-                p_approx p_on_pl1 p_on_pl2 dist dist_text mid_p text-ent
-                text-style text-height text-color text-angle cur-layer
-             )
-  (vl-load-com) ; Завантажуємо функції Visual LISP
+;; Завантаження функцій Visual LISP, якщо ще не завантажені
+(vl-load-com)
 
-  ;; Функція для коректної обробки помилок та натискання Esc
+;; --- Основна функція команди ---
+(defun c:DistText ( / *error* old_osmode old_cmdecho p1 p2 dist dist_str text_ins_pt text_style text_height text_color)
+  
+  ;; Функція обробки помилок для відновлення системних змінних
   (defun *error* (msg)
-    (if old_cmdecho (setvar "CMDECHO" old_cmdecho))
     (if old_osmode (setvar "OSMODE" old_osmode))
-    (if (not (member msg '("Function cancelled" "quit / exit abort")))
-      (princ (strcat "\nПомилка: " msg))
+    (if old_cmdecho (setvar "CMDECHO" old_cmdecho))
+    (if (not (member msg '("Function cancelled" "quit / exit abort" nil)))
+      (princ (strcat "\nПомилка виконання: " msg))
     )
     (princ)
   )
 
-  ;; Зберігаємо поточні налаштування AutoCAD
-  (setq old_cmdecho (getvar "CMDECHO")
-        old_osmode  (getvar "OSMODE")
-  )
+  ;; Збереження поточних значень системних змінних
+  (setq old_osmode (getvar "OSMODE"))
+  (setq old_cmdecho (getvar "CMDECHO"))
   (setvar "CMDECHO" 0)
 
   ;; --- Налаштування параметрів тексту ---
-  (setq text-style  "Д-431"
-        text-height 1.0
-        text-color  5
-        text-angle  0.0
-  )
-  
-  ;; --- КРОК 1: ВИБІР ДВОХ ПОЛІЛІНІЙ ---
-  (princ "\nОберіть дві полілінії для вимірювання ширини між ними.")
-  (setq pline1 (car (entsel "\nОберіть першу полілінію: ")))
-  (if (null pline1) (princ "\nКоманду скасовано.") (progn
-    (setq pline2 (car (entsel "\nОберіть другу полілінію: ")))
-    (if (null pline2) (princ "\nКоманду скасовано.") (progn
-      
-      (setq pline1_vla (vlax-ename->vla-object pline1))
-      (setq pline2_vla (vlax-ename->vla-object pline2))
-      
-      ;; --- КРОК 2: ЦИКЛ ВИМІРЮВАННЯ ---
-      (while
-        (setq p_approx (getpoint "\n>> Вкажіть приблизну точку для виміру (або Enter/Esc для виходу): "))
-        
-        ;; Знаходимо найближчі точки на полілініях до вказаної
-        (setq p_on_pl1 (vlax-curve-getClosestPointTo pline1_vla p_approx))
-        (setq p_on_pl2 (vlax-curve-getClosestPointTo pline2_vla p_approx))
-        
-        (setq dist (distance p_on_pl1 p_on_pl2))
-        (setq dist_text (rtos dist 2 2))
-        
-        (setq mid_p (mapcar (function (lambda (a b) (/ (+ a b) 2.0))) p_on_pl1 p_on_pl2))
-        
-        (setq cur-layer (getvar "CLAYER"))
-        
-        ;; Створюємо текст в середній точці
-        (entmake
-          (list '(0 . "TEXT") (cons 1 dist_text) (cons 10 mid_p) (cons 40 text-height)
-                (cons 50 text-angle) (cons 7 text-style) (cons 8 cur-layer)
-                (cons 62 text-color) '(72 . 4) '(73 . 2)
-          )
-        )
-        (setq text-ent (entlast))
+  (setq text_style "Д-431")  ; Стиль тексту
+  (setq text_height 1.0)     ; Висота тексту
+  (setq text_color 5)        ; Колір: 5 = Синій (Blue)
 
-        ;; Запускаємо команду ПЕРЕМІСТИТИ
-        (setvar "CMDECHO" 1)
-        (command "_MOVE" text-ent "" mid_p pause)
-        (setvar "CMDECHO" 0)
+  ;; Увімкнення прив'язки "Найближча" (Nearest) для зручного вибору точок на полілініях
+  (setvar "OSMODE" 512) ; 512 - це код для прив'язки NEAREST
+
+  ;; Основний цикл програми
+  (while 
+    (setq p1 (getpoint "\nВкажіть першу точку на полілінії (Esc для виходу): "))
+    
+    (if (setq p2 (getpoint p1 "\nВкажіть другу точку на іншій полілінії: "))
+      (progn ; Виконується, якщо вказано обидві точки
+        
+        ;; 1. Обчислення відстані
+        (setq dist (distance p1 p2))
+        (setq dist_str (rtos dist 2 2)) ; Перетворення відстані в текст з 2 знаками після коми
+
+        ;; 2. Запит на точку вставки тексту
+        (if (setq text_ins_pt (getpoint "\nВкажіть місце для вставки тексту: "))
+          (progn ; Виконується, якщо вказано точку вставки
+            
+            ;; 3. Створення текстового об'єкта
+            ;; Використовуємо функцію entmake, подібну до тієї, що у вашому прикладі
+            (entmake 
+              (list
+                '(0 . "TEXT")
+                (cons 1 dist_str)          ; Вміст тексту (обчислена відстань)
+                (cons 10 text_ins_pt)      ; Точка вставки
+                (cons 40 text_height)      ; Висота тексту
+                (cons 7 text_style)        ; Стиль тексту
+                (cons 62 text_color)       ; Колір тексту (ACI)
+                '(50 . 0.0)                ; Кут повороту тексту
+              )
+            )
+            (princ (strcat "\nСтворено текст: \"" dist_str "\"."))
+
+          )
+          (princ "\nВставку тексту скасовано.")
+        )
       )
-    ))
-  ))
-  
-  ;; Відновлюємо збережені налаштування AutoCAD
-  (setvar "CMDECHO" old_cmdecho)
+      (princ "\nВибір другої точки скасовано.")
+    )
+  ) ; Кінець циклу while
+
+  ;; Відновлення попередніх значень системних змінних
   (setvar "OSMODE" old_osmode)
-  (princ)
+  (setvar "CMDECHO" old_cmdecho)
+  
+  (princ "\nРоботу завершено.")
+  (princ) ; Приховує вивід останнього значення в командний рядок
 )
 
-(princ "\nСкрипт 'WWP' (v9.0, вибір об'єктів) завантажено. Введіть команду WWP.")
+;; Створення короткого псевдоніма (аліаса) для команди
+(defun c:DT () (c:DistText))
+
+;; Повідомлення про успішне завантаження скрипта
+(princ "\nКоманду 'DistText' (або 'DT') завантажено. Введіть команду для запуску.")
 (princ)
+
+;;; --- КІНЕЦЬ ФАЙЛУ ---
