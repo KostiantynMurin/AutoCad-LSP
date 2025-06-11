@@ -91,37 +91,33 @@
         (princ (strcat "\nСтворено текст: \"" dist_str "\". Переміщуйте курсор. Ліва кнопка - вставити, Права - повернути на 180°."))
         (setq last_pt p1 done nil)
         (while (not done)
-          (setq gr_result (grread T)
-                gr_code   (car gr_result)
-                gr_pt     (cadr gr_result)
+          (setq gr_result (grread T 15 0)
+                gr_code (car gr_result)
+                gr_pt (cadr gr_result)
           )
-          (if (and gr_pt (= (type gr_pt) 'LIST))
-            (progn
-              (setq snapped_pt (osnap gr_pt "_END,_MID,_INT,_PER,_CEN,_QUA,_NEA")) ; Спробувати прив'язатися
-              (setq effective_pt (if snapped_pt snapped_pt gr_pt))               ; Використовувати прив'язку, якщо вона є
-              
-              (cond
-                ((= gr_code 5) ; Рух миші
-                (vla-move text_vla_obj (vlax-3d-point last_pt) (vlax-3d-point effective_pt))
-                (setq last_pt effective_pt)
-                )
-                ((= gr_code 25) ; Права кнопка миші - Поворот
-                (setq current_angle (vla-get-Rotation text_vla_obj))
-                (vla-put-Rotation text_vla_obj (+ current_angle pi_val))
-                (princ "\nТекст повернуто на 180°.")
-                )
-                ((= gr_code 3) ; Ліва кнопка миші - Вставка
-                (vla-move text_vla_obj (vlax-3d-point last_pt) (vlax-3d-point effective_pt))
-                (setq done T)
-                )
-                ((= gr_code 2) ; Клавіатура (Esc)
-                (if (= (cadr gr_result) 27)
-                  (progn
-                    (vla-delete text_vla_obj)
-                    (princ "\nСтворення тексту скасовано.")
-                    (setq done T)
-                  )
-                )
+          (cond
+            ;; Рух миші
+            ((= gr_code 5)
+              (vla-move text_vla_obj (vlax-3d-point last_pt) (vlax-3d-point gr_pt))
+              (setq last_pt gr_pt)
+            )
+            ;; Права кнопка миші - Поворот
+            ((= gr_code 25)
+              (setq current_angle (vla-get-Rotation text_vla_obj))
+              (vla-put-Rotation text_vla_obj (+ current_angle pi_val))
+              (princ "\nТекст повернуто на 180°.")
+            )
+            ;; Ліва кнопка миші - Вставка
+            ((= gr_code 3)
+              (setq done T)
+            )
+            ;; Клавіатура (Esc)
+            ((= gr_code 2)
+              (if (= (cadr gr_result) 27) ; 27 - код клавіші Escape
+                (progn
+                  (vla-delete text_vla_obj)
+                  (princ "\nСтворення тексту скасовано.")
+                  (setq done T)
                 )
               )
             )
