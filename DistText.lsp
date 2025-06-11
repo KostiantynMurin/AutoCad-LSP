@@ -91,7 +91,7 @@
         (princ (strcat "\nСтворено текст: \"" dist_str "\". Переміщуйте курсор. Ліва кнопка - вставити, Права - повернути на 180°."))
         (setq last_pt p1 done nil)
         (while (not done)
-          (setq gr_result (grread T 15 0)
+          (setq gr_result (grread T)
                 gr_code (car gr_result)
                 gr_pt (cadr gr_result)
           )
