@@ -1073,6 +1073,17 @@
         )
         (setq i (1+ i))
       )
+      
+      ;; === НОВИЙ БЛОК: Переміщення оброблених блоків PIKET на інший шар ===
+      (princ "\nПереміщення оброблених блоків PIKET на шар '22 ГЕОДЕЗИЧНА ОСНОВА'...")
+      (setq i 0)
+      (repeat (sslength ss)
+        (Helper:MoveEntityToLayer (ssname ss i) "22 ГЕОДЕЗИЧНА ОСНОВА")
+        (setq i (1+ i))
+      )
+      (princ " Завершено.")
+      ;; ================================================================
+      
       (vla-EndUndoMark acadDoc)
       (if (> createdCount 0) (princ (strcat "\nОбробку завершено. Створено " (itoa createdCount) " нових маркерів."))
           (princ "\nОбробку завершено. Нових маркерів не створено (можливо, вони вже існують)."))
@@ -1104,9 +1115,19 @@
 (princ "\nЗавантажено нові команди: VIDMITKA та VIDMITKA_REIKY.")
 (princ)
 
-
-
-
+;; --- Допоміжна функція для переміщення об'єкта на шар ---
+(defun Helper:MoveEntityToLayer (ent layer_name / doc layers layer_obj vla_ent_obj)
+  (setq doc (vla-get-ActiveDocument (vlax-get-acad-object))
+        layers (vla-get-Layers doc)
+  )
+  (if (vl-catch-all-error-p (vl-catch-all-apply 'vla-Item (list layers layer_name)))
+    (progn (setq layer_obj (vla-Add layers layer_name)) (princ (strcat "\nСтворено новий шар: '" layer_name "'.")))
+  )
+  (if (and ent (setq vla_ent_obj (vlax-ename->vla-object ent)))
+    (vla-put-Layer vla_ent_obj layer_name)
+  )
+  (princ)
+)
 
 
 
