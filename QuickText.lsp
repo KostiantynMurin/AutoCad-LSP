@@ -2,16 +2,7 @@
 ;; |                                                                                               |
 ;; |                      СКРИПТ ДЛЯ ШВИДКОГО СТВОРЕННЯ ТА РОЗМІЩЕННЯ ТЕКСТУ                       |
 ;; |                                                                                               |
-;; | Версія: 1.0                                                                                   |
-;; |                                                                                               |
-;; | Опис:                                                                                         |
-;; | 1. Користувач вказує напрямок двома точками.                                                  |
-;; | 2. Вводить текст.                                                                             |
-;; | 3. Текст "прилипає" до курсора для візуального розміщення.                                    |
-;; | 4. Права кнопка миші обертає текст на 180 градусів.                                           |
-;; | 5. Ліва кнопка миші фіксує текст на кресленні.                                                 |
-;; |                                                                                               |
-;; | Команди для запуску: QuickText або QT                                                         |
+;; | Версія: 1.2-diag (Діагностична: МАКСИМАЛЬНО СПРОЩЕНИЙ ЦИКЛ ПЕРЕМІЩЕННЯ)                        |
 ;; |                                                                                               |
 ;; =================================================================================================
 
@@ -21,8 +12,7 @@
 ;; --- Основна функція команди ---
 (defun c:QuickText ( / *error* old_cmdecho p1 p2 text_str text_style text_height text_color 
                        text_angle pi_val text_ent text_vla_obj 
-                       gr_result gr_code gr_pt done current_angle last_pt
-                       snapped_pt effective_pt ; Оголошення необхідних змінних
+                       gr_result gr_code gr_pt done last_pt
                     )
   
   ;; Функція обробки помилок
@@ -47,7 +37,6 @@
   ;; === ОСНОВНИЙ ЦИКЛ ПРОГРАМИ ===
   (while
     (progn
-      ;; --- Крок 1: Визначення кута ---
       (setq p1 (getpoint "\nВкажіть першу точку для визначення кута (Esc для виходу):"))
       (if p1
         (setq p2 (getpoint p1 "\nВкажійте другу точку:"))
@@ -60,12 +49,10 @@
             (setq text_angle (+ text_angle pi_val))
           )
           
-          ;; --- Крок 2: Введення тексту ---
           (setq text_str (getstring T "\nВведіть текст: "))
           
           (if (/= text_str "")
             (progn
-              ;; --- Крок 3: Створення тексту та інтерактивне розміщення ---
               (setq text_ent nil text_vla_obj nil)
               (entmake 
                 (list
@@ -76,42 +63,38 @@
               )
               (setq text_ent (entlast) text_vla_obj (vlax-ename->vla-object text_ent))
               
-              (princ (strcat "\nСтворено текст. Переміщуйте курсор. Ліва кнопка - вставити, Права - повернути."))
+              ;; === МАКСИМАЛЬНО СПРОЩЕНИЙ ЦИКЛ ПЕРЕМІЩЕННЯ ===
+              (princ (strcat "\n[Тест] Переміщуйте курсор. Ліва кнопка - вставити."))
               (setq last_pt p2 done nil)
               (while (not done)
                 (setq gr_result (grread T))
                 (setq gr_code (car gr_result) gr_pt (cadr gr_result))
+                
+                ;; Перевіряємо, чи отримали ми точку
                 (if (and gr_pt (= (type gr_pt) 'LIST))
+                  ;; Якщо так, просто рухаємо об'єкт
                   (progn
-                    (setq snapped_pt (osnap gr_pt))
-                    (setq effective_pt (if snapped_pt snapped_pt gr_pt))
-                    (cond
-                      ((= gr_code 5)
-                       (vla-move text_vla_obj (vlax-3d-point last_pt) (vlax-3d-point effective_pt))
-                       (setq last_pt effective_pt)
-                      )
-                      ((= gr_code 25)
-                       (setq current_angle (vla-get-Rotation text_vla_obj))
-                       (vla-put-Rotation text_vla_obj (+ current_angle pi_val))
-                       (princ "\nТекст повернуто на 180°.")
-                      )
-                      ((= gr_code 3)
-                       (vla-move text_vla_obj (vlax-3d-point last_pt) (vlax-3d-point effective_pt))
-                       (setq done T text_vla_obj nil)
-                      )
-                      ((= gr_code 2)
-                       (if (= (cadr gr_result) 27)
-                         (progn
-                           (vla-delete text_vla_obj)
-                           (princ "\nСтворення тексту скасовано.")
-                           (setq done T)
-                         )
-                       )
-                      )
-                    )
+                     (vla-move text_vla_obj (vlax-3d-point last_pt) (vlax-3d-point gr_pt))
+                     (setq last_pt gr_pt)
                   )
                 )
-              )
+                
+                ;; Перевіряємо кліки та клавіші
+                (cond
+                  ((= gr_code 3) ; ТІЛЬКИ Ліва кнопка миші
+                   (setq done T text_vla_obj nil)
+                  )
+                  ((= gr_code 2) ; Клавіатура
+                   (if (= (cadr gr_result) 27) ; Клавіша Escape
+                     (progn
+                       (vla-delete text_vla_obj)
+                       (princ "\nСтворення тексту скасовано.")
+                       (setq done T)
+                     )
+                   )
+                  )
+                )
+              ) ; кінець while grread
             )
             (princ "\nПропущено. Введено порожній рядок.")
           )
@@ -127,8 +110,7 @@
   (princ)
 )
 
-;; Створення короткого псевдоніма (аліаса) для команди
 (defun c:QT () (c:QuickText))
 
-(princ "\nКоманду 'QuickText' (або 'QT') завантажено.")
+(princ "\nКоманду 'QuickText' (v1.2, діагностична) завантажено.")
 (princ)
