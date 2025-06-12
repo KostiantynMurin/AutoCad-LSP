@@ -2,7 +2,7 @@
 ;; |                                                                                               |
 ;; |                      СКРИПТ ДЛЯ ШВИДКОГО СТВОРЕННЯ ТА РОЗМІЩЕННЯ ТЕКСТУ                       |
 ;; |                                                                                               |
-;; | Версія: 1.2-diag (Діагностична: МАКСИМАЛЬНО СПРОЩЕНИЙ ЦИКЛ ПЕРЕМІЩЕННЯ)                        |
+;; | Версія: 1.3 (Додано поворот правою кнопкою, БЕЗ прив'язок)                                     |
 ;; |                                                                                               |
 ;; =================================================================================================
 
@@ -12,7 +12,7 @@
 ;; --- Основна функція команди ---
 (defun c:QuickText ( / *error* old_cmdecho p1 p2 text_str text_style text_height text_color 
                        text_angle pi_val text_ent text_vla_obj 
-                       gr_result gr_code gr_pt done last_pt
+                       gr_result gr_code gr_pt done current_angle last_pt
                     )
   
   ;; Функція обробки помилок
@@ -63,29 +63,35 @@
               )
               (setq text_ent (entlast) text_vla_obj (vlax-ename->vla-object text_ent))
               
-              ;; === МАКСИМАЛЬНО СПРОЩЕНИЙ ЦИКЛ ПЕРЕМІЩЕННЯ ===
-              (princ (strcat "\n[Тест] Переміщуйте курсор. Ліва кнопка - вставити."))
+              ;; === Оновлений цикл переміщення з поворотом ===
+              (princ (strcat "\nСтворено текст. Переміщуйте курсор. Ліва кнопка - вставити, Права - повернути."))
               (setq last_pt p2 done nil)
               (while (not done)
-                (setq gr_result (grread T))
+                ;; Використовуємо (grread T 15 0) для відключення меню по правій кнопці
+                (setq gr_result (grread T 15 0))
                 (setq gr_code (car gr_result) gr_pt (cadr gr_result))
                 
-                ;; Перевіряємо, чи отримали ми точку
                 (if (and gr_pt (= (type gr_pt) 'LIST))
-                  ;; Якщо так, просто рухаємо об'єкт
                   (progn
                      (vla-move text_vla_obj (vlax-3d-point last_pt) (vlax-3d-point gr_pt))
                      (setq last_pt gr_pt)
                   )
                 )
                 
-                ;; Перевіряємо кліки та клавіші
                 (cond
-                  ((= gr_code 3) ; ТІЛЬКИ Ліва кнопка миші
+                  ;; Права кнопка миші - Поворот
+                  ((= gr_code 25)
+                   (setq current_angle (vla-get-Rotation text_vla_obj))
+                   (vla-put-Rotation text_vla_obj (+ current_angle pi_val))
+                   (princ "\nТекст повернуто на 180°.")
+                  )
+                  ;; Ліва кнопка миші - Вставка
+                  ((= gr_code 3)
                    (setq done T text_vla_obj nil)
                   )
-                  ((= gr_code 2) ; Клавіатура
-                   (if (= (cadr gr_result) 27) ; Клавіша Escape
+                  ;; Клавіатура (Esc)
+                  ((= gr_code 2)
+                   (if (= (cadr gr_result) 27)
                      (progn
                        (vla-delete text_vla_obj)
                        (princ "\nСтворення тексту скасовано.")
@@ -112,5 +118,5 @@
 
 (defun c:QT () (c:QuickText))
 
-(princ "\nКоманду 'QuickText' (v1.2, діагностична) завантажено.")
+(princ "\nКоманду 'QuickText' (v1.3, з поворотом, без прив'язок) завантажено.")
 (princ)
