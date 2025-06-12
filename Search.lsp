@@ -1062,6 +1062,10 @@
                     (if (not (vl-catch-all-error-p newBlockVLAObject))
                       (progn
                         (LM:SetAttributeValueVLA newBlockVLAObject att_tag_to_set formatted_otmetka)
+                        
+                        ;; >>> ЗМІНА: Переміщуємо новостворений блок на цільовий шар <<<
+                        (Helper:MoveEntityToLayer (vlax-vla-object->ename newBlockVLAObject) targetLayer)
+                        
                         (setq createdCount (1+ createdCount))
                       )
                     )
