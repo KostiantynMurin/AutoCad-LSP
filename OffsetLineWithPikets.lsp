@@ -152,7 +152,7 @@
       (progn
         (setq entData (entget (car selEnt))
               entType (cdr (assoc 0 entData)))
-        (if (or (= entType "LINE") (= entType "LWPOLYLINE"))
+        (if (or (= entType "LINE") (= entType "LWPOLYLINE") (= entType "POLYLINE"))
           (setq curveObj (vlax-ename->vla-object (car selEnt))) ; Зберігаємо VLA об'єкт
           (progn
             (princ "\nВибраний об'єкт не є лінією або полілінією. Спробуйте ще раз.")
