@@ -7,7 +7,7 @@
 ;; --- Допоміжна функція: Перевіряє, чи точка знаходиться всередині контуру ---
 ;; Використовує метод "променю": пускає промінь з точки і рахує перетини.
 ;; Непарна кількість перетинів = точка всередині.
-(defun IsPointInside (pt pline_vla / ray_obj int_points int_count error_catch mspace ray_start ray_end)
+(defun IsPointInside (pt pline_vla / ray_obj int_points int_count error_or_result mspace ray_start ray_end)
   (setq mspace (vla-get-modelspace (vla-get-activedocument (vlax-get-acad-object))))
   (setq ray_start (vlax-3d-point pt))
   ; Створюємо точку для променю, що йде далеко вправо по осі X
@@ -16,17 +16,19 @@
   (setq ray_obj (vla-addLine mspace ray_start ray_end))
   
   ; Використовуємо 'vl-catch-all-apply' щоб уникнути помилки, якщо перетинів немає
-  (setq error_catch (vl-catch-all-apply
+  (setq error_or_result (vl-catch-all-apply
     'vla-intersectwith
     (list pline_vla ray_obj acExtendNone)
   ))
   
   (vla-delete ray_obj) ; Обов'язково видаляємо тимчасовий промінь
   
-  (if (vl-catch-all-error-p error_catch)
+  ; Перевіряємо, чи повернулася помилка
+  (if (vl-catch-all-error-p error_or_result)
     (setq int_count 0) ; Якщо була помилка (перетинів не знайдено), то їх кількість = 0
     (progn
-      (setq int_points (vl-catch-all-value error_catch))
+      ; ВИПРАВЛЕНО: Якщо помилки не було, то 'error_or_result' ВЖЕ містить потрібне значення (список точок)
+      (setq int_points error_or_result)
       ; Рахуємо кількість точок перетину. Результат - це масив координат (x,y,z, x,y,z ...).
       ; Тому загальну кількість елементів масиву ділимо на 3.
       (setq int_count (/ (1+ (vlax-safearray-get-u-bound (vlax-variant-value int_points) 1)) 3))
@@ -58,7 +60,6 @@
           (setq h_space (getdist "\nВведи відстань між центрами блоків по горизонталі (X): "))
           (setq v_space (getdist "\nВведи відстань між рядами по вертикалі (Y): "))
           
-          ; ВИПРАВЛЕНО: Умова 'and' тепер знаходиться всередині конструкції 'if'
           (if (and (> h_space 1e-6) (> v_space 1e-6))
             (progn
               ;; --- Крок 2: Розрахунок та розміщення блоків ---
@@ -102,5 +103,5 @@
     )
     (princ "\nПомилка: це не блок! Будь ласка, вибери блок для заповнення.")
   )
-  (princ) ; "Тихе" завершення команди без виводу nil
+  (princ) ; "Тихе" завершення команди
 )
