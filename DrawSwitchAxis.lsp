@@ -1,9 +1,9 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
-;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
 ;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
-;; == ПОЗНАЧКА ЦСП ТА ВАГА ЛІНІЙ (0.30 мм) == (ОНОВЛЕНО!)
+;; == ПОЗНАЧКА ЦСП ТА ВАГА ЛІНІЙ (0.30 мм) ==
+;; == ВИПРАВЛЕНО: ПЕРЕВІРКА ВИДИМОСТІ МАРКЕРА ЦСП ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -103,7 +103,7 @@
                                  dist_to_csp branch_angle_deg
                                  debug_file debug_file_path
                                  etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
-                                 csp_marker_length csp_marker_lineweight ; Змінено з csp_marker_width
+                                 csp_marker_length csp_marker_lineweight
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj )
 
   ;; Зберегти поточні налаштування AutoCAD
@@ -394,8 +394,15 @@
 
   (command "_.PLINE" csp_marker_pt1 csp_marker_pt2 "")
   (setq csp_marker_obj (vlax-ename->vla-object (entlast)))
-  (vla-put-Lineweight csp_marker_obj csp_marker_lineweight) ; Встановлюємо вагу лінії
-  (princ "\nМаркер ЦСП накреслено.")
+  (if csp_marker_obj ; Перевіряємо, чи об'єкт створено, перш ніж змінювати властивості
+      (progn
+          (vla-put-Lineweight csp_marker_obj csp_marker_lineweight) ; Встановлюємо вагу лінії
+          (vla-put-color csp_marker_obj 1) ; ТИМЧАСОВО: Встановлюємо колір на червоний для видимості
+          (princ (strcat "\nDBG: Маркер ЦСП (EntName: " (vl-princ-to-string (vlax-vla-object->ename csp_marker_obj)) ") створено."))
+      )
+      (princ "\nERROR: Маркер ЦСП не вдалося створити.")
+  )
+  (princ "\nМаркер ЦСП накреслено.") ; Це повідомлення про успіх, якщо маркер створено
 
   (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---"))
   (princ "\nСкрипт завершено.")
