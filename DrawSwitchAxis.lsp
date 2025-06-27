@@ -1,9 +1,7 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
-;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
-;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
-;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
-;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП == (ОНОВЛЕНО!)
+;; == ... (попередній опис) ... ==
+;; == ВИПРАВЛЕНО: КОМАНДА ЗАЛИВКИ (HATCH) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -105,7 +103,7 @@
                                  etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
                                  csp_marker_length csp_marker_lineweight
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
-                                 contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj ) ; Нові змінні для контуру
+                                 contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj )
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -398,7 +396,7 @@
   (if csp_marker_obj
       (progn
           (vla-put-Lineweight csp_marker_obj csp_marker_lineweight) ; Встановлюємо вагу лінії
-          (vla-put-color csp_marker_obj 256) ; Встановлюємо колір на ByLayer
+          (vla-put-color csp_marker_obj 256) ; Встановлюємо колір на ByLayer (видалено червоний)
           (princ (strcat "\nDBG: Маркер ЦСП (EntName: " (vl-princ-to-string (vlax-vla-object->ename csp_marker_obj)) ") створено."))
       )
       (princ "\nERROR: Маркер ЦСП не вдалося створити.")
@@ -427,8 +425,10 @@
   ;; 3. Заливаємо контур чорним кольором
   (if contour_polyline_obj
       (progn
-          ;; Команда HATCH. _S для вибору об'єктів, _A для створення асоціативної заливки, SOLID для суцільної заливки.
-          (command "_.HATCH" "_S" "_A" "SOLID" "" contour_polyline_ent "") ; Вибираємо створену полілінію як межу
+          ;; !!! ВИПРАВЛЕНО КОМАНДУ HATCH !!!
+          ;; Передаємо об'єкт полілінії напряму, без опцій "_S" "_A"
+          ;; HATCH приймає: (pattern_name) (object_entname) (ENTER to finish selection) (ENTER to accept scale/angle)
+          (command "_.HATCH" "SOLID" contour_polyline_ent "") ; Вибираємо створену полілінію як межу
           (setq hatch_ent (entlast)) ; Отримуємо ім'я створеної заливки
           (setq hatch_obj (vlax-ename->vla-object hatch_ent))
 
