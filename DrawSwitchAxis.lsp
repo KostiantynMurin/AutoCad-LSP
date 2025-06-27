@@ -11,7 +11,8 @@
 ;; ==   4. Розраховує Центр Стрілочного Переводу (ЦСП) на прямій осі.
 ;; ==   5. Будує полілінію відгалуження від ЦСП з заданим кутом.
 ;; ==   6. Проектує оригінальний блок P5 на створену вісь відгалуження.
-;; ==   7. Переміщує блок P5 на його спроектоване положення на осі відгалуження.
+;; ==   7. Переміщує блок P5 на його спроектоване положення на осі відгалуження,
+;; ==      ПРИ ЦЬОМУ ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z-КООРДИНАТУ БЛОКУ.
 ;; ==   8. Обрізає/продовжує вісь відгалуження до спроектованої точки P5.
 ;; ==
 ;; == Виклик: DrawSwitchAxisPro
@@ -74,8 +75,7 @@
 
       (if (equal ent_type "INSERT")
         (progn
-          ;; Отримуємо точку вставки з DXF-коду 10, це буде LISP-список (X Y Z)
-          (setq insertion_pt (cdr (assoc 10 ent_list)))
+          (setq insertion_pt (cdr (assoc 10 ent_list))) ; Отримуємо точку вставки з DXF-коду 10
           (princ (strcat "\nОбрано блок. Точка: " (vl-princ-to-string insertion_pt)))
           (cons insertion_pt vla_obj) ; Повертаємо пару: координати . VLA-об'єкт
         )
@@ -99,7 +99,7 @@
                                  p1_coords p4_coords p3_coords p5_coords
                                  line_straight_obj proj_pt csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p5_projected_on_branch p5_block_vla
-                                 actual_p5_insertion_pt ) ; <--- Додав змінну для поточної точки вставки P5
+                                 actual_p5_insertion_pt final_p5_target_pt ) ; <--- Додав final_p5_target_pt
   
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -146,7 +146,7 @@
   (setq dist_to_csp 16.72)
   (setq vec_p1_proj (mapcar '- p1_coords proj_pt))
   (setq vec_p1_proj_unit (unit_vector vec_p1_proj))
-  (setq csp_pt (mapcar '+ proj_pt (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
+  (setq csp_pt (mapcar '+ proj_pt (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0)))) ; Z поки 0.0
   ;(command "_.POINT" csp_pt) ; Для візуалізації
 
   ;; 5. Визначення напрямку відгалуження (вліво/вправо)
@@ -174,16 +174,18 @@
   (setq p5_projected_on_branch (vlax-curve-getClosestPointTo branch_axis_obj p5_coords))
   ;(command "_.POINT" p5_projected_on_branch) ; Для візуалізації
 
-  ;; --- Переміщення блоку P5 на спроектовану точку ---
+  ;; --- Переміщення блоку P5 на спроектовану точку (ЗБЕРІГАЮЧИ Z!) ---
   (if p5_block_vla
     (progn
-      ;; Важливо: отримати ПОТОЧНУ точку вставки блоку перед переміщенням
-      (setq actual_p5_insertion_pt (vlax-safearray->list (vlax-variant-value (vla-get-InsertionPoint p5_block_vla))))
+      ;; Формуємо кінцеву цільову точку для блоку: XY зі спроектованої, Z з оригіналу P5
+      (setq final_p5_target_pt (list (car p5_projected_on_branch)
+                                     (cadr p5_projected_on_branch)
+                                     (caddr p5_coords))) ; <--- ЗБЕРІГАЄМО ОРИГІНАЛЬНУ Z
       
       (command "_move" (vlax-vla-object->ename p5_block_vla) "" 
-               "_none" actual_p5_insertion_pt 
-               "_none" p5_projected_on_branch)
-      (princ "\nБлок P5 переміщено на спроектовану точку.")
+               "_none" p5_coords ; Використовуємо оригінальну точку P5 як базову для переміщення
+               "_none" final_p5_target_pt)
+      (princ "\nБлок P5 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
     )
     (princ "\nПомилка: Не вдалося перемістити блок P5, VLA-об'єкт не знайдено.")
   )
@@ -191,8 +193,21 @@
   ;; --- Обрізка/зміна довжини осі відгалуження ---
   (if (and branch_axis_obj (equal (vla-get-objectname branch_axis_obj) "AcDbPolyline"))
     (progn
-      ;; Для 2D полілінії - встановлюємо 2-гу вершину (індекс 1)
-      (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point p5_projected_on_branch))
+      ;; Для 2D полілінії, vla-put-Coordinate (для індексу 1) очікує 2D точку (XY)
+      ;; Або, якщо ми хочемо передати 3D точку, вона буде використовуватись тільки для XY,
+      ;; а Z-координата полілінії визначається її Elevation.
+      ;; Щоб уникнути "Invalid number of elements in SafeArray", передаємо тільки XY
+      ;; і припускаємо, що Z полілінії визначена її Elevation.
+      
+      (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point (list (car p5_projected_on_branch) (cadr p5_projected_on_branch) (vla-get-Elevation branch_axis_obj))))
+      
+      ;; АБО, якщо ми знаємо, що це 2D Polyline і вона очікує 2D точку, то так:
+      ;; (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point (list (car p5_projected_on_branch) (cadr p5_projected_on_branch))))
+      ;; Це повинно заповнити тільки XY, а Z візьметься з Elevation.
+      ;; Давайте спробуємо другий варіант, як він більш типовий для 2D поліліній.
+      
+      (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point (list (car p5_projected_on_branch) (cadr p5_projected_on_branch))))
+      
       (vla-update branch_axis_obj)
       (princ "\nВісь відгалуження обрізано/продовжено до спроектованої точки P5.")
     )
@@ -203,8 +218,8 @@
   (princ "\nСкрипт завершено.")
   (princ) ; Тихий вихід
 
-  ;; Відновити оригінальні налаштування AutoCAD (виконується через *error* або при успішному завершенні)
-  (setq *oldEcho* nil) ; Обнулити, щоб *error* не намагався відновити неіснуючі
+  ;; Відновити оригінальні налаштування AutoCAD
+  (setq *oldEcho* nil)
   (setq *oldOsmode* nil)
   (setq *oldCmdDia* nil)
   (setq *oldOsmodeZ* nil)
