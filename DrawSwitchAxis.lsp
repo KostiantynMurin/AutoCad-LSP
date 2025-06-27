@@ -14,6 +14,7 @@
 ;; ==   7. Переміщує блок P5 на його спроектоване положення на осі відгалуження,
 ;; ==      ПРИ ЦЬОМУ ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z-КООРДИНАТУ БЛОКУ.
 ;; ==   8. Обрізає/продовжує вісь відгалуження до спроектованої точки P5.
+;; ==      (Тепер шляхом видалення старої та створення нової полілінії).
 ;; ==
 ;; == Виклик: DrawSwitchAxisPro
 ;; ============================================================
@@ -99,8 +100,9 @@
                                  p1_coords p4_coords p3_coords p5_coords
                                  line_straight_obj proj_pt csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p5_projected_on_branch p5_block_vla
-                                 actual_p5_insertion_pt final_p5_target_pt ) ; <--- Додав final_p5_target_pt
-  
+                                 actual_p5_insertion_pt final_p5_target_pt
+                                 temp_branch_axis_ent ) ; <--- Нова змінна для тимчасової полілінії
+
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
   (setq *oldOsmode* (getvar "OSMODE"))
@@ -146,7 +148,7 @@
   (setq dist_to_csp 16.72)
   (setq vec_p1_proj (mapcar '- p1_coords proj_pt))
   (setq vec_p1_proj_unit (unit_vector vec_p1_proj))
-  (setq csp_pt (mapcar '+ proj_pt (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0)))) ; Z поки 0.0
+  (setq csp_pt (mapcar '+ proj_pt (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
   ;(command "_.POINT" csp_pt) ; Для візуалізації
 
   ;; 5. Визначення напрямку відгалуження (вліво/вправо)
@@ -155,8 +157,8 @@
   (setq cross_z (caddr (cross_product vec_line vec_test)))
   (setq is_left (if (> cross_z 0) T nil))
 
-  ;; 6. Побудова осі відгалуження від ЦСП
-  (setq branch_length 20.0) ; Початкова довжина, буде скоригована далі
+  ;; 6. Побудова осі відгалуження від ЦСП (початкова, тимчасова)
+  (setq branch_length 20.0) ; Довжина для створення тимчасової лінії, потім її замінимо
   (setq branch_angle_deg 5.194444444) ; 5d11'40"
   (setq branch_angle_rad (dtr branch_angle_deg))
   (setq straight_line_angle (angle p1_coords p4_coords))
@@ -168,9 +170,11 @@
 
   (setq temp_branch_end_pt (polar csp_pt final_branch_angle branch_length))
   (command "_.PLINE" csp_pt temp_branch_end_pt "")
-  (setq branch_axis_obj (vlax-ename->vla-object (entlast)))
+  (setq temp_branch_axis_ent (entlast)) ; Зберігаємо ім'я тимчасової полілінії
 
-  ;; --- Проектування P5 на вісь відгалуження ---
+  ;; --- Проектування P5 на вісь відгалуження (навіть на тимчасову) ---
+  ;; Нам потрібен VLA-об'єкт для vlax-curve-getClosestPointTo
+  (setq branch_axis_obj (vlax-ename->vla-object temp_branch_axis_ent))
   (setq p5_projected_on_branch (vlax-curve-getClosestPointTo branch_axis_obj p5_coords))
   ;(command "_.POINT" p5_projected_on_branch) ; Для візуалізації
 
@@ -190,28 +194,23 @@
     (princ "\nПомилка: Не вдалося перемістити блок P5, VLA-об'єкт не знайдено.")
   )
 
-  ;; --- Обрізка/зміна довжини осі відгалуження ---
-  (if (and branch_axis_obj (equal (vla-get-objectname branch_axis_obj) "AcDbPolyline"))
+  ;; --- Обрізка/зміна довжини осі відгалуження (новий, надійний підхід) ---
+  (if (and temp_branch_axis_ent branch_axis_obj)
     (progn
-      ;; Для 2D полілінії, vla-put-Coordinate (для індексу 1) очікує 2D точку (XY)
-      ;; Або, якщо ми хочемо передати 3D точку, вона буде використовуватись тільки для XY,
-      ;; а Z-координата полілінії визначається її Elevation.
-      ;; Щоб уникнути "Invalid number of elements in SafeArray", передаємо тільки XY
-      ;; і припускаємо, що Z полілінії визначена її Elevation.
+      ;; 1. Видалити тимчасову полілінію відгалуження
+      (vla-delete branch_axis_obj) ; Видаляємо VLA-об'єкт, який відповідає temp_branch_axis_ent
+      (setq branch_axis_obj nil) ; Очищаємо змінну
+      (princ "\nТимчасова вісь відгалуження видалена.")
+
+      ;; 2. Створити нову, коректну полілінію від ЦСП до спроектованої P5
+      ;; Важливо: щоб Z полілінії була коректною, ми можемо взяти Z від ЦСП
+      (setq p5_proj_for_pline (list (car p5_projected_on_branch) (cadr p5_projected_on_branch) (caddr csp_pt))) ; Беремо Z з ЦСП для полілінії
       
-      (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point (list (car p5_projected_on_branch) (cadr p5_projected_on_branch) (vla-get-Elevation branch_axis_obj))))
-      
-      ;; АБО, якщо ми знаємо, що це 2D Polyline і вона очікує 2D точку, то так:
-      ;; (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point (list (car p5_projected_on_branch) (cadr p5_projected_on_branch))))
-      ;; Це повинно заповнити тільки XY, а Z візьметься з Elevation.
-      ;; Давайте спробуємо другий варіант, як він більш типовий для 2D поліліній.
-      
-      (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point (list (car p5_projected_on_branch) (cadr p5_projected_on_branch))))
-      
-      (vla-update branch_axis_obj)
-      (princ "\nВісь відгалуження обрізано/продовжено до спроектованої точки P5.")
+      (command "_.PLINE" csp_pt p5_proj_for_pline "") ; Створюємо нову полілінію
+      (setq branch_axis_obj (vlax-ename->vla-object (entlast))) ; Отримуємо VLA-об'єкт нової, коректної полілінії
+      (princ "\nНова вісь відгалуження від ЦСП до спроектованої P5 створена.")
     )
-    (princ "\nПомилка: Об'єкт осі відгалуження не є легкою полілінією або VLA-об'єкт відсутній, не вдалося обрізати.")
+    (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
   )
 
   (princ "\n--- Осі стрілочного переводу побудовано, блок P5 переміщено та вісь відгалуження скориговано! ---")
