@@ -1,7 +1,10 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
-;; == ... (попередній опис) ... ==
-;; == ВИПРАВЛЕНО: КОМАНДА ЗАЛИВКИ (HATCH) ==
+;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
+;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
+;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
+;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
+;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -103,7 +106,8 @@
                                  etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
                                  csp_marker_length csp_marker_lineweight
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
-                                 contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj )
+                                 contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
+                                 block_name acad_doc model_space block_def_found block_ref_obj ) ; Змінені змінні для блоку
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -451,6 +455,43 @@
       )
       (princ "\nУвага: Контурну полілінію не знайдено для видалення.")
   )
+
+  ;; === Вставка динамічного блоку "Система_Керування_СП" === (ОНОВЛЕНО: без запиту типу)
+  (princ "\n--- Вставка позначення Система_Керування_СП ---")
+  (setq block_name "Система_Керування_СП")
+  
+  ;; Отримання посилання на простір моделі
+  (setq acad_doc (vla-get-ActiveDocument (vlax-get-acad-object)))
+  (setq model_space (vla-get-ModelSpace acad_doc))
+
+  ;; 1. Перевірка наявності блоку в кресленні
+  (setq block_def_found nil)
+  (vl-catch-all-apply
+    (function (lambda ()
+                (setq block_def_found (vla-item (vla-get-Blocks acad_doc) block_name))
+              ))
+  )
+  
+  (if block_def_found
+      (progn
+          (princ (strcat "\nБлок '" block_name "' знайдено в кресленні."))
+
+          ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
+          ;; Використовуємо оригінальні координати для збереження Z-осі об'єкта
+          (setq insertion_angle (angle p1_orig_coords p4_orig_coords)) 
+
+          ;; 3. Вставка блоку
+          (setq block_ref_obj (vla-AddBlockReference model_space
+                                                    (vlax-3d-point p2_orig_coords) ; Точка вставки (оригінальні 3D координати P2)
+                                                    block_name
+                                                    1.0 1.0 1.0               ; Масштаб X, Y, Z
+                                                    insertion_angle))         ; Кут повороту
+          (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
+          (princ "\nКористувач може змінити видимість типу керування вручну.")
+      )
+      (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
+  )
+
 
   (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---"))
   (princ "\nСкрипт завершено.")
