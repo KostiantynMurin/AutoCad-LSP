@@ -2,8 +2,8 @@
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
-;; == ПОЗНАЧКА ЦСП ТА ВАГА ЛІНІЙ (0.30 мм) ==
-;; == ВИПРАВЛЕНО: ПЕРЕВІРКА ВИДИМОСТІ МАРКЕРА ЦСП ==
+;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
+;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -104,7 +104,8 @@
                                  debug_file debug_file_path
                                  etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
                                  csp_marker_length csp_marker_lineweight
-                                 straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj )
+                                 straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
+                                 contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj ) ; Нові змінні для контуру
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -394,15 +395,62 @@
 
   (command "_.PLINE" csp_marker_pt1 csp_marker_pt2 "")
   (setq csp_marker_obj (vlax-ename->vla-object (entlast)))
-  (if csp_marker_obj ; Перевіряємо, чи об'єкт створено, перш ніж змінювати властивості
+  (if csp_marker_obj
       (progn
           (vla-put-Lineweight csp_marker_obj csp_marker_lineweight) ; Встановлюємо вагу лінії
-          (vla-put-color csp_marker_obj 1) ; ТИМЧАСОВО: Встановлюємо колір на червоний для видимості
+          (vla-put-color csp_marker_obj 256) ; Встановлюємо колір на ByLayer
           (princ (strcat "\nDBG: Маркер ЦСП (EntName: " (vl-princ-to-string (vlax-vla-object->ename csp_marker_obj)) ") створено."))
       )
       (princ "\nERROR: Маркер ЦСП не вдалося створити.")
   )
   (princ "\nМаркер ЦСП накреслено.") ; Це повідомлення про успіх, якщо маркер створено
+
+  ;; --- Створення замкнутого контуру з чорною заливкою ---
+  (princ "\nСтворення замкнутого контуру та заливка чорним...")
+
+  ;; 1. Розраховуємо точки контуру
+  (setq contour_length_along_straight 15.0) ; Довжина від ЦСП вздовж прямої осі
+  
+  ;; Точка 1: ЦСП (csp_pt) - вже є
+  ;; Точка 2: 15м від ЦСП в напрямку P4
+  (setq contour_pt2 (polar csp_pt (angle csp_pt p4_2d_coords) contour_length_along_straight))
+
+  ;; Точка 3: На лінії ЦСП-P5, перпендикуляр від Точки 2
+  ;; Проектуємо contour_pt2 на лінію, що проходить через csp_pt і p5_projected_on_branch
+  (setq contour_pt3 (vlax-curve-getClosestPointTo branch_axis_obj contour_pt2)) ; branch_axis_obj - це полілінія від ЦСП до p5_projected_on_branch
+
+  ;; 2. Створюємо замкнуту полілінію
+  (command "_.PLINE" csp_pt contour_pt2 contour_pt3 "_C") ; Створюємо замкнуту полілінію
+  (setq contour_polyline_ent (entlast)) ; Отримуємо ім'я створеної полілінії
+  (setq contour_polyline_obj (vlax-ename->vla-object contour_polyline_ent))
+
+  ;; 3. Заливаємо контур чорним кольором
+  (if contour_polyline_obj
+      (progn
+          ;; Команда HATCH. _S для вибору об'єктів, _A для створення асоціативної заливки, SOLID для суцільної заливки.
+          (command "_.HATCH" "_S" "_A" "SOLID" "" contour_polyline_ent "") ; Вибираємо створену полілінію як межу
+          (setq hatch_ent (entlast)) ; Отримуємо ім'я створеної заливки
+          (setq hatch_obj (vlax-ename->vla-object hatch_ent))
+
+          (if hatch_obj
+              (progn
+                  (vla-put-Color hatch_obj 7) ; Встановлюємо колір на чорний/білий (ACLISP index 7)
+                  (princ "\nЗамкнутий контур залито чорним.")
+              )
+              (princ "\nERROR: Не вдалося створити об'єкт заливки.")
+          )
+      )
+      (princ "\nERROR: Не вдалося створити контурну полілінію для заливки.")
+  )
+
+  ;; 4. Видаляємо контурну полілінію (залишаємо тільки заливку)
+  (if (and contour_polyline_obj (not (vlax-object-released-p contour_polyline_obj)))
+      (progn
+          (vla-delete contour_polyline_obj)
+          (princ "\nКонтурні лінії видалено, залишено лише заливку.")
+      )
+      (princ "\nУвага: Контурну полілінію не знайдено для видалення.")
+  )
 
   (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---"))
   (princ "\nСкрипт завершено.")
