@@ -1,7 +1,7 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == ... (попередній опис) ... ==
-;; == ДОДАНО ГЛОБАЛЬНУ ЗМІННУ ДЛЯ КОРЕКЦІЇ КУТА ПОВОРОТУ БЛОКУ "Система_Керування_СП" == (ОНОВЛЕНО!)
+;; == ВИПРАВЛЕНО: КУТ ВСТАВКИ БЛОКУ ТЕПЕР ПЕРЕТВОРЮЄТЬСЯ В ГРАДУСИ ДЛЯ COMMAND == (ОНОВЛЕНО!)
 ;; ====================================================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -9,14 +9,18 @@
 ;; ============================================================
 ;; == ГЛОБАЛЬНІ НАЛАШТУВАННЯ СКРИПТА (Редагуйте ці значення) ==
 ;; ============================================================
-;; -- Корекція кута повороту для динамічного блоку "Система_Керування_СП" --
-;; Якщо блок "Система_Керування_СП" повертається неправильно,
-;; змініть це значення (у градусах).
-;; - Якщо блок намальований вертикально (вздовж осі Y) і має бути ПЕРПЕНДИКУЛЯРНО до P1-P4:
-;;   Зазвичай *switch_block_rotation_offset_deg* має бути 0.0, або 180.0.
-;;   Якщо він повернутий на 90 градусів від бажаного, спробуйте +/- 90.0.
+;; -- Додаткова корекція кута повороту для динамічного блоку "Система_Керування_СП" --
+;; (У градусах) - для точного вирівнювання, якщо базової перпендикулярності (90 градусів) недостатньо.
+;; Якщо блок повертається неправильно, змініть це значення.
+;; Спробуйте 0.0, 90.0, 180.0, 270.0 (градусів) або їх від'ємні значення,
+;; доки блок не стане перпендикулярно лінії P1-P4 так, як вам потрібно.
+;;
+;; ЗАРАЗ КУТ ВСТАВКИ БЛОКУ = КУТ_ЛІНІЇ_P1-P4 + ЗНАЧЕННЯ_ЦІЄЇ_ЗМІННОЇ
+;; Якщо ваш блок намальований вертикально (вздовж осі Y) і ви хочете, щоб його Y-вісь
+;; була перпендикулярна до лінії P1-P4, залиште 0.0.
+;; Якщо він виглядає горизонтальним, спробуйте 90.0 або -90.0.
 (if (not *switch_block_rotation_offset_deg*)
-    (setq *switch_block_rotation_offset_deg* 0.0) ; За замовчуванням 0.0 (вирівнює вісь Х блоку вздовж лінії P1-P4)
+    (setq *switch_block_rotation_offset_deg* 0.0) ; За замовчуванням: немає додаткової корекції
 )
 ;; ============================================================
 
@@ -119,7 +123,7 @@
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
                                  contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
                                  block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent 
-                                 base_p1_p4_angle_rad ) ; Додана змінна для базового кута
+                                 base_p1_p4_angle_rad insertion_angle_rad final_insertion_angle_deg ) ; <--- Змінені змінні для кутів
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -341,9 +345,9 @@
   (setq cross_z (caddr (cross_product vec_line vec_test)))
   (setq is_left (if (> cross_z 0) T nil))
 
-  ;; 6. Побудова осі відгалуження від ЦСП (початкова, тимчасова)
-  (setq branch_length 20.0) ; Початкова довжина
-  ;;    branch_angle_deg вже визначено вище
+  ;; 6. Pobstava osi vidgaluzhennya vid CSP (pochaykova, tymchasova)
+  (setq branch_length 20.0) ; Initial length
+  ;;    branch_angle_deg already determined above
   (setq branch_angle_rad (dtr branch_angle_deg))
   (setq straight_line_angle (angle p1_2d_coords p4_2d_coords))
 
@@ -486,24 +490,26 @@
           (princ (strcat "\nБлок '" block_name "' знайдено в кресленні."))
 
           ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
-          ;; base_p1_p4_angle_rad вже розраховано раніше (якщо потрібно перерахувати, то тут: (angle p1_2d_coords p4_2d_coords))
-          (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) ; Перераховуємо для впевненості
+          (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) 
           
-          ;; Кут вставки блоку = кут лінії P1-P4 + корекція з глобальної змінної
-          (setq insertion_angle (+ base_p1_p4_angle_rad (dtr *switch_block_rotation_offset_deg*))) ; <--- ДОДАЄМО КОРЕКЦІЮ
-          
+          ;; Кут вставки блоку = кут лінії P1-P4 + корекція з глобальної змінної.
+          ;; Важливо: перетворюємо радіани в градуси для команди _.INSERT
+          (setq final_insertion_angle_deg (+ (rtd base_p1_p4_angle_rad) *switch_block_rotation_offset_deg*)) ; <--- ТУТ ПЕРЕТВОРЮЄМО В ГРАДУСИ
+
           ;; --- DEBUG ---
           (princ (strcat "\nDBG: Базовий кут P1-P4 (в рад): " (rtos base_p1_p4_angle_rad 2 8)))
-          (princ (strcat "\nDBG: Корекція кута (град): " (rtos *switch_block_rotation_offset_deg* 2 8)))
-          (princ (strcat "\nDBG: Фінальний кут вставки блоку (в рад): " (rtos insertion_angle 2 8)))
+          (princ (strcat "\nDBG: Базовий кут P1-P4 (в град): " (rtos (rtd base_p1_p4_angle_rad) 2 8)))
+          (princ (strcat "\nDBG: Встановлена корекція (град): " (rtos *switch_block_rotation_offset_deg* 2 8)))
+          (princ (strcat "\nDBG: Фінальний кут вставки блоку (в град): " (rtos final_insertion_angle_deg 2 8))) ; Логуємо в градусах
           (if debug_file
               (progn
                   (write-line (strcat "Insertion Angle Details:" ) debug_file)
                   (write-line (strcat "  P1_2d: " (rtos (car p1_2d_coords) 2 15) ", " (rtos (cadr p1_2d_coords) 2 15)) debug_file)
                   (write-line (strcat "  P4_2d: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15)) debug_file)
                   (write-line (strcat "  Base P1-P4 Angle (rad): " (rtos base_p1_p4_angle_rad 2 15)) debug_file)
+                  (write-line (strcat "  Base P1-P4 Angle (deg): " (rtos (rtd base_p1_p4_angle_rad) 2 15)) debug_file)
                   (write-line (strcat "  Rotation Offset (deg): " (rtos *switch_block_rotation_offset_deg* 2 15)) debug_file)
-                  (write-line (strcat "  Final Insertion Angle (rad): " (rtos insertion_angle 2 15)) debug_file)
+                  (write-line (strcat "  Final Insertion Angle (deg): " (rtos final_insertion_angle_deg 2 15)) debug_file)
                   (write-line "" debug_file)
               )
           )
@@ -515,7 +521,7 @@
                    p2_orig_coords
                    1.0 ; Scale X
                    1.0 ; Scale Y
-                   insertion_angle) ; Кут повороту
+                   final_insertion_angle_deg) ; <--- ПЕРЕДАЄМО КУТ У ГРАДУСАХ
           
           ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
           (setq block_ref_ent (entlast))
