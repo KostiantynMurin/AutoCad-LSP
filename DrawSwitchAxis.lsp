@@ -1,23 +1,7 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
-;; == Призначення:
-;; ==   1. Користувач обирає 5 блоків-точок геодезичної зйомки.
-;; ==   2. АВТОМАТИЧНО визначає марку хрестовини (1/9 або 1/11)
-;; ==      за фактичним кутом відгалуження в площині XY.
-;; ==   3. Всі геометричні розрахунки виконуються в 2D (Z=0).
-;; ==   4. Будує пряму полілінію (P1-P2_proj-P4) в 2D.
-;; ==   5. Визначає проекцію P3 на пряму вісь (в 2D).
-;; ==   6. Розраховує Центр Стрілочного Переводу (ЦСП) на прямій осі (в 2D).
-;; ==   7. Будує полілінію відгалуження від ЦСП з кутом,
-;; ==      який відповідає визначеній марці (в 2D).
-;; ==   8. Проектує оригінальний блок P2 на пряму вісь (в 2D) та переміщує його,
-;; ==      ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z-КООРДИНАТУ блоку.
-;; ==   9. Проектує оригінальний блок P5 на створену вісь відгалуження (в 2D) та переміщує його,
-;; ==      ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z-КООРДИНАТУ блоку.
-;; ==   10. Обрізає/продовжує осі до спроектованих точок (в 2D).
-;; ==
-;; == Виклик: DrawSwitchAxisPro
+;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -42,7 +26,6 @@
 )
 
 ;; Допоміжна функція для отримання одиничного вектора
-;; Працює з векторами будь-якої розмірності (2D або 3D)
 (defun unit_vector (vec)
   (setq len (distance (apply 'list (mapcar (function (lambda (x) 0.0)) vec)) vec))
   (if (and (numberp len) (> len 0.000001))
@@ -57,7 +40,6 @@
 )
 
 ;; Допоміжна функція для векторного добутку (cross product) - для визначення ліво/право
-;; Працює для 3D векторів, але для 2D використовується Z-компонента результату
 (defun cross_product (v1 v2)
   (setq v1 (if (= (length v1) 2) (append v1 '(0.0)) v1))
   (setq v2 (if (= (length v2) 2) (append v2 '(0.0)) v2))
@@ -105,8 +87,8 @@
 ;; == ОСНОВНА ФУНКЦІЯ СКРИПТА ==
 ;; ============================================================
 (defun c:DrawSwitchAxisPro ( / p1_data p2_data p4_data p3_data p5_data
-                                 p1_orig_coords p2_orig_coords p4_orig_coords p3_orig_coords p5_orig_coords ; Оригінальні 3D координати
-                                 p1_2d_coords p2_2d_coords p4_2d_coords p3_2d_coords p5_2d_coords ; 2D (Z=0) координати для геометрії
+                                 p1_orig_coords p2_orig_coords p4_orig_coords p3_orig_coords p5_orig_coords
+                                 p1_2d_coords p2_2d_coords p4_2d_coords p3_2d_coords p5_2d_coords
                                  straight_axis_obj
                                  proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p2_projected_on_straight p5_projected_on_branch
@@ -117,7 +99,9 @@
                                  mark_1_9_angle_deg mark_1_11_angle_deg
                                  mark_1_9_dist_to_csp mark_1_11_dist_to_csp
                                  determined_mark
-                                 dist_to_csp branch_angle_deg )
+                                 dist_to_csp branch_angle_deg
+                                 angle_p3_p4_rad angle_p3_p5_rad ; Змінні для кутів відносно X-осі
+                                 debug_file ) ; Змінна для файлу дебагу
   
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -166,6 +150,31 @@
   (princ (strcat "\nDBG: P4_2D: " (vl-princ-to-string p4_2d_coords)))
   (princ (strcat "\nDBG: P5_2D: " (vl-princ-to-string p5_2d_coords)))
 
+  ;; --- START DEBUG FILE LOGGING ---
+  ;; Створюємо файл логу з максимальною точністю для перевірки координат
+  ;; ЗМІНИ ШЛЯХ ДО ФАЙЛУ, ЯКЩО НЕМАЄ ДОСТУПУ ДО C:\
+  (setq debug_file (open "C:\\SwitchAxisDebug.txt" "w"))
+  (if debug_file
+      (progn
+          (write-line (strcat "--- DEBUG LOG --- " (rtos (getvar "CDATE") 2 8)) debug_file)
+          (write-line "" debug_file)
+          (write-line "--- Original 3D Coords (from selected blocks) ---" debug_file)
+          (write-line (strcat "P1_orig_coords: " (rtos (car p1_orig_coords) 2 15) ", " (rtos (cadr p1_orig_coords) 2 15) ", " (rtos (caddr p1_orig_coords) 2 15)) debug_file)
+          (write-line (strcat "P2_orig_coords: " (rtos (car p2_orig_coords) 2 15) ", " (rtos (cadr p2_orig_coords) 2 15) ", " (rtos (caddr p2_orig_coords) 2 15)) debug_file)
+          (write-line (strcat "P3_orig_coords: " (rtos (car p3_orig_coords) 2 15) ", " (rtos (cadr p3_orig_coords) 2 15) ", " (rtos (caddr p3_orig_coords) 2 15)) debug_file)
+          (write-line (strcat "P4_orig_coords: " (rtos (car p4_orig_coords) 2 15) ", " (rtos (cadr p4_orig_coords) 2 15) ", " (rtos (caddr p4_orig_coords) 2 15)) debug_file)
+          (write-line (strcat "P5_orig_coords: " (rtos (car p5_orig_coords) 2 15) ", " (rtos (cadr p5_orig_coords) 2 15) ", " (rtos (caddr p5_orig_coords) 2 15)) debug_file)
+          (write-line "" debug_file)
+          (write-line "--- 2D Coords (Z=0) for calculations ---" debug_file)
+          (write-line (strcat "P1_2d_coords: " (rtos (car p1_2d_coords) 2 15) ", " (rtos (cadr p1_2d_coords) 2 15) ", " (rtos (caddr p1_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "P2_2d_coords: " (rtos (car p2_2d_coords) 2 15) ", " (rtos (cadr p2_2d_coords) 2 15) ", " (rtos (caddr p2_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "P3_2d_coords: " (rtos (car p3_2d_coords) 2 15) ", " (rtos (cadr p3_2d_coords) 2 15) ", " (rtos (caddr p3_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "P4_2d_coords: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15) ", " (rtos (caddr p4_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "P5_2d_coords: " (rtos (car p5_2d_coords) 2 15) ", " (rtos (cadr p5_2d_coords) 2 15) ", " (rtos (caddr p5_2d_coords) 2 15)) debug_file)
+          (write-line "" debug_file)
+      )
+      (princ "\nERROR: Could not open debug file for writing. Check path/permissions.")
+  )
 
   ;; ===================================================================
   ;; == АВТОМАТИЧНЕ ВИЗНАЧЕННЯ МАРКИ ХРЕСТОВИНИ (ТЕПЕР ЧЕРЕЗ angle() ДЛЯ 2D!) ==
@@ -173,11 +182,15 @@
   (princ "\nВизначення марки хрестовини за фактичним кутом (XY, через функцію angle())...")
   
   ;; Використовуємо функцію (angle) для отримання кутів відносно осі X для 2D-векторів
-  (setq angle_p3_p4 (angle p3_2d_coords p4_2d_coords)) ; Кут вектора P3->P4 відносно X-осі
-  (setq angle_p3_p5 (angle p3_2d_coords p5_2d_coords)) ; Кут вектора P3->P5 відносно X-осі
+  ;; P3 є вершиною кута, P4 і P5 - точки на сторонах кута
+  (setq angle_p3_p4_rad (angle p3_2d_coords p4_2d_coords)) ; Кут вектора P3->P4 відносно X-осі в радіанах
+  (setq angle_p3_p5_rad (angle p3_2d_coords p5_2d_coords)) ; Кут вектора P3->P5 відносно X-осі в радіанах
+
+  (princ (strcat "\nDBG: angle_p3_p4_rad = " (rtos angle_p3_p4_rad 2 15) " rad (" (rtos (rtd angle_p3_p4_rad) 2 8) " deg)")) ; <--- DBG
+  (princ (strcat "\nDBG: angle_p3_p5_rad = " (rtos angle_p3_p5_rad 2 15) " rad (" (rtos (rtd angle_p3_p5_rad) 2 8) " deg)")) ; <--- DBG
 
   ;; Обчислюємо абсолютну різницю кутів (завжди позитивна і менше 360 градусів)
-  (setq actual_branch_angle_rad (abs (- angle_p3_p4 angle_p3_p5)))
+  (setq actual_branch_angle_rad (abs (- angle_p3_p4_rad angle_p3_p5_rad)))
   
   ;; Обробка випадку, коли кут більший за PI (180 градусів), щоб взяти меншу дугу
   (if (> actual_branch_angle_rad pi)
@@ -186,6 +199,20 @@
 
   (setq actual_branch_angle_deg (rtd actual_branch_angle_rad))
   (princ (strcat "\nФактичний кут відгалуження (градуси, XY): " (rtos actual_branch_angle_deg 2 8)))
+
+  ;; --- DEBUG FILE LOGGING ---
+  (if debug_file
+      (progn
+          (write-line (strcat "Angle P3_2D to P4_2D (rad): " (rtos angle_p3_p4_rad 2 15)) debug_file)
+          (write-line (strcat "Angle P3_2D to P5_2D (rad): " (rtos angle_p3_p5_rad 2 15)) debug_file)
+          (write-line (strcat "Calculated branch angle (rad, before clamp): " (rtos (abs (- angle_p3_p4_rad angle_p3_p5_rad)) 2 15)) debug_file)
+          (write-line (strcat "Calculated branch angle (rad, after clamp): " (rtos actual_branch_angle_rad 2 15)) debug_file)
+          (write-line (strcat "Calculated branch angle (deg, after clamp): " (rtos actual_branch_angle_deg 2 15)) debug_file)
+          (write-line "" debug_file)
+      )
+  )
+  ;; --- END DEBUG FILE LOGGING ---
+
 
   ;; Еталонні кути для порівняння (в градусах)
   (setq mark_1_9_angle_deg 6.340277778)   ; 6°20'25"
@@ -223,14 +250,14 @@
   (setq temp_straight_axis_ent (entlast))
 
   ;; 3. Проектування P2 та P3 на тимчасову пряму вісь (в 2D)
-  (setq proj_pt_p2 (vlax-curve-getClosestPointTo straight_axis_obj p2_2d_coords)) ; <--- Проектуємо P2 в 2D
-  (setq proj_pt_p3 (vlax-curve-getClosestPointTo straight_axis_obj p3_2d_coords)) ; Проектуємо P3 в 2D
+  (setq proj_pt_p2 (vlax-curve-getClosestPointTo straight_axis_obj p2_2d_coords))
+  (setq proj_pt_p3 (vlax-curve-getClosestPointTo straight_axis_obj p3_2d_coords))
 
   ;; 4. Розрахунок Центру Стрілочного Переводу (ЦСП) на основі спроектованої P3 (в 2D)
   ;;    dist_to_csp вже визначено вище
-  (setq vec_p1_proj (mapcar '- p1_2d_coords proj_pt_p3)) ; Вектор у 2D
-  (setq vec_p1_proj_unit (unit_vector vec_p1_proj)) ; Одиничний вектор у 2D
-  (setq csp_pt (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0)))) ; ЦСП у 2D
+  (setq vec_p1_proj (mapcar '- p1_2d_coords proj_pt_p3))
+  (setq vec_p1_proj_unit (unit_vector vec_p1_proj))
+  (setq csp_pt (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
 
   ;; --- Переміщення блоку P2 на спроектовану точку (ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z!) ---
   (if p2_block_vla
@@ -238,10 +265,10 @@
       ;; final_p2_target_pt формується з XY спроектованої 2D точки та ОРИГІНАЛЬНОЇ Z блоку P2
       (setq final_p2_target_pt (list (car proj_pt_p2)
                                      (cadr proj_pt_p2)
-                                     (caddr p2_orig_coords))) ; <--- ЗБЕРІГАЄМО ОРИГІНАЛЬНУ Z
+                                     (caddr p2_orig_coords)))
       
       (command "_move" (vlax-vla-object->ename p2_block_vla) "" 
-               "_none" p2_orig_coords ; Оригінальна 3D точка P2 як база для переміщення
+               "_none" p2_orig_coords
                "_none" final_p2_target_pt)
       (princ "\nБлок P2 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
     )
@@ -252,17 +279,17 @@
   (if temp_straight_axis_ent
     (progn
       (vla-delete (vlax-ename->vla-object temp_straight_axis_ent))
-      (setq straight_axis_obj nil) ; Очищаємо змінну
+      (setq straight_axis_obj nil)
       (princ "\nТимчасова пряма вісь видалена.")
       
       ;; Створюємо нову пряму полілінію P1 - P2_proj - P4 в 2D
       ;; Z-координати для полілінії будуть 0.0, оскільки ми працюємо в 2D.
       (setq p2_proj_for_pline (list (car proj_pt_p2)
                                     (cadr proj_pt_p2)
-                                    0.0)) ; Z = 0.0 для полілінії
+                                    0.0))
       
-      (command "_.PLINE" p1_2d_coords p2_proj_for_pline p4_2d_coords "") ; <--- Нова пряма полілінія з 2D-координатами
-      (setq straight_axis_obj (vlax-ename->vla-object (entlast))) ; Оновлюємо VLA-об'єкт прямої осі
+      (command "_.PLINE" p1_2d_coords p2_proj_for_pline p4_2d_coords "")
+      (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
       (princ "\nНова пряма вісь (P1-P2_proj-P4) створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити пряму вісь.")
@@ -279,15 +306,15 @@
   (setq branch_length 20.0) ; Початкова довжина
   ;;    branch_angle_deg вже визначено вище
   (setq branch_angle_rad (dtr branch_angle_deg))
-  (setq straight_line_angle (angle p1_2d_coords p4_2d_coords)) ; Кут прямої осі в 2D
+  (setq straight_line_angle (angle p1_2d_coords p4_2d_coords))
 
   (if is_left
     (setq final_branch_angle (+ straight_line_angle branch_angle_rad))
     (setq final_branch_angle (- straight_line_angle branch_angle_rad))
   )
 
-  (setq temp_branch_end_pt (polar csp_pt final_branch_angle branch_length)) ; ЦСП і кут вже 2D
-  (command "_.PLINE" csp_pt temp_branch_end_pt "") ; Креслимо полілінію в 2D
+  (setq temp_branch_end_pt (polar csp_pt final_branch_angle branch_length))
+  (command "_.PLINE" csp_pt temp_branch_end_pt "")
   (setq temp_branch_axis_ent (entlast))
 
   ;; --- Проектування P5 на вісь відгалуження (в 2D) ---
@@ -300,10 +327,10 @@
       ;; final_p5_target_pt формується з XY спроектованої 2D точки та ОРИГІНАЛЬНОЇ Z блоку P5
       (setq final_p5_target_pt (list (car p5_projected_on_branch)
                                      (cadr p5_projected_on_branch)
-                                     (caddr p5_orig_coords))) ; <--- ЗБЕРІГАЄМО ОРИГІНАЛЬНУ Z
+                                     (caddr p5_orig_coords)))
       
       (command "_move" (vlax-vla-object->ename p5_block_vla) "" 
-               "_none" p5_orig_coords ; Оригінальна 3D точка P5 як база для переміщення
+               "_none" p5_orig_coords
                "_none" final_p5_target_pt)
       (princ "\nБлок P5 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
     )
@@ -321,10 +348,10 @@
       ;; Z-координата для полілінії буде 0.0, оскільки ми працюємо в 2D.
       (setq p5_proj_for_pline_branch (list (car p5_projected_on_branch)
                                             (cadr p5_projected_on_branch)
-                                            0.0)) ; Z = 0.0 для полілінії
+                                            0.0))
       
-      (command "_.PLINE" csp_pt p5_proj_for_pline_branch "") ; Створюємо нову полілінію в 2D
-      (setq branch_axis_obj (vlax-ename->vla-object (entlast))) ; Отримуємо VLA-об'єкт нової, коректної полілінії
+      (command "_.PLINE" csp_pt p5_proj_for_pline_branch "")
+      (setq branch_axis_obj (vlax-ename->vla-object (entlast)))
       (princ "\nНова вісь відгалуження від ЦСП до спроектованої P5 створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
@@ -333,6 +360,9 @@
   (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---"))
   (princ "\nСкрипт завершено.")
   (princ)
+
+  ;; --- END DEBUG FILE LOGGING ---
+  (if debug_file (close debug_file)) ; Закриваємо файл дебагу в кінці
 
   ;; Відновити оригінальні налаштування AutoCAD
   (setq *oldEcho* nil)
