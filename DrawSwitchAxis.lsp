@@ -1,10 +1,24 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == ... (попередній опис) ... ==
-;; == ВСТАВКА ДИНАМІЧНОГО БЛОКУ ПЕРПЕНДИКУЛЯРНО ДО ЛІНІЇ P1-P4 (ОСТАТОЧНО ВИПРАВЛЕНО!) == (ОНОВЛЕНО!)
+;; == ДОДАНО ГЛОБАЛЬНУ ЗМІННУ ДЛЯ КОРЕКЦІЇ КУТА ПОВОРОТУ БЛОКУ "Система_Керування_СП" == (ОНОВЛЕНО!)
 ;; ====================================================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
+
+;; ============================================================
+;; == ГЛОБАЛЬНІ НАЛАШТУВАННЯ СКРИПТА (Редагуйте ці значення) ==
+;; ============================================================
+;; -- Корекція кута повороту для динамічного блоку "Система_Керування_СП" --
+;; Якщо блок "Система_Керування_СП" повертається неправильно,
+;; змініть це значення (у градусах).
+;; - Якщо блок намальований вертикально (вздовж осі Y) і має бути ПЕРПЕНДИКУЛЯРНО до P1-P4:
+;;   Зазвичай *switch_block_rotation_offset_deg* має бути 0.0, або 180.0.
+;;   Якщо він повернутий на 90 градусів від бажаного, спробуйте +/- 90.0.
+(if (not *switch_block_rotation_offset_deg*)
+    (setq *switch_block_rotation_offset_deg* 0.0) ; За замовчуванням 0.0 (вирівнює вісь Х блоку вздовж лінії P1-P4)
+)
+;; ============================================================
 
 ;; Глобальні змінні для збереження оригінальних налаштувань AutoCAD
 (setq *oldEcho* nil)
@@ -104,7 +118,8 @@
                                  csp_marker_length csp_marker_lineweight
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
                                  contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
-                                 block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent )
+                                 block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent 
+                                 base_p1_p4_angle_rad ) ; Додана змінна для базового кута
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -426,9 +441,6 @@
   ;; 3. Заливаємо контур чорним кольором
   (if contour_polyline_obj
       (progn
-          ;; !!! ВИПРАВЛЕНО КОМАНДУ HATCH !!!
-          ;; Передаємо об'єкт полілінії напряму, без опцій "_S" "_A"
-          ;; HATCH приймає: (pattern_name) (object_entname) (ENTER to finish selection) (ENTER to accept scale/angle)
           (command "_.HATCH" "SOLID" contour_polyline_ent "") ; Вибираємо створену полілінію як межу
           (setq hatch_ent (entlast)) ; Отримуємо ім'я створеної заливки
           (setq hatch_obj (vlax-ename->vla-object hatch_ent))
@@ -453,7 +465,7 @@
       (princ "\nУвага: Контурну полілінію не знайдено для видалення.")
   )
 
-  ;; === Вставка динамічного блоку "Система_Керування_СП" === (ОНОВЛЕНО: через COMMAND)
+  ;; === Вставка динамічного блоку "Система_Керування_СП" === (З КОРЕКЦІЄЮ КУТА)
   (princ "\n--- Вставка позначення Система_Керування_СП ---")
   (setq block_name "Система_Керування_СП")
   
@@ -474,18 +486,30 @@
           (princ (strcat "\nБлок '" block_name "' знайдено в кресленні."))
 
           ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
-          ;; Використовуємо 2D координати для гарантованої роботи в площині XY
-          (setq insertion_angle (angle p1_2d_coords p4_2d_coords)) 
-          ;; Блок намальований вертикально (вздовж осі Y).
-          ;; Щоб він став ПЕРПЕНДИКУЛЯРНО до лінії P1-P4, його власна вісь X (яка горизонтальна)
-          ;; має бути вирівняна вздовж лінії P1-P4.
-          ;; Отже, кут повороту блоку має бути просто кутом лінії P1-P4.
-          ;; Ми прибираємо додавання (+ (/ pi 2.0))
-          ;; Якщо це все ще не так, можливо, внутрішня орієнтація блоку інша
-          ;; і знадобиться інший фіксований відступ (+/- 0, +/pi, +/- pi/2).
+          ;; base_p1_p4_angle_rad вже розраховано раніше (якщо потрібно перерахувати, то тут: (angle p1_2d_coords p4_2d_coords))
+          (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) ; Перераховуємо для впевненості
+          
+          ;; Кут вставки блоку = кут лінії P1-P4 + корекція з глобальної змінної
+          (setq insertion_angle (+ base_p1_p4_angle_rad (dtr *switch_block_rotation_offset_deg*))) ; <--- ДОДАЄМО КОРЕКЦІЮ
+          
+          ;; --- DEBUG ---
+          (princ (strcat "\nDBG: Базовий кут P1-P4 (в рад): " (rtos base_p1_p4_angle_rad 2 8)))
+          (princ (strcat "\nDBG: Корекція кута (град): " (rtos *switch_block_rotation_offset_deg* 2 8)))
+          (princ (strcat "\nDBG: Фінальний кут вставки блоку (в рад): " (rtos insertion_angle 2 8)))
+          (if debug_file
+              (progn
+                  (write-line (strcat "Insertion Angle Details:" ) debug_file)
+                  (write-line (strcat "  P1_2d: " (rtos (car p1_2d_coords) 2 15) ", " (rtos (cadr p1_2d_coords) 2 15)) debug_file)
+                  (write-line (strcat "  P4_2d: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15)) debug_file)
+                  (write-line (strcat "  Base P1-P4 Angle (rad): " (rtos base_p1_p4_angle_rad 2 15)) debug_file)
+                  (write-line (strcat "  Rotation Offset (deg): " (rtos *switch_block_rotation_offset_deg* 2 15)) debug_file)
+                  (write-line (strcat "  Final Insertion Angle (rad): " (rtos insertion_angle 2 15)) debug_file)
+                  (write-line "" debug_file)
+              )
+          )
+          ;; --- END DEBUG ---
 
           ;; 3. Вставка блоку за допомогою COMMAND
-          ;; _.INSERT <BlockName> <InsertionPoint> <ScaleX> <ScaleY> <Rotation>
           (command "_.INSERT"
                    block_name
                    p2_orig_coords
