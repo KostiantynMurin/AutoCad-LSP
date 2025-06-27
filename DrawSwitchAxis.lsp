@@ -1,20 +1,23 @@
 ;; ============================================================
-;; == Скрипт для побудови осі стрілочного переводу 1/11 за геодезичними точками ==
+;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == Призначення:
 ;; ==   1. Користувач обирає 5 блоків-точок геодезичної зйомки:
 ;; ==      - P1: Стик рамної рейки
-;; ==      - P2: Початок вістря (НОВЕ)
+;; ==      - P2: Початок вістря
 ;; ==      - P4: Хвіст хрестовини по прямому напрямку
 ;; ==      - P3: Центр хрестовини
 ;; ==      - P5: Хвіст хрестовини по відгалуженню
-;; ==   2. Будує пряму полілінію (P1-P2_proj-P4).
-;; ==   3. Визначає проекцію P3 на пряму вісь.
-;; ==   4. Розраховує Центр Стрілочного Переводу (ЦСП) на прямій осі.
-;; ==   5. Будує полілінію відгалуження від ЦСП з заданим кутом.
-;; ==   6. Проектує оригінальний блок P2 на пряму вісь та переміщує його, зберігаючи Z.
-;; ==   7. Обрізає/продовжує пряму вісь, додаючи спроектовану точку P2 як вершину.
-;; ==   8. Проектує оригінальний блок P5 на створену вісь відгалуження та переміщує його, зберігаючи Z.
-;; ==   9. Обрізає/продовжує вісь відгалуження до спроектованої точки P5.
+;; ==   2. АВТОМАТИЧНО визначає марку хрестовини (1/9 або 1/11)
+;; ==      за фактичним кутом між напрямками P3-P4 та P3-P5.
+;; ==   3. Будує пряму полілінію (P1-P2_proj-P4).
+;; ==   4. Визначає проекцію P3 на пряму вісь.
+;; ==   5. Розраховує Центр Стрілочного Переводу (ЦСП) на прямій осі.
+;; ==   6. Будує полілінію відгалуження від ЦСП з кутом,
+;; ==      який відповідає визначеній марці.
+;; ==   7. Проектує оригінальний блок P2 на пряму вісь та переміщує його, зберігаючи Z.
+;; ==   8. Обрізає/продовжує пряму вісь, додаючи спроектовану точку P2 як вершину.
+;; ==   9. Проектує оригінальний блок P5 на створену вісь відгалуження та переміщує його, зберігаючи Z.
+;; ==   10. Обрізає/продовжує вісь відгалуження до спроектованої точки P5.
 ;; ==
 ;; == Виклик: DrawSwitchAxisPro
 ;; ============================================================
@@ -47,6 +50,11 @@
     (mapcar '/ vec (list len len (if (caddr vec) len 1.0)))
     '(0.0 0.0 0.0)
   )
+)
+
+;; Допоміжна функція для скалярного добутку векторів
+(defun dot_product (v1 v2)
+  (apply '+ (mapcar '* v1 v2))
 )
 
 ;; Допоміжна функція для векторного добутку (cross product) - для визначення ліво/право
@@ -96,15 +104,20 @@
 ;; ============================================================
 ;; == ОСНОВНА ФУНКЦІЯ СКРИПТА ==
 ;; ============================================================
-(defun c:DrawSwitchAxisPro ( / p1_data p2_data p4_data p3_data p5_data ; <--- Додав p2_data
-                                 p1_coords p2_coords p4_coords p3_coords p5_coords ; <--- Додав p2_coords
-                                 straight_axis_obj ; Змінив назву для прямої осі (була line_straight_obj)
-                                 proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt ; <--- Додав proj_pt_p2
+(defun c:DrawSwitchAxisPro ( / p1_data p2_data p4_data p3_data p5_data
+                                 p1_coords p2_coords p4_coords p3_coords p5_coords
+                                 straight_axis_obj
+                                 proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p2_projected_on_straight p5_projected_on_branch
-                                 p2_block_vla p5_block_vla ; <--- Додав p2_block_vla
+                                 p2_block_vla p5_block_vla
                                  final_p2_target_pt final_p5_target_pt
-                                 temp_straight_axis_ent temp_branch_axis_ent ) ; <--- Змінні для тимчасових осей
-
+                                 temp_straight_axis_ent temp_branch_axis_ent
+                                 vec_p3_p4 vec_p3_p5 actual_branch_angle_rad actual_branch_angle_deg
+                                 mark_1_9_angle_deg mark_1_11_angle_deg
+                                 mark_1_9_dist_to_csp mark_1_11_dist_to_csp
+                                 determined_mark
+                                 dist_to_csp branch_angle_deg ) ; <--- Змінні для динамічних параметрів
+  
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
   (setq *oldOsmode* (getvar "OSMODE"))
@@ -116,17 +129,17 @@
   (setvar "CMDDIA" 0) ; Вимикаємо діалоги
   (setvar "OSNAPZ" 0) ; Тимчасово встановлюємо OSNAPZ в 0 для коректної роботи MOVE з 3D точками
 
-  (princ "\n--- Побудова осі стрілочного переводу (1/11) за блоками (Pro) ---")
+  (princ "\n--- Побудова осі стрілочного переводу (Авто-визначення марки) ---")
 
   ;; 1. Запит блоків у користувача та отримання їхніх координат і VLA-об'єктів
   (setq p1_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки стику рамної рейки (P1): "))
   (if (not p1_data) (*error* "Вибір P1 скасовано."))
   (setq p1_coords (car p1_data))
 
-  (setq p2_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки початку вістря (P2): ")) ; <--- НОВИЙ ВИБІР БЛОКУ P2
+  (setq p2_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки початку вістря (P2): "))
   (if (not p2_data) (*error* "Вибір P2 скасовано."))
   (setq p2_coords (car p2_data))
-  (setq p2_block_vla (cdr p2_data)) ; VLA-об'єкт блоку P2
+  (setq p2_block_vla (cdr p2_data))
 
   (setq p4_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по прямому напрямку (P4): "))
   (if (not p4_data) (*error* "Вибір P4 скасовано."))
@@ -138,38 +151,96 @@
 
   (setq p5_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по відгалуженню (P5): "))
   (if (not p5_data) (*error* "Вибір P5 скасовано."))
-  (setq p5_coords (car p5_data))        ; Оригінальні координати P5 блоку
-  (setq p5_block_vla (cdr p5_data))      ; VLA-об'єкт блоку P5
+  (setq p5_coords (car p5_data))
+  (setq p5_block_vla (cdr p5_data))
 
-  ;; --- Починаємо побудову, використовуючи отримані координати ---
+  ;; ===================================================================
+  ;; == АВТОМАТИЧНЕ ВИЗНАЧЕННЯ МАРКИ ХРЕСТОВИНИ ==
+  ;; ===================================================================
+  (princ "\nВизначення марки хрестовини за фактичним кутом...")
+  
+  ;; Визначаємо вектори від центру хрестовини (P3)
+  (setq vec_p3_p4 (mapcar '- p4_coords p3_coords)) ; Вектор P3 -> P4
+  (setq vec_p3_p5 (mapcar '- p5_coords p3_coords)) ; Вектор P3 -> P5
+
+  ;; Обчислюємо довжини векторів
+  (setq len_p3_p4 (distance '(0 0 0) vec_p3_p4))
+  (setq len_p3_p5 (distance '(0 0 0) vec_p3_p5))
+
+  ;; Обчислюємо скалярний добуток
+  (setq dot_prod (dot_product vec_p3_p4 vec_p3_p5))
+
+  ;; Обчислюємо кут між векторами (в радіанах)
+  ;; Захист від ділення на нуль, якщо якісь точки збігаються
+  (if (and (> len_p3_p4 0.000001) (> len_p3_p5 0.000001))
+    (progn
+      (setq cos_angle (/ dot_prod (* len_p3_p4 len_p3_p5)))
+      ;; Обмеження cos_angle до діапазону [-1, 1] через можливі похибки плаваючої точки
+      (if (> cos_angle 1.0) (setq cos_angle 1.0))
+      (if (< cos_angle -1.0) (setq cos_angle -1.0))
+      (setq actual_branch_angle_rad (acos cos_angle))
+      (setq actual_branch_angle_deg (rtd actual_branch_angle_rad))
+      (princ (strcat "\nФактичний кут відгалуження (градуси): " (rtos actual_branch_angle_deg 2 8)))
+
+      ;; Еталонні кути для порівняння (в градусах)
+      (setq mark_1_9_angle_deg 6.340277778)   ; 6°20'25"
+      (setq mark_1_11_angle_deg 5.194444444) ; 5°11'40"
+
+      ;; Визначаємо, яка марка ближча
+      (setq diff_9 (abs (- actual_branch_angle_deg mark_1_9_angle_deg)))
+      (setq diff_11 (abs (- actual_branch_angle_deg mark_1_11_angle_deg)))
+
+      (if (< diff_9 diff_11)
+        (setq determined_mark "1/9")
+        (setq determined_mark "1/11") ; За замовчуванням, якщо 11 ближче або однаково
+      )
+      (princ (strcat "\nАвтоматично визначена марка хрестовини: " determined_mark))
+
+      ;; Встановлюємо параметри відповідно до визначеної марки
+      (cond
+        ((equal determined_mark "1/9")
+         (setq dist_to_csp 13.68
+               branch_angle_deg mark_1_9_angle_deg)
+        )
+        ((equal determined_mark "1/11")
+         (setq dist_to_csp 16.72
+               branch_angle_deg mark_1_11_angle_deg)
+        )
+      )
+    )
+    (progn
+      (princ "\nПомилка: Точки P3, P4 або P5 збігаються. Неможливо визначити марку.")
+      (*error* "Неможливо визначити марку хрестовини.")
+    )
+  )
+  ;; ===================================================================
+  ;; == КІНЕЦЬ АВТОМАТИЧНОГО ВИЗНАЧЕННЯ МАРКИ ==
+  ;; ===================================================================
 
   ;; 2. Побудова початкової прямої полілінії між P1 і P4 (тимчасова для проекції P2 і P3)
   (command "_.PLINE" p1_coords p4_coords "")
-  (setq straight_axis_obj (vlax-ename->vla-object (entlast))) ; Отримуємо VLA-об'єкт цієї тимчасової лінії
-  (setq temp_straight_axis_ent (entlast)) ; Зберігаємо ім'я ентоєм
+  (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
+  (setq temp_straight_axis_ent (entlast))
 
   ;; 3. Проектування P2 та P3 на тимчасову пряму вісь
-  (setq p2_projected_on_straight (vlax-curve-getClosestPointTo straight_axis_obj p2_coords)) ; <--- Проектуємо P2
-  (setq proj_pt_p3 (vlax-curve-getClosestPointTo straight_axis_obj p3_coords)) ; Проектуємо P3
-  ;(command "_.POINT" p2_projected_on_straight) ; Для візуалізації
-  ;(command "_.POINT" proj_pt_p3) ; Для візуалізації
+  (setq p2_projected_on_straight (vlax-curve-getClosestPointTo straight_axis_obj p2_coords))
+  (setq proj_pt_p3 (vlax-curve-getClosestPointTo straight_axis_obj p3_coords))
 
   ;; 4. Розрахунок Центру Стрілочного Переводу (ЦСП) на основі спроектованої P3
-  (setq dist_to_csp 16.72)
-  (setq vec_p1_proj (mapcar '- p1_coords proj_pt_p3)) ; Вектор від проекції P3 до P1
+  ;;    dist_to_csp вже визначено вище
+  (setq vec_p1_proj (mapcar '- p1_coords proj_pt_p3))
   (setq vec_p1_proj_unit (unit_vector vec_p1_proj))
   (setq csp_pt (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
-  ;(command "_.POINT" csp_pt) ; Для візуалізації
 
   ;; --- Переміщення блоку P2 на спроектовану точку (ЗБЕРІГАЮЧИ Z!) ---
   (if p2_block_vla
     (progn
       (setq final_p2_target_pt (list (car p2_projected_on_straight)
                                      (cadr p2_projected_on_straight)
-                                     (caddr p2_coords))) ; <--- ЗБЕРІГАЄМО ОРИГІНАЛЬНУ Z
+                                     (caddr p2_coords)))
       
       (command "_move" (vlax-vla-object->ename p2_block_vla) "" 
-               "_none" p2_coords ; Оригінальна точка P2
+               "_none" p2_coords
                "_none" final_p2_target_pt)
       (princ "\nБлок P2 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
     )
@@ -177,38 +248,33 @@
   )
 
   ;; --- Обрізка/зміна довжини ПРЯМОЇ осі (P1 - P2_proj - P4) ---
-  ;; Видаляємо стару тимчасову пряму полілінію, створюємо нову з 3-ма вершинами
   (if temp_straight_axis_ent
     (progn
       (vla-delete (vlax-ename->vla-object temp_straight_axis_ent))
-      (setq straight_axis_obj nil) ; Очищаємо змінну
+      (setq straight_axis_obj nil)
       (princ "\nТимчасова пряма вісь видалена.")
       
-      ;; Створюємо нову пряму полілінію P1 - P2_proj - P4
-      ;; Z-координата для вершин полілінії буде взята з їхніх X,Y,Z значень
-      ;; або Elevation, якщо це 2D полілінія.
-      ;; Давайте для P2_proj використаємо Z з P2_coords, щоб вона була в одній площині з блоком.
       (setq p2_proj_for_pline (list (car p2_projected_on_straight)
                                     (cadr p2_projected_on_straight)
-                                    (caddr p2_coords))) ; Використовуємо Z з оригінального P2
+                                    (caddr p2_coords)))
       
-      (command "_.PLINE" p1_coords p2_proj_for_pline p4_coords "") ; <--- Нова пряма полілінія з P2_proj
-      (setq straight_axis_obj (vlax-ename->vla-object (entlast))) ; Оновлюємо VLA-об'єкт прямої осі
+      (command "_.PLINE" p1_coords p2_proj_for_pline p4_coords "")
+      (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
       (princ "\nНова пряма вісь (P1-P2_proj-P4) створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити пряму вісь.")
   )
 
   ;; 5. Визначення напрямку відгалуження (вліво/вправо)
-  ;; Важливо: для цього кроку потрібна нова пряма вісь, якщо її було змінено
-  (setq vec_line (mapcar '- p4_coords p1_coords)) ; Вектор нової прямої P1-P4
-  (setq vec_test (mapcar '- p5_coords p1_coords)) ; Використовуємо оригінальний P5
+  ;;    vec_line вже визначений вище як (P4-P1)
+  (setq vec_line (mapcar '- p4_coords p1_coords)) ; Перевизначаємо на випадок, якщо пряма вісь була змінена
+  (setq vec_test (mapcar '- p5_coords p1_coords))
   (setq cross_z (caddr (cross_product vec_line vec_test)))
   (setq is_left (if (> cross_z 0) T nil))
 
   ;; 6. Побудова осі відгалуження від ЦСП (початкова, тимчасова)
-  (setq branch_length 20.0) ; Довжина для створення тимчасової лінії, потім її замінимо
-  (setq branch_angle_deg 5.194444444) ; 5d11'40"
+  (setq branch_length 20.0) ; Початкова довжина
+  ;;    branch_angle_deg вже визначено вище
   (setq branch_angle_rad (dtr branch_angle_deg))
   (setq straight_line_angle (angle p1_coords p4_coords)) ; Кут прямої осі (тепер це нова полілінія P1-P2_proj-P4)
 
@@ -219,24 +285,21 @@
 
   (setq temp_branch_end_pt (polar csp_pt final_branch_angle branch_length))
   (command "_.PLINE" csp_pt temp_branch_end_pt "")
-  (setq temp_branch_axis_ent (entlast)) ; Зберігаємо ім'я тимчасової полілінії
+  (setq temp_branch_axis_ent (entlast))
 
-  ;; --- Проектування P5 на вісь відгалуження (навіть на тимчасову) ---
-  ;; Нам потрібен VLA-об'єкт для vlax-curve-getClosestPointTo
+  ;; --- Проектування P5 на вісь відгалуження ---
   (setq branch_axis_obj (vlax-ename->vla-object temp_branch_axis_ent))
   (setq p5_projected_on_branch (vlax-curve-getClosestPointTo branch_axis_obj p5_coords))
-  ;(command "_.POINT" p5_projected_on_branch) ; Для візуалізації
 
   ;; --- Переміщення блоку P5 на спроектовану точку (ЗБЕРІГАЮЧИ Z!) ---
   (if p5_block_vla
     (progn
-      ;; Формуємо кінцеву цільову точку для блоку: XY зі спроектованої, Z з оригіналу P5
       (setq final_p5_target_pt (list (car p5_projected_on_branch)
                                      (cadr p5_projected_on_branch)
-                                     (caddr p5_coords))) ; <--- ЗБЕРІГАЄМО ОРИГІНАЛЬНУ Z
+                                     (caddr p5_coords)))
       
       (command "_move" (vlax-vla-object->ename p5_block_vla) "" 
-               "_none" p5_coords ; Використовуємо оригінальну точку P5 як базову для переміщення
+               "_none" p5_coords
                "_none" final_p5_target_pt)
       (princ "\nБлок P5 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
     )
@@ -246,17 +309,14 @@
   ;; --- Обрізка/зміна довжини осі відгалуження (надійний підхід) ---
   (if (and temp_branch_axis_ent branch_axis_obj)
     (progn
-      ;; 1. Видалити тимчасову полілінію відгалуження
       (vla-delete branch_axis_obj)
-      (setq branch_axis_obj nil) ; Очищаємо змінну
+      (setq branch_axis_obj nil)
       (princ "\nТимчасова вісь відгалуження видалена.")
 
-      ;; 2. Створити нову, коректну полілінію від ЦСП до спроектованої P5
-      ;; Z-координата для полілінії буде взята з Z ЦСП, щоб вона була горизонтальною, якщо ЦСП горизонтальний.
       (setq p5_proj_for_pline_branch (list (car p5_projected_on_branch) (cadr p5_projected_on_branch) (caddr csp_pt)))
       
-      (command "_.PLINE" csp_pt p5_proj_for_pline_branch "") ; Створюємо нову полілінію
-      (setq branch_axis_obj (vlax-ename->vla-object (entlast))) ; Отримуємо VLA-об'єкт нової, коректної полілінії
+      (command "_.PLINE" csp_pt p5_proj_for_pline_branch "")
+      (setq branch_axis_obj (vlax-ename->vla-object (entlast)))
       (princ "\nНова вісь відгалуження від ЦСП до спроектованої P5 створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
@@ -264,7 +324,7 @@
 
   (princ "\n--- Осі стрілочного переводу побудовано, блоки переміщено та осі скориговано! ---")
   (princ "\nСкрипт завершено.")
-  (princ) ; Тихий вихід
+  (princ)
 
   ;; Відновити оригінальні налаштування AutoCAD
   (setq *oldEcho* nil)
