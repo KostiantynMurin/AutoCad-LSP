@@ -2,7 +2,7 @@
                                  p1_coords p4_coords p3_coords p5_coords
                                  line_straight_obj proj_pt csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p5_projected_on_branch p5_block_vla
-                                 from_pt_vla to_pt_vla ) ; <--- Додав змінні для VLA-точок
+                                 from_pt_safearray to_pt_safearray ) ; <--- Змінив імена змінних
   (vl-load-com)
   (princ "\n--- Побудова осі стрілочного переводу (1/11) за блоками (Pro) ---")
 
@@ -19,8 +19,13 @@
 
         (if (equal ent_type "INSERT")
           (progn
-            ;; Забезпечуємо, що точка вставки буде 3D, навіть якщо в кресленні це 2D блок
-            (setq insertion_pt (vlax-safearray->list (vlax-variant-value (vla-get-InsertionPoint vla_obj))))
+            ;; Отримуємо точку вставки як список X Y Z напряму з VLA-об'єкта
+            ;; Це буде надійніше, ніж через variant-value і safearray->list
+            (setq insertion_pt (vlax-get vla_obj 'InsertionPoint)) ; Отримуємо DBLIST
+
+            ;; Перетворюємо DBLIST в звичайний LISP-список (X Y Z)
+            (setq insertion_pt (list (car insertion_pt) (cadr insertion_pt) (caddr insertion_pt)))
+
             (princ (strcat "\nОбрано блок. Точка: " (vl-princ-to-string insertion_pt)))
             (cons insertion_pt vla_obj)
           )
@@ -58,10 +63,7 @@
   ;; --- Починаємо побудову, використовуючи отримані координати ---
 
   ;; 2. Побудова прямої полілінії між P1 і P4
-  ;;    command приймає список точок як аргумент, якщо це 2D. Для 3D краще окремі координати.
-  ;;    Або ми можемо просто передавати 3D списки, якщо command їх розуміє.
-  ;;    Давай спробуємо передавати як список X, Y, Z.
-  (command "_.PLINE" p1_coords p4_coords "") ; Тестуємо з 3D списками
+  (command "_.PLINE" p1_coords p4_coords "") ; Передаємо 3D списки
   (setq line_straight_obj (vlax-ename->vla-object (entlast)))
 
   ;; 3. Від точки центру хрестовини (P3) провести перпендикуляр до прямої лінії P1-P4
@@ -103,12 +105,23 @@
   ;; --- Переміщення блоку P5 на спроектовану точку ---
   (if p5_block_vla
     (progn
-      (setq from_pt_vla (vlax-make-safearray vlax-vbDouble '(0 . 2))) ; Масив для 3D точки
-      (vlax-safearray-fill from_pt_vla (vlax-variant-value (vla-get-InsertionPoint p5_block_vla))) ; Заповнюємо поточною точкою блоку
-      (setq to_pt_vla (vlax-make-safearray vlax-vbDouble '(0 . 2)))
-      (vlax-safearray-fill to_pt_vla p5_projected_on_branch) ; Заповнюємо новою спроектованою точкою
+      ;; Отримуємо поточну точку вставки блоку як LISP-список
+      (setq current_insertion_pt (vlax-get p5_block_vla 'InsertionPoint))
 
-      (vlax-invoke p5_block_vla 'move from_pt_vla to_pt_vla) ; Викликаємо метод move
+      ;; Створюємо безпечні масиви
+      (setq from_pt_safearray (vlax-make-safearray vlax-vbDouble '(0 . 2))) ; Масив для 3D точки
+      (setq to_pt_safearray (vlax-make-safearray vlax-vbDouble '(0 . 2)))
+
+      ;; Заповнюємо безпечні масиви по елементах
+      (vlax-put-safearray-element from_pt_safearray 0 (car current_insertion_pt))
+      (vlax-put-safearray-element from_pt_safearray 1 (cadr current_insertion_pt))
+      (vlax-put-safearray-element from_pt_safearray 2 (caddr current_insertion_pt))
+
+      (vlax-put-safearray-element to_pt_safearray 0 (car p5_projected_on_branch))
+      (vlax-put-safearray-element to_pt_safearray 1 (cadr p5_projected_on_branch))
+      (vlax-put-safearray-element to_pt_safearray 2 (caddr p5_projected_on_branch))
+
+      (vlax-invoke p5_block_vla 'move from_pt_safearray to_pt_safearray)
       (princ "\nБлок P5 переміщено на спроектовану точку.")
     )
     (princ "\nПомилка: Не вдалося перемістити блок P5, VLA-об'єкт не знайдено.")
@@ -118,7 +131,7 @@
   (if (and branch_axis_obj (equal (vla-get-objectname branch_axis_obj) "AcDbPolyline"))
     (progn
       ;; Для 2D полілінії
-      (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point p5_projected_on_branch)) ; Встановлюємо 2-гу вершину (індекс 1)
+      (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point p5_projected_on_branch))
       (vla-update branch_axis_obj)
       (princ "\nВісь відгалуження обрізано/продовжено до спроектованої точки P5.")
     )
