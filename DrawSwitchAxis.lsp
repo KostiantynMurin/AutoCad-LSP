@@ -1,7 +1,8 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
-;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ (ВИПРАВЛЕНО ШЛЯХ) ==
+;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
+;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА КУТОМ МІЖ P1-P4 ТА ЦСП-P5 ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -100,9 +101,10 @@
                                  mark_1_9_dist_to_csp mark_1_11_dist_to_csp
                                  determined_mark
                                  dist_to_csp branch_angle_deg
-                                 angle_p3_p4_rad angle_p3_p5_rad
-                                 debug_file debug_file_path ) ; Додав debug_file_path
-  
+                                 debug_file debug_file_path
+                                 proj_pt_p3_for_mark_1_11 csp_pt_for_mark_1_11 angle_1_11_actual_deg diff_1_11
+                                 proj_pt_p3_for_mark_1_9 csp_pt_for_mark_1_9 angle_1_9_actual_deg diff_1_9 ) ; Нові змінні для логіки визначення марки
+
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
   (setq *oldOsmode* (getvar "OSMODE"))
@@ -117,8 +119,6 @@
   (princ "\n--- Побудова осі стрілочного переводу (Авто-визначення марки) ---")
 
   ;; --- START DEBUG FILE LOGGING ---
-  ;; Створюємо файл логу з максимальною точністю для перевірки координат
-  ;; Використовуємо тимчасову директорію користувача для гарантованого доступу
   (setq debug_file_path (strcat (getenv "TEMP") "\\SwitchAxisDebug.txt"))
   (setq debug_file (open debug_file_path "w"))
   (if debug_file
@@ -183,101 +183,129 @@
           (write-line (strcat "P2_2d_coords: " (rtos (car p2_2d_coords) 2 15) ", " (rtos (cadr p2_2d_coords) 2 15) ", " (rtos (caddr p2_2d_coords) 2 15)) debug_file)
           (write-line (strcat "P3_2d_coords: " (rtos (car p3_2d_coords) 2 15) ", " (rtos (cadr p3_2d_coords) 2 15) ", " (rtos (caddr p3_2d_coords) 2 15)) debug_file)
           (write-line (strcat "P4_2d_coords: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15) ", " (rtos (caddr p4_2d_coords) 2 15)) debug_file)
-          (write-line (strcat "P5_2d_coords: " (rtos (car p5_2d_coords) 2 15) ", " (rtos (cadr p5_2d_coords) 2 15) ", " (rtos (caddr p5_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "P5_2d_coords: " (rtos (car p5_2d_coords) 2 15) ", " (rtos (caddr p5_2d_coords) 2 15)) debug_file)
           (write-line "" debug_file)
       )
   )
   ;; --- END DEBUG FILE LOGGING ---
 
 
+  ;; === Побудова тимчасової прямої полілінії P1-P4 для проекцій ===
+  (command "_.PLINE" p1_2d_coords p4_2d_coords "")
+  (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
+  (setq temp_straight_axis_ent (entlast))
+
+
+  ;; === Розрахунок проекції P3 на пряму вісь P1-P4 (для визначення ЦСП) ===
+  (setq proj_pt_p3 (vlax-curve-getClosestPointTo straight_axis_obj p3_2d_coords))
+
+
   ;; ===================================================================
-  ;; == АВТОМАТИЧНЕ ВИЗНАЧЕННЯ МАРКИ ХРЕСТОВИНИ (ТЕПЕР ЧЕРЕЗ angle() ДЛЯ 2D!) ==
+  ;; == АВТОМАТИЧНЕ ВИЗНАЧЕННЯ МАРКИ ХРЕСТОВИНИ (ТЕПЕР ЗА КУТОМ P1-P4 та ЦСП-P5!) ==
   ;; ===================================================================
-  (princ "\nВизначення марки хрестовини за фактичним кутом (XY, через функцію angle())...")
-  
-  ;; Використовуємо функцію (angle) для отримання кутів відносно осі X для 2D-векторів
-  ;; P3 є вершиною кута, P4 і P5 - точки на сторонах кута
-  (setq angle_p3_p4_rad (angle p3_2d_coords p4_2d_coords)) ; Кут вектора P3->P4 відносно X-осі в радіанах
-  (setq angle_p3_p5_rad (angle p3_2d_coords p5_2d_coords)) ; Кут вектора P3->P5 відносно X-осі в радіанах
-
-  (princ (strcat "\nDBG: angle_p3_p4_rad = " (rtos angle_p3_p4_rad 2 15) " rad (" (rtos (rtd angle_p3_p4_rad) 2 8) " deg)"))
-  (princ (strcat "\nDBG: angle_p3_p5_rad = " (rtos angle_p3_p5_rad 2 15) " rad (" (rtos (rtd angle_p3_p5_rad) 2 8) " deg)"))
-
-  ;; Обчислюємо абсолютну різницю кутів (завжди позитивна і менше 360 градусів)
-  (setq actual_branch_angle_rad (abs (- angle_p3_p4_rad angle_p3_p5_rad)))
-  
-  ;; Обробка випадку, коли кут більший за PI (180 градусів), щоб взяти меншу дугу
-  (if (> actual_branch_angle_rad pi)
-    (setq actual_branch_angle_rad (- (* 2 pi) actual_branch_angle_rad)) ; 360 - кут
-  )
-
-  (setq actual_branch_angle_deg (rtd actual_branch_angle_rad))
-  (princ (strcat "\nФактичний кут відгалуження (градуси, XY): " (rtos actual_branch_angle_deg 2 8)))
-
-  ;; --- DEBUG FILE LOGGING ---
-  (if debug_file
-      (progn
-          (write-line "--- Angle Calculation Details ---" debug_file)
-          (write-line (strcat "Angle P3_2D to P4_2D (rad): " (rtos angle_p3_p4_rad 2 15)) debug_file)
-          (write-line (strcat "Angle P3_2D to P5_2D (rad): " (rtos angle_p3_p5_rad 2 15)) debug_file)
-          (write-line (strcat "Abs Difference (rad, before clamp): " (rtos (abs (- angle_p3_p4_rad angle_p3_p5_rad)) 2 15)) debug_file)
-          (write-line (strcat "Calculated branch angle (rad, after clamp): " (rtos actual_branch_angle_rad 2 15)) debug_file)
-          (write-line (strcat "Calculated branch angle (deg, after clamp): " (rtos actual_branch_angle_deg 2 15)) debug_file)
-          (write-line "" debug_file)
-      )
-  )
-  ;; --- END DEBUG FILE LOGGING ---
-
+  (princ "\nВизначення марки хрестовини за фактичним кутом (XY, між P1-P4 та ЦСП-P5)...")
 
   ;; Еталонні кути для порівняння (в градусах)
   (setq mark_1_9_angle_deg 6.340277778)   ; 6°20'25"
   (setq mark_1_11_angle_deg 5.194444444) ; 5°11'40"
 
-  ;; Визначаємо, яка марка ближча
-  (setq diff_9 (abs (- actual_branch_angle_deg mark_1_9_angle_deg)))
-  (setq diff_11 (abs (- actual_branch_angle_deg mark_1_11_angle_deg)))
+  ;; Параметри dist_to_csp для кожної марки
+  (setq mark_1_9_dist_to_csp 13.68)
+  (setq mark_1_11_dist_to_csp 16.72)
 
-  (if (< diff_9 diff_11)
+  ;; --- Варіант 1: Припускаємо марку 1/11 ---
+  (setq vec_p1_proj_for_mark_1_11 (mapcar '- p1_2d_coords proj_pt_p3))
+  (setq vec_p1_proj_unit_for_mark_1_11 (unit_vector vec_p1_proj_for_mark_1_11))
+  (setq csp_pt_for_mark_1_11 (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit_for_mark_1_11 (list mark_1_11_dist_to_csp mark_1_11_dist_to_csp 0.0))))
+
+  ;; Кут між P1-P4 та ЦСП(1/11)-P5
+  (setq angle_straight_axis (angle p1_2d_coords p4_2d_coords)) ; Кут прямої осі
+  (setq angle_branch_1_11 (angle csp_pt_for_mark_1_11 p5_2d_coords)) ; Кут відгалуження від ЦСП(1/11)
+
+  (setq actual_angle_1_11_rad (abs (- angle_straight_axis angle_branch_1_11)))
+  (if (> actual_angle_1_11_rad pi)
+    (setq actual_angle_1_11_rad (- (* 2 pi) actual_angle_1_11_rad))
+  )
+  (setq angle_1_11_actual_deg (rtd actual_angle_1_11_rad))
+  (setq diff_1_11 (abs (- angle_1_11_actual_deg mark_1_11_angle_deg)))
+
+  (princ (strcat "\nDBG (1/11): ЦСП=" (vl-princ-to-string csp_pt_for_mark_1_11) ", Кут P1-P4=" (rtos (rtd angle_straight_axis) 2 8) ", Кут ЦСП-P5=" (rtos (rtd angle_branch_1_11) 2 8) ", Акт. кут=" (rtos angle_1_11_actual_deg 2 8) ", Різниця=" (rtos diff_1_11 2 8)))
+
+
+  ;; --- Варіант 2: Припускаємо марку 1/9 ---
+  (setq vec_p1_proj_for_mark_1_9 (mapcar '- p1_2d_coords proj_pt_p3))
+  (setq vec_p1_proj_unit_for_mark_1_9 (unit_vector vec_p1_proj_for_mark_1_9))
+  (setq csp_pt_for_mark_1_9 (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit_for_mark_1_9 (list mark_1_9_dist_to_csp mark_1_9_dist_to_csp 0.0))))
+
+  ;; Кут між P1-P4 та ЦСП(1/9)-P5
+  (setq angle_branch_1_9 (angle csp_pt_for_mark_1_9 p5_2d_coords))
+  
+  (setq actual_angle_1_9_rad (abs (- angle_straight_axis angle_branch_1_9)))
+  (if (> actual_angle_1_9_rad pi)
+    (setq actual_angle_1_9_rad (- (* 2 pi) actual_angle_1_9_rad))
+  )
+  (setq angle_1_9_actual_deg (rtd actual_angle_1_9_rad))
+  (setq diff_1_9 (abs (- angle_1_9_actual_deg mark_1_9_angle_deg)))
+
+  (princ (strcat "\nDBG (1/9): ЦСП=" (vl-princ-to-string csp_pt_for_mark_1_9) ", Кут P1-P4=" (rtos (rtd angle_straight_axis) 2 8) ", Кут ЦСП-P5=" (rtos (rtd angle_branch_1_9) 2 8) ", Акт. кут=" (rtos angle_1_9_actual_deg 2 8) ", Різниця=" (rtos diff_1_9 2 8)))
+
+
+  ;; Визначаємо, яка марка ближча
+  (if (< diff_1_11 diff_1_9)
+    (setq determined_mark "1/11")
     (setq determined_mark "1/9")
-    (setq determined_mark "1/11") ; За замовчуванням, якщо 11 ближче або однаково
   )
   (princ (strcat "\nАвтоматично визначена марка хрестовини: " determined_mark))
 
-  ;; Встановлюємо параметри відповідно до визначеної марки
+  ;; Встановлюємо параметри dist_to_csp та branch_angle_deg відповідно до визначеної марки
   (cond
     ((equal determined_mark "1/9")
-     (setq dist_to_csp 13.68
+     (setq dist_to_csp mark_1_9_dist_to_csp
            branch_angle_deg mark_1_9_angle_deg)
     )
     ((equal determined_mark "1/11")
-     (setq dist_to_csp 16.72
+     (setq dist_to_csp mark_1_11_dist_to_csp
            branch_angle_deg mark_1_11_angle_deg)
     )
   )
-  ;; ===================================================================
-  ;; == КІНЕЦЬ АВТОМАТИЧНОГО ВИЗНАЧЕННЯ МАРКИ ==
-  ;; ===================================================================
 
-  ;; 2. Побудова початкової прямої полілінії між P1 і P4 (тимчасова для проекції P2 і P3)
-  ;; Використовуємо 2D-координати для створення поліліній
-  (command "_.PLINE" p1_2d_coords p4_2d_coords "")
-  (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
-  (setq temp_straight_axis_ent (entlast))
+  ;; --- DEBUG FILE LOGGING ---
+  (if debug_file
+      (progn
+          (write-line "--- Mark Determination Details (New Logic) ---" debug_file)
+          (write-line (strcat "Mark 1/11 Candidate: CSP=" (rtos (car csp_pt_for_mark_1_11) 2 15) "," (rtos (cadr csp_pt_for_mark_1_11) 2 15) ", Angle(P1-P4 vs CSP-P5)=" (rtos angle_1_11_actual_deg 2 15) " deg. Diff to 1/11 Design: " (rtos diff_1_11 2 15)) debug_file)
+          (write-line (strcat "Mark 1/9 Candidate: CSP=" (rtos (car csp_pt_for_mark_1_9) 2 15) "," (rtos (cadr csp_pt_for_mark_1_9) 2 15) ", Angle(P1-P4 vs CSP-P5)=" (rtos angle_1_9_actual_deg 2 15) " deg. Diff to 1/9 Design: " (rtos diff_1_9 2 15)) debug_file)
+          (write-line (strcat "Determined Mark: " determined_mark) debug_file)
+          (write-line "" debug_file)
+      )
+  )
+  ;; --- END DEBUG FILE LOGGING ---
 
-  ;; 3. Проектування P2 та P3 на тимчасову пряму вісь (в 2D)
+
+  ;; 2. Побудова початкової прямої полілінії між P1 і P4 (тепер остаточна, оскільки CSP вже визначений)
+  ;;    У цьому місці ми вже знаємо determined_mark, dist_to_csp і branch_angle_deg.
+  ;;    Видаляємо тимчасову straight_axis_obj, якщо вона була створена раніше (залишок від попередньої логіки)
+  (if temp_straight_axis_ent
+    (vla-delete (vlax-ename->vla-object temp_straight_axis_ent))
+  )
+  (setq straight_axis_obj nil) ; Очищаємо змінну, щоб перестворити її нижче
+  (setq temp_straight_axis_ent nil)
+
+  ;; Перераховуємо ЦСП остаточно, використовуючи визначену марку
+  (setq vec_p1_proj_final (mapcar '- p1_2d_coords proj_pt_p3))
+  (setq vec_p1_proj_unit_final (unit_vector vec_p1_proj_final))
+  (setq csp_pt (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit_final (list dist_to_csp dist_to_csp 0.0))))
+
+  ;; === Тепер продовжуємо з тим, що було раніше, але з остаточно визначеними параметрами ===
+
+  ;; Розрахунок проекції P2 на пряму вісь P1-P4
+  (command "_.PLINE" p1_2d_coords p4_2d_coords "") ; Тепер креслимо її тут для проекції P2
+  (setq straight_axis_obj (vlax-ename->vla-object (entlast))) ; Отримуємо VLA-об'єкт цієї прямої осі
   (setq proj_pt_p2 (vlax-curve-getClosestPointTo straight_axis_obj p2_2d_coords))
-  (setq proj_pt_p3 (vlax-curve-getClosestPointTo straight_axis_obj p3_2d_coords))
-
-  ;; 4. Розрахунок Центру Стрілочного Переводу (ЦСП) на основі спроектованої P3 (в 2D)
-  ;;    dist_to_csp вже визначено вище
-  (setq vec_p1_proj (mapcar '- p1_2d_coords proj_pt_p3))
-  (setq vec_p1_proj_unit (unit_vector vec_p1_proj))
-  (setq csp_pt (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
 
   ;; --- Переміщення блоку P2 на спроектовану точку (ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z!) ---
   (if p2_block_vla
     (progn
-      ;; final_p2_target_pt формується з XY спроектованої 2D точки та ОРИГІНАЛЬНОЇ Z блоку P2
       (setq final_p2_target_pt (list (car proj_pt_p2)
                                      (cadr proj_pt_p2)
                                      (caddr p2_orig_coords)))
@@ -291,14 +319,13 @@
   )
 
   ;; --- Обрізка/зміна довжини ПРЯМОЇ осі (P1 - P2_proj - P4) ---
-  (if temp_straight_axis_ent
+  (if straight_axis_obj ; Перевіряємо, чи існує об'єкт
     (progn
-      (vla-delete (vlax-ename->vla-object temp_straight_axis_ent))
+      (vla-delete straight_axis_obj) ; Видаляємо щойно створену тимчасову
       (setq straight_axis_obj nil)
-      (princ "\nТимчасова пряма вісь видалена.")
+      (princ "\nТимчасова пряма вісь видалена (для перетворення в P1-P2_proj-P4).")
       
       ;; Створюємо нову пряму полілінію P1 - P2_proj - P4 в 2D
-      ;; Z-координати для полілінії будуть 0.0, оскільки ми працюємо в 2D.
       (setq p2_proj_for_pline (list (car proj_pt_p2)
                                     (cadr proj_pt_p2)
                                     0.0))
@@ -339,7 +366,6 @@
   ;; --- Переміщення блоку P5 на спроектовану точку (ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z!) ---
   (if p5_block_vla
     (progn
-      ;; final_p5_target_pt формується з XY спроектованої 2D точки та ОРИГІНАЛЬНОЇ Z блоку P5
       (setq final_p5_target_pt (list (car p5_projected_on_branch)
                                      (cadr p5_projected_on_branch)
                                      (caddr p5_orig_coords)))
@@ -377,7 +403,7 @@
   (princ)
 
   ;; --- END DEBUG FILE LOGGING ---
-  (if debug_file (close debug_file)) ; Закриваємо файл дебагу в кінці
+  (if debug_file (close debug_file))
 
   ;; Відновити оригінальні налаштування AutoCAD
   (setq *oldEcho* nil)
