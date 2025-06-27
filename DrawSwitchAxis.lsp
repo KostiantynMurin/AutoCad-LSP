@@ -3,7 +3,7 @@
 ;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
 ;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
-;; == ВИПРАВЛЕНО: НЕГАЙНИЙ ВИХІД ПРИ СКАСУВАННІ ВИБОРУ ТОЧОК ==
+;; == ВИПРАВЛЕНО: КОРЕКТНА ОБРОБКА ВИХОДУ ПРИ СКАСУВАННІ ВИБОРУ ТОЧОК ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -135,24 +135,24 @@
 
   ;; 1. Запит блоків у користувача та отримання їхніх оригінальних 3D координат і VLA-об'єктів
   (setq p1_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки стику рамної рейки (P1): "))
-  (if (not p1_data) (*error* "Вибір P1 скасовано.") (exit)) ; <--- ДОДАНО (exit)
+  (if (not p1_data) (progn (*error* "Вибір P1 скасовано.") (exit))) ; <--- ВИПРАВЛЕНО ЛОГІКУ ВИХОДУ
   (setq p1_orig_coords (car p1_data))
 
   (setq p2_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки початку вістря (P2): "))
-  (if (not p2_data) (*error* "Вибір P2 скасовано.") (exit)) ; <--- ДОДАНО (exit)
+  (if (not p2_data) (progn (*error* "Вибір P2 скасовано.") (exit))) ; <--- ВИПРАВЛЕНО ЛОГІКУ ВИХОДУ
   (setq p2_orig_coords (car p2_data))
   (setq p2_block_vla (cdr p2_data))
 
   (setq p4_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по прямому напрямку (P4): "))
-  (if (not p4_data) (*error* "Вибір P4 скасовано.") (exit)) ; <--- ДОДАНО (exit)
+  (if (not p4_data) (progn (*error* "Вибір P4 скасовано.") (exit))) ; <--- ВИПРАВЛЕНО ЛОГІКУ ВИХОДУ
   (setq p4_orig_coords (car p4_data))
 
   (setq p3_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки центру хрестовини (P3): "))
-  (if (not p3_data) (*error* "Вибір P3 скасовано.") (exit)) ; <--- ДОДАНО (exit)
+  (if (not p3_data) (progn (*error* "Вибір P3 скасовано.") (exit))) ; <--- ВИПРАВЛЕНО ЛОГІКУ ВИХОДУ
   (setq p3_orig_coords (car p3_data))
 
   (setq p5_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по відгалуженню (P5): "))
-  (if (not p5_data) (*error* "Вибір P5 скасовано.") (exit)) ; <--- ДОДАНО (exit)
+  (if (not p5_data) (progn (*error* "Вибір P5 скасовано.") (exit))) ; <--- ВИПРАВЛЕНО ЛОГІКУ ВИХОДУ
   (setq p5_orig_coords (car p5_data))
   (setq p5_block_vla (cdr p5_data))
 
@@ -236,9 +236,9 @@
   (if debug_file
       (progn
           (write-line "--- Mark Determination Details (Length-based) ---" debug_file)
-          (write-line (strcat "Actual P2-P4 Length: " (rtos actual_p2_p4_length 2 15)) debug_file)
-          (write-line (strcat "Etalon 1/9 P2-P4 Length: " (rtos etalon_p2_p4_1_9 2 15) " (Diff: " (rtos diff_to_1_9 2 15) ")") debug_file)
-          (write-line (strcat "Etalon 1/11 P2-P4 Length: " (rtos etalon_p2_p4_1_11 2 15) " (Diff: " (rtos diff_to_1_11 2 15) ")") debug_file)
+          (write-line (strcat "Actual P2-P4 Length: " (rtos actual_p2_p4_length 2 15) " m") debug_file)
+          (write-line (strcat "Etalon 1/9 P2-P4 Length: " (rtos etalon_p2_p4_1_9 2 15) " m (Diff: " (rtos diff_to_1_9 2 15) ")") debug_file)
+          (write-line (strcat "Etalon 1/11 P2-P4 Length: " (rtos etalon_p2_p4_1_11 2 15) " m (Diff: " (rtos diff_to_1_11 2 15) ")") debug_file)
           (write-line (strcat "Determined Mark: " determined_mark) debug_file)
           (write-line "" debug_file)
       )
