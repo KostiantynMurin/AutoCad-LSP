@@ -1,91 +1,163 @@
+;; ============================================================
+;; == Скрипт для побудови осі стрілочного переводу 1/11 за геодезичними точками ==
+;; == Призначення:
+;; ==   1. Користувач обирає 4 блоки-точки геодезичної зйомки:
+;; ==      - P1: Стик рамної рейки
+;; ==      - P4: Хвіст хрестовини по прямому напрямку
+;; ==      - P3: Центр хрестовини
+;; ==      - P5: Хвіст хрестовини по відгалуженню
+;; ==   2. Будує пряму полілінію між P1 та P4.
+;; ==   3. Визначає проекцію P3 на пряму вісь.
+;; ==   4. Розраховує Центр Стрілочного Переводу (ЦСП) на прямій осі.
+;; ==   5. Будує полілінію відгалуження від ЦСП з заданим кутом.
+;; ==   6. Проектує оригінальний блок P5 на створену вісь відгалуження.
+;; ==   7. Переміщує блок P5 на його спроектоване положення на осі відгалуження.
+;; ==   8. Обрізає/продовжує вісь відгалуження до спроектованої точки P5.
+;; ==
+;; == Виклик: DrawSwitchAxisPro
+;; ============================================================
+
+(vl-load-com) ; Переконатися, що VLISP функції доступні
+
+;; Глобальні змінні для збереження оригінальних налаштувань AutoCAD
+(setq *oldEcho* nil)
+(setq *oldOsmode* nil)
+(setq *oldCmdDia* nil)
+(setq *oldOsmodeZ* nil)
+
+;; Локальна функція обробки помилок для відновлення налаштувань
+(defun *error* (msg)
+  (if *oldEcho* (setvar "CMDECHO" *oldEcho*))
+  (if *oldOsmode* (setvar "OSMODE" *oldOsmode*))
+  (if *oldCmdDia* (setvar "CMDDIA" *oldCmdDia*))
+  (if *oldOsmodeZ* (setvar "OSNAPZ" *oldOsmodeZ*))
+  (sssetfirst nil nil) ; Зняти виділення при помилці або скасуванні
+  (princ "\n*** Помилка LISP або скасовано: ")
+  (if msg (princ msg))
+  (princ " ***")
+  (princ)
+)
+
+;; Допоміжна функція для отримання одиничного вектора
+(defun unit_vector (vec)
+  (setq len (distance '(0 0 0) vec))
+  (if (and (numberp len) (> len 0.00000001))
+    (mapcar '/ vec (list len len (if (caddr vec) len 1.0)))
+    '(0.0 0.0 0.0)
+  )
+)
+
+;; Допоміжна функція для векторного добутку (cross product) - для визначення ліво/право
+(defun cross_product (v1 v2)
+  (setq v1 (if (= (length v1) 2) (append v1 '(0.0)) v1)) ; Перетворюємо 2D в 3D
+  (setq v2 (if (= (length v2) 2) (append v2 '(0.0)) v2)) ; Перетворюємо 2D в 3D
+  (list (- (* (cadr v1) (caddr v2)) (* (caddr v1) (cadr v2)))
+        (- (* (caddr v1) (car v2)) (* (car v1) (caddr v2)))
+        (- (* (car v1) (cadr v2)) (* (cadr v1) (car v2)))
+  )
+)
+
+;; Допоміжні функції для перетворення кутів
+(defun dtr (a) (* pi (/ a 180.0))) ; Градуси в радіани
+(defun rtd (a) (* 180.0 (/ a pi))) ; Радіани в градуси
+
+;; Допоміжна функція для вибору блоку та отримання його точки вставки та VLA-об'єкта
+;; Повертає список (координати_точки_вставки . VLA_об'єкт_блоку) або nil
+(defun GetBlockInsertionPointAndVLA (prompt_msg / ent_data ent_name ent_list ent_type insertion_pt vla_obj)
+  (setq ent_data (entsel prompt_msg))
+  (if ent_data
+    (progn
+      (setq ent_name (car ent_data))
+      (setq vla_obj (vlax-ename->vla-object ent_name))
+      (setq ent_list (entget ent_name))
+      (setq ent_type (cdr (assoc 0 ent_list)))
+
+      (if (equal ent_type "INSERT")
+        (progn
+          ;; Отримуємо точку вставки з DXF-коду 10, це буде LISP-список (X Y Z)
+          (setq insertion_pt (cdr (assoc 10 ent_list)))
+          (princ (strcat "\nОбрано блок. Точка: " (vl-princ-to-string insertion_pt)))
+          (cons insertion_pt vla_obj) ; Повертаємо пару: координати . VLA-об'єкт
+        )
+        (progn
+          (princ "\nПомилка: Вибраний об'єкт не є блоком. Спробуйте ще раз.")
+          nil
+        )
+      )
+    )
+    (progn
+      (princ "\nВідміна вибору. Операцію скасовано.")
+      nil
+    )
+  )
+)
+
+;; ============================================================
+;; == ОСНОВНА ФУНКЦІЯ СКРИПТА ==
+;; ============================================================
 (defun c:DrawSwitchAxisPro ( / p1_data p4_data p3_data p5_data
                                  p1_coords p4_coords p3_coords p5_coords
                                  line_straight_obj proj_pt csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p5_projected_on_branch p5_block_vla
-                                 from_pt_safearray to_pt_safearray ) ; <--- Змінив імена змінних
-  (vl-load-com)
+                                 actual_p5_insertion_pt ) ; <--- Додав змінну для поточної точки вставки P5
+  
+  ;; Зберегти поточні налаштування AutoCAD
+  (setq *oldEcho* (getvar "CMDECHO"))
+  (setq *oldOsmode* (getvar "OSMODE"))
+  (setq *oldCmdDia* (getvar "CMDDIA"))
+  (setq *oldOsmodeZ* (getvar "OSNAPZ"))
+  
+  ;; Встановити налаштування для скрипта
+  (setvar "CMDECHO" 0) ; Вимикаємо ехо команд
+  (setvar "CMDDIA" 0) ; Вимикаємо діалоги
+  (setvar "OSNAPZ" 0) ; Тимчасово встановлюємо OSNAPZ в 0 для коректної роботи MOVE з 3D точками
+
   (princ "\n--- Побудова осі стрілочного переводу (1/11) за блоками (Pro) ---")
-
-  ;; Допоміжна функція для вибору блоку та отримання його точки вставки
-  ;; Повертає список (координати_точки_вставки . VLA_об'єкт_блоку) або nil
-  (defun GetBlockInsertionPointAndVLA (prompt_msg / ent_data ent_name ent_list ent_type insertion_pt vla_obj)
-    (setq ent_data (entsel prompt_msg))
-    (if ent_data
-      (progn
-        (setq ent_name (car ent_data))
-        (setq vla_obj (vlax-ename->vla-object ent_name))
-        (setq ent_list (entget ent_name))
-        (setq ent_type (cdr (assoc 0 ent_list)))
-
-        (if (equal ent_type "INSERT")
-          (progn
-            ;; Отримуємо точку вставки як список X Y Z напряму з VLA-об'єкта
-            ;; Це буде надійніше, ніж через variant-value і safearray->list
-            (setq insertion_pt (vlax-get vla_obj 'InsertionPoint)) ; Отримуємо DBLIST
-
-            ;; Перетворюємо DBLIST в звичайний LISP-список (X Y Z)
-            (setq insertion_pt (list (car insertion_pt) (cadr insertion_pt) (caddr insertion_pt)))
-
-            (princ (strcat "\nОбрано блок. Точка: " (vl-princ-to-string insertion_pt)))
-            (cons insertion_pt vla_obj)
-          )
-          (progn
-            (princ "\nПомилка: Вибраний об'єкт не є блоком. Спробуйте ще раз.")
-            nil
-          )
-        )
-      )
-      (progn
-        (princ "\nВідміна вибору. Операцію скасовано.")
-        nil
-      )
-    )
-  )
 
   ;; 1. Запит блоків у користувача та отримання їхніх координат і VLA-об'єктів
   (setq p1_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки стику рамної рейки (P1): "))
-  (if (not p1_data) (progn (princ "\nОперацію скасовано.") (exit)))
+  (if (not p1_data) (*error* "Вибір P1 скасовано."))
   (setq p1_coords (car p1_data))
 
   (setq p4_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по прямому напрямку (P4): "))
-  (if (not p4_data) (progn (princ "\nОперацію скасовано.") (exit)))
+  (if (not p4_data) (*error* "Вибір P4 скасовано."))
   (setq p4_coords (car p4_data))
 
   (setq p3_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки центру хрестовини (P3): "))
-  (if (not p3_data) (progn (princ "\nОперацію скасовано.") (exit)))
+  (if (not p3_data) (*error* "Вибір P3 скасовано."))
   (setq p3_coords (car p3_data))
 
   (setq p5_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по відгалуженню (P5): "))
-  (if (not p5_data) (progn (princ "\nОперацію скасовано.") (exit)))
-  (setq p5_coords (car p5_data))
-  (setq p5_block_vla (cdr p5_data))
+  (if (not p5_data) (*error* "Вибір P5 скасовано."))
+  (setq p5_coords (car p5_data))        ; Оригінальні координати P5 блоку
+  (setq p5_block_vla (cdr p5_data))      ; VLA-об'єкт блоку P5
 
   ;; --- Починаємо побудову, використовуючи отримані координати ---
 
   ;; 2. Побудова прямої полілінії між P1 і P4
-  (command "_.PLINE" p1_coords p4_coords "") ; Передаємо 3D списки
+  (command "_.PLINE" p1_coords p4_coords "")
   (setq line_straight_obj (vlax-ename->vla-object (entlast)))
 
   ;; 3. Від точки центру хрестовини (P3) провести перпендикуляр до прямої лінії P1-P4
   (setq proj_pt (vlax-curve-getClosestPointTo line_straight_obj p3_coords))
-  ;(command "_.POINT" proj_pt)
+  ;(command "_.POINT" proj_pt) ; Для візуалізації
 
   ;; 4. Від отриманої точки (proj_pt) знайти Центр Стрілочного Переводу (ЦСП)
   (setq dist_to_csp 16.72)
   (setq vec_p1_proj (mapcar '- p1_coords proj_pt))
   (setq vec_p1_proj_unit (unit_vector vec_p1_proj))
   (setq csp_pt (mapcar '+ proj_pt (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
-  ;(command "_.POINT" csp_pt)
+  ;(command "_.POINT" csp_pt) ; Для візуалізації
 
   ;; 5. Визначення напрямку відгалуження (вліво/вправо)
   (setq vec_line (mapcar '- p4_coords p1_coords))
-  (setq vec_test (mapcar '- p5_coords p1_coords))
+  (setq vec_test (mapcar '- p5_coords p1_coords)) ; Використовуємо оригінальний P5 для визначення напрямку
   (setq cross_z (caddr (cross_product vec_line vec_test)))
   (setq is_left (if (> cross_z 0) T nil))
 
   ;; 6. Побудова осі відгалуження від ЦСП
-  (setq branch_length 20.0)
-  (setq branch_angle_deg 5.194444444)
+  (setq branch_length 20.0) ; Початкова довжина, буде скоригована далі
+  (setq branch_angle_deg 5.194444444) ; 5d11'40"
   (setq branch_angle_rad (dtr branch_angle_deg))
   (setq straight_line_angle (angle p1_coords p4_coords))
 
@@ -100,28 +172,17 @@
 
   ;; --- Проектування P5 на вісь відгалуження ---
   (setq p5_projected_on_branch (vlax-curve-getClosestPointTo branch_axis_obj p5_coords))
-  ;(command "_.POINT" p5_projected_on_branch)
+  ;(command "_.POINT" p5_projected_on_branch) ; Для візуалізації
 
   ;; --- Переміщення блоку P5 на спроектовану точку ---
   (if p5_block_vla
     (progn
-      ;; Отримуємо поточну точку вставки блоку як LISP-список
-      (setq current_insertion_pt (vlax-get p5_block_vla 'InsertionPoint))
-
-      ;; Створюємо безпечні масиви
-      (setq from_pt_safearray (vlax-make-safearray vlax-vbDouble '(0 . 2))) ; Масив для 3D точки
-      (setq to_pt_safearray (vlax-make-safearray vlax-vbDouble '(0 . 2)))
-
-      ;; Заповнюємо безпечні масиви по елементах
-      (vlax-put-safearray-element from_pt_safearray 0 (car current_insertion_pt))
-      (vlax-put-safearray-element from_pt_safearray 1 (cadr current_insertion_pt))
-      (vlax-put-safearray-element from_pt_safearray 2 (caddr current_insertion_pt))
-
-      (vlax-put-safearray-element to_pt_safearray 0 (car p5_projected_on_branch))
-      (vlax-put-safearray-element to_pt_safearray 1 (cadr p5_projected_on_branch))
-      (vlax-put-safearray-element to_pt_safearray 2 (caddr p5_projected_on_branch))
-
-      (vlax-invoke p5_block_vla 'move from_pt_safearray to_pt_safearray)
+      ;; Важливо: отримати ПОТОЧНУ точку вставки блоку перед переміщенням
+      (setq actual_p5_insertion_pt (vlax-safearray->list (vlax-variant-value (vla-get-InsertionPoint p5_block_vla))))
+      
+      (command "_move" (vlax-vla-object->ename p5_block_vla) "" 
+               "_none" actual_p5_insertion_pt 
+               "_none" p5_projected_on_branch)
       (princ "\nБлок P5 переміщено на спроектовану точку.")
     )
     (princ "\nПомилка: Не вдалося перемістити блок P5, VLA-об'єкт не знайдено.")
@@ -130,7 +191,7 @@
   ;; --- Обрізка/зміна довжини осі відгалуження ---
   (if (and branch_axis_obj (equal (vla-get-objectname branch_axis_obj) "AcDbPolyline"))
     (progn
-      ;; Для 2D полілінії
+      ;; Для 2D полілінії - встановлюємо 2-гу вершину (індекс 1)
       (vla-put-Coordinate branch_axis_obj 1 (vlax-3d-point p5_projected_on_branch))
       (vla-update branch_axis_obj)
       (princ "\nВісь відгалуження обрізано/продовжено до спроектованої точки P5.")
@@ -139,26 +200,20 @@
   )
 
   (princ "\n--- Осі стрілочного переводу побудовано, блок P5 переміщено та вісь відгалуження скориговано! ---")
-  (princ)
-)
+  (princ "\nСкрипт завершено.")
+  (princ) ; Тихий вихід
 
-;; Допоміжні функції (без змін)
-(defun dtr (a) (* pi (/ a 180.0)))
-(defun rtd (a) (* 180.0 (/ a pi)))
+  ;; Відновити оригінальні налаштування AutoCAD (виконується через *error* або при успішному завершенні)
+  (setq *oldEcho* nil) ; Обнулити, щоб *error* не намагався відновити неіснуючі
+  (setq *oldOsmode* nil)
+  (setq *oldCmdDia* nil)
+  (setq *oldOsmodeZ* nil)
 
-(defun unit_vector (vec)
-  (setq len (distance '(0 0 0) vec))
-  (if (and (numberp len) (> len 0.00000001))
-    (mapcar '/ vec (list len len (if (caddr vec) len 1.0)))
-    '(0.0 0.0 0.0)
-  )
-)
+) ; кінець defun c:DrawSwitchAxisPro
 
-(defun cross_product (v1 v2)
-  (setq v1 (if (= (length v1) 2) (append v1 '(0.0)) v1))
-  (setq v2 (if (= (length v2) 2) (append v2 '(0.0)) v2))
-  (list (- (* (cadr v1) (caddr v2)) (* (caddr v1) (cadr v2)))
-        (- (* (caddr v1) (car v2)) (* (car v1) (caddr v2)))
-        (- (* (car v1) (cadr v2)) (* (cadr v1) (car v2)))
-  )
-)
+;; ============================================================
+;; == Повідомлення про завантаження ==
+;; ============================================================
+(princ "\nLISP 'DrawSwitchAxisPro' завантажено.")
+(princ "\nДля запуску введіть DrawSwitchAxisPro.")
+(princ)
