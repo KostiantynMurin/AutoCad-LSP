@@ -2,7 +2,8 @@
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
 ;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
-;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 == (ОНОВЛЕНО!)
+;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
+;; == ВИПРАВЛЕНО: НЕГАЙНИЙ ВИХІД ПРИ СКАСУВАННІ ВИБОРУ ТОЧОК ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -101,7 +102,7 @@
                                  determined_mark
                                  dist_to_csp branch_angle_deg
                                  debug_file debug_file_path
-                                 etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length ) ; Нові змінні для логіки визначення марки
+                                 etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length )
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -134,24 +135,24 @@
 
   ;; 1. Запит блоків у користувача та отримання їхніх оригінальних 3D координат і VLA-об'єктів
   (setq p1_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки стику рамної рейки (P1): "))
-  (if (not p1_data) (*error* "Вибір P1 скасовано."))
+  (if (not p1_data) (*error* "Вибір P1 скасовано.") (exit)) ; <--- ДОДАНО (exit)
   (setq p1_orig_coords (car p1_data))
 
   (setq p2_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки початку вістря (P2): "))
-  (if (not p2_data) (*error* "Вибір P2 скасовано."))
+  (if (not p2_data) (*error* "Вибір P2 скасовано.") (exit)) ; <--- ДОДАНО (exit)
   (setq p2_orig_coords (car p2_data))
   (setq p2_block_vla (cdr p2_data))
 
   (setq p4_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по прямому напрямку (P4): "))
-  (if (not p4_data) (*error* "Вибір P4 скасовано."))
+  (if (not p4_data) (*error* "Вибір P4 скасовано.") (exit)) ; <--- ДОДАНО (exit)
   (setq p4_orig_coords (car p4_data))
 
   (setq p3_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки центру хрестовини (P3): "))
-  (if (not p3_data) (*error* "Вибір P3 скасовано."))
+  (if (not p3_data) (*error* "Вибір P3 скасовано.") (exit)) ; <--- ДОДАНО (exit)
   (setq p3_orig_coords (car p3_data))
 
   (setq p5_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по відгалуженню (P5): "))
-  (if (not p5_data) (*error* "Вибір P5 скасовано."))
+  (if (not p5_data) (*error* "Вибір P5 скасовано.") (exit)) ; <--- ДОДАНО (exit)
   (setq p5_orig_coords (car p5_data))
   (setq p5_block_vla (cdr p5_data))
 
