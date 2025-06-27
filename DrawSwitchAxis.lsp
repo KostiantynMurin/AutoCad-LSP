@@ -4,8 +4,7 @@
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
 ;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
 ;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
-;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ==
-;; == ВИПРАВЛЕНО: ДЕБАГ VLA-ADDBLOCKREFERENCE == (ОНОВЛЕНО!)
+;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ЧЕРЕЗ COMMAND == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -108,7 +107,7 @@
                                  csp_marker_length csp_marker_lineweight
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
                                  contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
-                                 block_name acad_doc model_space block_def_found block_ref_obj )
+                                 block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent ) ; Змінені змінні для блоку
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -401,7 +400,7 @@
   (if csp_marker_obj
       (progn
           (vla-put-Lineweight csp_marker_obj csp_marker_lineweight) ; Встановлюємо вагу лінії
-          (vla-put-color csp_marker_obj 256) ; Встановлюємо колір на ByLayer (видалено червоний)
+          (vla-put-color csp_marker_obj 256) ; Встановлюємо колір на ByLayer
           (princ (strcat "\nDBG: Маркер ЦСП (EntName: " (vl-princ-to-string (vlax-vla-object->ename csp_marker_obj)) ") створено."))
       )
       (princ "\nERROR: Маркер ЦСП не вдалося створити.")
@@ -457,7 +456,7 @@
       (princ "\nУвага: Контурну полілінію не знайдено для видалення.")
   )
 
-  ;; === Вставка динамічного блоку "Система_Керування_СП" === (ОНОВЛЕНО: без запиту типу)
+  ;; === Вставка динамічного блоку "Система_Керування_СП" === (ОНОВЛЕНО: через COMMAND)
   (princ "\n--- Вставка позначення Система_Керування_СП ---")
   (setq block_name "Система_Керування_СП")
   
@@ -481,15 +480,22 @@
           ;; Використовуємо оригінальні координати для збереження Z-осі об'єкта
           (setq insertion_angle (angle p1_orig_coords p4_orig_coords)) 
 
-          ;; 3. Вставка блоку
-          (setq block_ref_obj (vla-AddBlockReference model_space
-                                                    (vlax-3d-point p2_orig_coords) ; Точка вставки (оригінальні 3D координати P2)
-                                                    block_name
-                                                    1.0 1.0 1.0               ; Масштаб X, Y, Z
-                                                    insertion_angle))         ; Кут повороту
-          (if block_ref_obj ; Перевірка, чи блок дійсно вставився
+          ;; 3. Вставка блоку за допомогою COMMAND
+          ;; _.INSERT <BlockName> <InsertionPoint> <ScaleX> <ScaleY> <Rotation>
+          (command "_.INSERT"
+                   block_name
+                   p2_orig_coords
+                   1.0 ; Scale X
+                   1.0 ; Scale Y
+                   insertion_angle)
+          
+          ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
+          (setq block_ref_ent (entlast))
+          (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
+
+          (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference")) ; Перевірка, чи це дійсно блок
               (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
-              (princ "\nERROR: Не вдалося вставити динамічний блок. Можливо, назва блоку некоректна або проблема з VLA-AddBlockReference.")
+              (princ "\nERROR: Не вдалося отримати посилання на щойно вставлений блок (entlast не вказав на блок).")
           )
       )
       (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
