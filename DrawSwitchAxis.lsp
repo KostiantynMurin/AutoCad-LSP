@@ -3,7 +3,7 @@
 ;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
 ;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
-;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА НАЛАШТУВАННЯ ТОВЩИНИ ЛІНІЙ ==
+;; == ПОЗНАЧКА ЦСП ТА ВАГА ЛІНІЙ (0.30 мм) == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -103,7 +103,7 @@
                                  dist_to_csp branch_angle_deg
                                  debug_file debug_file_path
                                  etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
-                                 csp_marker_length csp_marker_width ; Нові змінні для маркера ЦСП
+                                 csp_marker_length csp_marker_lineweight ; Змінено з csp_marker_width
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj )
 
   ;; Зберегти поточні налаштування AutoCAD
@@ -273,7 +273,7 @@
           (write-line (strcat "vec_p1_proj_unit_final: " (rtos (car vec_p1_proj_unit_final) 2 15) ", " (rtos (cadr vec_p1_proj_unit_final) 2 15) ", " (rtos (caddr vec_p1_proj_unit_final) 2 15)) debug_file)
           (write-line (strcat "Desired dist_to_csp (used in calc): " (rtos dist_to_csp 2 15)) debug_file)
           (write-line (strcat "csp_pt (calculated): " (rtos (car csp_pt) 2 15) ", " (rtos (cadr csp_pt) 2 15) ", " (rtos (caddr csp_pt) 2 15)) debug_file)
-          (write-line (strcat "ACTUAL MEASURED DISTANCE from proj_pt_p3 to csp_pt (by script): " (rtos (distance proj_pt_p3 csp_pt) 2 15)) debug_file) ; <--- КЛЮЧОВИЙ РЯДОК ДЕБАГУ
+          (write-line (strcat "ACTUAL MEASURED DISTANCE from proj_pt_p3 to csp_pt (by script): " (rtos (distance proj_pt_p3 csp_pt) 2 15)) debug_file)
           (write-line "" debug_file)
       )
   )
@@ -313,7 +313,7 @@
       
       (command "_.PLINE" p1_2d_coords p2_proj_for_pline p4_2d_coords "")
       (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
-      (vla-put-ConstantWidth straight_axis_obj 0.25) ; <--- Встановлюємо товщину
+      (vla-put-Lineweight straight_axis_obj 30) ; <--- Встановлюємо вагу лінії (0.30 мм)
       (princ "\nНова пряма вісь (P1-P2_proj-P4) створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити пряму вісь.")
@@ -374,7 +374,7 @@
       
       (command "_.PLINE" csp_pt p5_proj_for_pline_branch "")
       (setq branch_axis_obj (vlax-ename->vla-object (entlast)))
-      (vla-put-ConstantWidth branch_axis_obj 0.25) ; <--- Встановлюємо товщину
+      (vla-put-Lineweight branch_axis_obj 30) ; <--- Встановлюємо вагу лінії (0.30 мм)
       (princ "\nНова вісь відгалуження від ЦСП до спроектованої P5 створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
@@ -382,7 +382,7 @@
 
   ;; --- Накреслити маркер ЦСП ---
   (setq csp_marker_length 0.76)
-  (setq csp_marker_width 0.3)
+  (setq csp_marker_lineweight 30) ; Вага лінії 0.30 мм
   
   ;; Кут прямої осі (використовуємо P1_2d та P4_2d для загального напрямку)
   (setq straight_axis_main_angle (angle p1_2d_coords p4_2d_coords)) 
@@ -394,7 +394,7 @@
 
   (command "_.PLINE" csp_marker_pt1 csp_marker_pt2 "")
   (setq csp_marker_obj (vlax-ename->vla-object (entlast)))
-  (vla-put-ConstantWidth csp_marker_obj csp_marker_width) ; Встановлюємо товщину
+  (vla-put-Lineweight csp_marker_obj csp_marker_lineweight) ; Встановлюємо вагу лінії
   (princ "\nМаркер ЦСП накреслено.")
 
   (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---"))
