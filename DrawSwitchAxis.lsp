@@ -1,7 +1,7 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
 ;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
-;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
+;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ (ВИПРАВЛЕНО ШЛЯХ) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -100,8 +100,8 @@
                                  mark_1_9_dist_to_csp mark_1_11_dist_to_csp
                                  determined_mark
                                  dist_to_csp branch_angle_deg
-                                 angle_p3_p4_rad angle_p3_p5_rad ; Змінні для кутів відносно X-осі
-                                 debug_file ) ; Змінна для файлу дебагу
+                                 angle_p3_p4_rad angle_p3_p5_rad
+                                 debug_file debug_file_path ) ; Додав debug_file_path
   
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -115,6 +115,24 @@
   (setvar "OSNAPZ" 0) ; Тимчасово встановлюємо OSNAPZ в 0 для коректної роботи MOVE з 3D точками
 
   (princ "\n--- Побудова осі стрілочного переводу (Авто-визначення марки) ---")
+
+  ;; --- START DEBUG FILE LOGGING ---
+  ;; Створюємо файл логу з максимальною точністю для перевірки координат
+  ;; Використовуємо тимчасову директорію користувача для гарантованого доступу
+  (setq debug_file_path (strcat (getenv "TEMP") "\\SwitchAxisDebug.txt"))
+  (setq debug_file (open debug_file_path "w"))
+  (if debug_file
+      (princ (strcat "\nДебаг-лог буде збережено у файлі: " debug_file_path))
+      (princ "\nERROR: Could not open debug file for writing. Check path/permissions. Tried to write to TEMP directory.")
+  )
+  (if debug_file
+      (progn
+          (write-line (strcat "--- DEBUG LOG --- " (rtos (getvar "CDATE") 2 8)) debug_file)
+          (write-line "" debug_file)
+      )
+  )
+  ;; --- END DEBUG FILE LOGGING ---
+
 
   ;; 1. Запит блоків у користувача та отримання їхніх оригінальних 3D координат і VLA-об'єктів
   (setq p1_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки стику рамної рейки (P1): "))
@@ -150,14 +168,9 @@
   (princ (strcat "\nDBG: P4_2D: " (vl-princ-to-string p4_2d_coords)))
   (princ (strcat "\nDBG: P5_2D: " (vl-princ-to-string p5_2d_coords)))
 
-  ;; --- START DEBUG FILE LOGGING ---
-  ;; Створюємо файл логу з максимальною точністю для перевірки координат
-  ;; ЗМІНИ ШЛЯХ ДО ФАЙЛУ, ЯКЩО НЕМАЄ ДОСТУПУ ДО C:\
-  (setq debug_file (open "C:\\SwitchAxisDebug.txt" "w"))
+  ;; --- DEBUG FILE LOGGING ---
   (if debug_file
       (progn
-          (write-line (strcat "--- DEBUG LOG --- " (rtos (getvar "CDATE") 2 8)) debug_file)
-          (write-line "" debug_file)
           (write-line "--- Original 3D Coords (from selected blocks) ---" debug_file)
           (write-line (strcat "P1_orig_coords: " (rtos (car p1_orig_coords) 2 15) ", " (rtos (cadr p1_orig_coords) 2 15) ", " (rtos (caddr p1_orig_coords) 2 15)) debug_file)
           (write-line (strcat "P2_orig_coords: " (rtos (car p2_orig_coords) 2 15) ", " (rtos (cadr p2_orig_coords) 2 15) ", " (rtos (caddr p2_orig_coords) 2 15)) debug_file)
@@ -173,8 +186,9 @@
           (write-line (strcat "P5_2d_coords: " (rtos (car p5_2d_coords) 2 15) ", " (rtos (cadr p5_2d_coords) 2 15) ", " (rtos (caddr p5_2d_coords) 2 15)) debug_file)
           (write-line "" debug_file)
       )
-      (princ "\nERROR: Could not open debug file for writing. Check path/permissions.")
   )
+  ;; --- END DEBUG FILE LOGGING ---
+
 
   ;; ===================================================================
   ;; == АВТОМАТИЧНЕ ВИЗНАЧЕННЯ МАРКИ ХРЕСТОВИНИ (ТЕПЕР ЧЕРЕЗ angle() ДЛЯ 2D!) ==
@@ -186,8 +200,8 @@
   (setq angle_p3_p4_rad (angle p3_2d_coords p4_2d_coords)) ; Кут вектора P3->P4 відносно X-осі в радіанах
   (setq angle_p3_p5_rad (angle p3_2d_coords p5_2d_coords)) ; Кут вектора P3->P5 відносно X-осі в радіанах
 
-  (princ (strcat "\nDBG: angle_p3_p4_rad = " (rtos angle_p3_p4_rad 2 15) " rad (" (rtos (rtd angle_p3_p4_rad) 2 8) " deg)")) ; <--- DBG
-  (princ (strcat "\nDBG: angle_p3_p5_rad = " (rtos angle_p3_p5_rad 2 15) " rad (" (rtos (rtd angle_p3_p5_rad) 2 8) " deg)")) ; <--- DBG
+  (princ (strcat "\nDBG: angle_p3_p4_rad = " (rtos angle_p3_p4_rad 2 15) " rad (" (rtos (rtd angle_p3_p4_rad) 2 8) " deg)"))
+  (princ (strcat "\nDBG: angle_p3_p5_rad = " (rtos angle_p3_p5_rad 2 15) " rad (" (rtos (rtd angle_p3_p5_rad) 2 8) " deg)"))
 
   ;; Обчислюємо абсолютну різницю кутів (завжди позитивна і менше 360 градусів)
   (setq actual_branch_angle_rad (abs (- angle_p3_p4_rad angle_p3_p5_rad)))
@@ -203,9 +217,10 @@
   ;; --- DEBUG FILE LOGGING ---
   (if debug_file
       (progn
+          (write-line "--- Angle Calculation Details ---" debug_file)
           (write-line (strcat "Angle P3_2D to P4_2D (rad): " (rtos angle_p3_p4_rad 2 15)) debug_file)
           (write-line (strcat "Angle P3_2D to P5_2D (rad): " (rtos angle_p3_p5_rad 2 15)) debug_file)
-          (write-line (strcat "Calculated branch angle (rad, before clamp): " (rtos (abs (- angle_p3_p4_rad angle_p3_p5_rad)) 2 15)) debug_file)
+          (write-line (strcat "Abs Difference (rad, before clamp): " (rtos (abs (- angle_p3_p4_rad angle_p3_p5_rad)) 2 15)) debug_file)
           (write-line (strcat "Calculated branch angle (rad, after clamp): " (rtos actual_branch_angle_rad 2 15)) debug_file)
           (write-line (strcat "Calculated branch angle (deg, after clamp): " (rtos actual_branch_angle_deg 2 15)) debug_file)
           (write-line "" debug_file)
