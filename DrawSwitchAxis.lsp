@@ -1,10 +1,7 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
-;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
-;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
-;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
-;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
-;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ЧЕРЕЗ COMMAND == (ОНОВЛЕНО!)
+;; == ... (попередній опис) ... ==
+;; == ВСТАВКА ДИНАМІЧНОГО БЛОКУ ПЕРПЕНДИКУЛЯРНО ДО ЛІНІЇ P1-P4 == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -107,7 +104,7 @@
                                  csp_marker_length csp_marker_lineweight
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
                                  contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
-                                 block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent ) ; Змінені змінні для блоку
+                                 block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent )
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -400,7 +397,7 @@
   (if csp_marker_obj
       (progn
           (vla-put-Lineweight csp_marker_obj csp_marker_lineweight) ; Встановлюємо вагу лінії
-          (vla-put-color csp_marker_obj 256) ; Встановлюємо колір на ByLayer
+          (vla-put-color csp_marker_obj 256) ; Встановлюємо колір на ByLayer (видалено червоний)
           (princ (strcat "\nDBG: Маркер ЦСП (EntName: " (vl-princ-to-string (vlax-vla-object->ename csp_marker_obj)) ") створено."))
       )
       (princ "\nERROR: Маркер ЦСП не вдалося створити.")
@@ -479,6 +476,7 @@
           ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
           ;; Використовуємо оригінальні координати для збереження Z-осі об'єкта
           (setq insertion_angle (angle p1_orig_coords p4_orig_coords)) 
+          (setq insertion_angle (+ insertion_angle (/ pi 2.0))) ; <--- РОЗТАШОВУЄМО ПЕРПЕНДИКУЛЯРНО
 
           ;; 3. Вставка блоку за допомогою COMMAND
           ;; _.INSERT <BlockName> <InsertionPoint> <ScaleX> <ScaleY> <Rotation>
@@ -487,7 +485,7 @@
                    p2_orig_coords
                    1.0 ; Scale X
                    1.0 ; Scale Y
-                   insertion_angle)
+                   insertion_angle) ; Кут повороту
           
           ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
           (setq block_ref_ent (entlast))
