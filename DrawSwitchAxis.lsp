@@ -4,7 +4,8 @@
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
 ;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
 ;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
-;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" == (ОНОВЛЕНО!)
+;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ==
+;; == ВИПРАВЛЕНО: ДЕБАГ VLA-ADDBLOCKREFERENCE == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -107,7 +108,7 @@
                                  csp_marker_length csp_marker_lineweight
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
                                  contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
-                                 block_name acad_doc model_space block_def_found block_ref_obj ) ; Змінені змінні для блоку
+                                 block_name acad_doc model_space block_def_found block_ref_obj )
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -486,8 +487,10 @@
                                                     block_name
                                                     1.0 1.0 1.0               ; Масштаб X, Y, Z
                                                     insertion_angle))         ; Кут повороту
-          (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
-          (princ "\nКористувач може змінити видимість типу керування вручну.")
+          (if block_ref_obj ; Перевірка, чи блок дійсно вставився
+              (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
+              (princ "\nERROR: Не вдалося вставити динамічний блок. Можливо, назва блоку некоректна або проблема з VLA-AddBlockReference.")
+          )
       )
       (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
   )
