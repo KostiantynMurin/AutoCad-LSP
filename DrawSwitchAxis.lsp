@@ -8,7 +8,7 @@
 ;; ==      - P3: Центр хрестовини
 ;; ==      - P5: Хвіст хрестовини по відгалуженню
 ;; ==   2. АВТОМАТИЧНО визначає марку хрестовини (1/9 або 1/11)
-;; ==      за фактичним кутом між напрямками P3-P4 та P3-P5.
+;; ==      за фактичним кутом між напрямками P3-P4 та P3-P5 в площині XY. (ВИПРАВЛЕНО!)
 ;; ==   3. Будує пряму полілінію (P1-P2_proj-P4).
 ;; ==   4. Визначає проекцію P3 на пряму вісь.
 ;; ==   5. Розраховує Центр Стрілочного Переводу (ЦСП) на прямій осі.
@@ -44,11 +44,12 @@
 )
 
 ;; Допоміжна функція для отримання одиничного вектора
+;; (Можна використовувати для 2D, якщо передати 2D-вектор)
 (defun unit_vector (vec)
-  (setq len (distance '(0 0 0) vec))
-  (if (and (numberp len) (> len 0.00000001))
-    (mapcar '/ vec (list len len (if (caddr vec) len 1.0)))
-    '(0.0 0.0 0.0)
+  (setq len (distance (apply 'list (mapcar (function (lambda (x) 0.0)) vec)) vec)) ; Дистанція від початку до вектора
+  (if (and (numberp len) (> len 0.000001))
+    (mapcar '/ vec (list len len (if (= (length vec) 3) len 1.0))) ; Для 2D/3D
+    (apply 'list (mapcar (function (lambda (x) 0.0)) vec)) ; Нульовий вектор відповідної розмірності
   )
 )
 
@@ -115,8 +116,10 @@
                                  vec_p3_p4 vec_p3_p5 actual_branch_angle_rad actual_branch_angle_deg
                                  mark_1_9_angle_deg mark_1_11_angle_deg
                                  mark_1_9_dist_to_csp mark_1_11_dist_to_csp
-                                 determined_mark ; <--- Вже є
-                                 dist_to_csp branch_angle_deg )
+                                 determined_mark
+                                 dist_to_csp branch_angle_deg
+                                 vec_p3_p4_xy vec_p3_p5_xy ; <--- НОВІ ЗМІННІ для XY-векторів
+                                 len_p3_p4_xy len_p3_p5_xy dot_prod_xy cos_angle_xy ) ; <--- НОВІ ЗМІННІ для XY-розрахунків
   
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -155,30 +158,30 @@
   (setq p5_block_vla (cdr p5_data))
 
   ;; ===================================================================
-  ;; == АВТОМАТИЧНЕ ВИЗНАЧЕННЯ МАРКИ ХРЕСТОВИНИ ==
+  ;; == АВТОМАТИЧНЕ ВИЗНАЧЕННЯ МАРКИ ХРЕСТОВИНИ (ВИПРАВЛЕНО ДЛЯ XY КУТА!) ==
   ;; ===================================================================
-  (princ "\nВизначення марки хрестовини за фактичним кутом...")
+  (princ "\nВизначення марки хрестовини за фактичним кутом (XY)...")
   
-  ;; Визначаємо вектори від центру хрестовини (P3)
-  (setq vec_p3_p4 (mapcar '- p4_coords p3_coords)) ; Вектор P3 -> P4
-  (setq vec_p3_p5 (mapcar '- p5_coords p3_coords)) ; Вектор P3 -> P5
+  ;; Визначаємо вектори від центру хрестовини (P3), але тільки їх XY компоненти
+  (setq vec_p3_p4_xy (list (car (mapcar '- p4_coords p3_coords)) (cadr (mapcar '- p4_coords p3_coords))))
+  (setq vec_p3_p5_xy (list (car (mapcar '- p5_coords p3_coords)) (cadr (mapcar '- p5_coords p3_coords))))
 
-  ;; Обчислюємо довжини векторів
-  (setq len_p3_p4 (distance '(0 0 0) vec_p3_p4))
-  (setq len_p3_p5 (distance '(0 0 0) vec_p3_p5))
+  ;; Обчислюємо довжини XY векторів
+  (setq len_p3_p4_xy (distance '(0 0) vec_p3_p4_xy))
+  (setq len_p3_p5_xy (distance '(0 0) vec_p3_p5_xy))
 
-  ;; Обчислюємо скалярний добуток
-  (setq dot_prod (dot_product vec_p3_p4 vec_p3_p5))
+  ;; Обчислюємо скалярний добуток XY векторів
+  (setq dot_prod_xy (dot_product vec_p3_p4_xy vec_p3_p5_xy))
 
-  ;; Обчислюємо кут між векторами (в радіанах)
-  ;; Захист від ділення на нуль, якщо якісь точки збігаються
-  (if (and (> len_p3_p4 0.000001) (> len_p3_p5 0.000001))
+  ;; Обчислюємо кут між XY векторами (в радіанах)
+  ;; Захист від ділення на нуль, якщо якісь точки збігаються по XY
+  (if (and (> len_p3_p4_xy 0.000001) (> len_p3_p5_xy 0.000001))
     (progn
-      (setq cos_angle (/ dot_prod (* len_p3_p4 len_p3_p5)))
+      (setq cos_angle_xy (/ dot_prod_xy (* len_p3_p4_xy len_p3_p5_xy)))
       ;; Обмеження cos_angle до діапазону [-1, 1] через можливі похибки плаваючої точки
-      (if (> cos_angle 1.0) (setq cos_angle 1.0))
-      (if (< cos_angle -1.0) (setq cos_angle -1.0))
-      (setq actual_branch_angle_rad (acos cos_angle))
+      (if (> cos_angle_xy 1.0) (setq cos_angle_xy 1.0))
+      (if (< cos_angle_xy -1.0) (setq cos_angle_xy -1.0))
+      (setq actual_branch_angle_rad (acos cos_angle_xy))
       (setq actual_branch_angle_deg (rtd actual_branch_angle_rad))
       (princ (strcat "\nФактичний кут відгалуження (градуси): " (rtos actual_branch_angle_deg 2 8)))
 
@@ -209,8 +212,8 @@
       )
     )
     (progn
-      (princ "\nПомилка: Точки P3, P4 або P5 збігаються. Неможливо визначити марку.")
-      (*error* "Неможливо визначити марку хрестовини.")
+      (princ "\nПомилка: Точки P3, P4 або P5 збігаються по XY. Неможливо визначити марку.")
+      (*error* "Неможливо визначити марку хрестовини (точки збігаються по XY).")
     )
   )
   ;; ===================================================================
@@ -322,7 +325,7 @@
     (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
   )
 
-  (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---")) ; <--- ДОДАНО ПІДТВЕРДЖЕННЯ МАРКИ
+  (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---"))
   (princ "\nСкрипт завершено.")
   (princ)
 
