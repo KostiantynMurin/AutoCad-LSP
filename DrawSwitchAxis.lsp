@@ -1,20 +1,20 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу 1/11 за геодезичними точками ==
 ;; == Призначення:
-;; ==   1. Користувач обирає 4 блоки-точки геодезичної зйомки:
+;; ==   1. Користувач обирає 5 блоків-точок геодезичної зйомки:
 ;; ==      - P1: Стик рамної рейки
+;; ==      - P2: Початок вістря (НОВЕ)
 ;; ==      - P4: Хвіст хрестовини по прямому напрямку
 ;; ==      - P3: Центр хрестовини
 ;; ==      - P5: Хвіст хрестовини по відгалуженню
-;; ==   2. Будує пряму полілінію між P1 та P4.
+;; ==   2. Будує пряму полілінію (P1-P2_proj-P4).
 ;; ==   3. Визначає проекцію P3 на пряму вісь.
 ;; ==   4. Розраховує Центр Стрілочного Переводу (ЦСП) на прямій осі.
 ;; ==   5. Будує полілінію відгалуження від ЦСП з заданим кутом.
-;; ==   6. Проектує оригінальний блок P5 на створену вісь відгалуження.
-;; ==   7. Переміщує блок P5 на його спроектоване положення на осі відгалуження,
-;; ==      ПРИ ЦЬОМУ ЗБЕРІГАЮЧИ ОРИГІНАЛЬНУ Z-КООРДИНАТУ БЛОКУ.
-;; ==   8. Обрізає/продовжує вісь відгалуження до спроектованої точки P5.
-;; ==      (Тепер шляхом видалення старої та створення нової полілінії).
+;; ==   6. Проектує оригінальний блок P2 на пряму вісь та переміщує його, зберігаючи Z.
+;; ==   7. Обрізає/продовжує пряму вісь, додаючи спроектовану точку P2 як вершину.
+;; ==   8. Проектує оригінальний блок P5 на створену вісь відгалуження та переміщує його, зберігаючи Z.
+;; ==   9. Обрізає/продовжує вісь відгалуження до спроектованої точки P5.
 ;; ==
 ;; == Виклик: DrawSwitchAxisPro
 ;; ============================================================
@@ -96,12 +96,14 @@
 ;; ============================================================
 ;; == ОСНОВНА ФУНКЦІЯ СКРИПТА ==
 ;; ============================================================
-(defun c:DrawSwitchAxisPro ( / p1_data p4_data p3_data p5_data
-                                 p1_coords p4_coords p3_coords p5_coords
-                                 line_straight_obj proj_pt csp_pt branch_angle branch_end_pt
-                                 branch_axis_obj p5_projected_on_branch p5_block_vla
-                                 actual_p5_insertion_pt final_p5_target_pt
-                                 temp_branch_axis_ent ) ; <--- Нова змінна для тимчасової полілінії
+(defun c:DrawSwitchAxisPro ( / p1_data p2_data p4_data p3_data p5_data ; <--- Додав p2_data
+                                 p1_coords p2_coords p4_coords p3_coords p5_coords ; <--- Додав p2_coords
+                                 straight_axis_obj ; Змінив назву для прямої осі (була line_straight_obj)
+                                 proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt ; <--- Додав proj_pt_p2
+                                 branch_axis_obj p2_projected_on_straight p5_projected_on_branch
+                                 p2_block_vla p5_block_vla ; <--- Додав p2_block_vla
+                                 final_p2_target_pt final_p5_target_pt
+                                 temp_straight_axis_ent temp_branch_axis_ent ) ; <--- Змінні для тимчасових осей
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -121,6 +123,11 @@
   (if (not p1_data) (*error* "Вибір P1 скасовано."))
   (setq p1_coords (car p1_data))
 
+  (setq p2_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки початку вістря (P2): ")) ; <--- НОВИЙ ВИБІР БЛОКУ P2
+  (if (not p2_data) (*error* "Вибір P2 скасовано."))
+  (setq p2_coords (car p2_data))
+  (setq p2_block_vla (cdr p2_data)) ; VLA-об'єкт блоку P2
+
   (setq p4_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по прямому напрямку (P4): "))
   (if (not p4_data) (*error* "Вибір P4 скасовано."))
   (setq p4_coords (car p4_data))
@@ -136,24 +143,66 @@
 
   ;; --- Починаємо побудову, використовуючи отримані координати ---
 
-  ;; 2. Побудова прямої полілінії між P1 і P4
+  ;; 2. Побудова початкової прямої полілінії між P1 і P4 (тимчасова для проекції P2 і P3)
   (command "_.PLINE" p1_coords p4_coords "")
-  (setq line_straight_obj (vlax-ename->vla-object (entlast)))
+  (setq straight_axis_obj (vlax-ename->vla-object (entlast))) ; Отримуємо VLA-об'єкт цієї тимчасової лінії
+  (setq temp_straight_axis_ent (entlast)) ; Зберігаємо ім'я ентоєм
 
-  ;; 3. Від точки центру хрестовини (P3) провести перпендикуляр до прямої лінії P1-P4
-  (setq proj_pt (vlax-curve-getClosestPointTo line_straight_obj p3_coords))
-  ;(command "_.POINT" proj_pt) ; Для візуалізації
+  ;; 3. Проектування P2 та P3 на тимчасову пряму вісь
+  (setq p2_projected_on_straight (vlax-curve-getClosestPointTo straight_axis_obj p2_coords)) ; <--- Проектуємо P2
+  (setq proj_pt_p3 (vlax-curve-getClosestPointTo straight_axis_obj p3_coords)) ; Проектуємо P3
+  ;(command "_.POINT" p2_projected_on_straight) ; Для візуалізації
+  ;(command "_.POINT" proj_pt_p3) ; Для візуалізації
 
-  ;; 4. Від отриманої точки (proj_pt) знайти Центр Стрілочного Переводу (ЦСП)
+  ;; 4. Розрахунок Центру Стрілочного Переводу (ЦСП) на основі спроектованої P3
   (setq dist_to_csp 16.72)
-  (setq vec_p1_proj (mapcar '- p1_coords proj_pt))
+  (setq vec_p1_proj (mapcar '- p1_coords proj_pt_p3)) ; Вектор від проекції P3 до P1
   (setq vec_p1_proj_unit (unit_vector vec_p1_proj))
-  (setq csp_pt (mapcar '+ proj_pt (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
+  (setq csp_pt (mapcar '+ proj_pt_p3 (mapcar '* vec_p1_proj_unit (list dist_to_csp dist_to_csp 0.0))))
   ;(command "_.POINT" csp_pt) ; Для візуалізації
 
+  ;; --- Переміщення блоку P2 на спроектовану точку (ЗБЕРІГАЮЧИ Z!) ---
+  (if p2_block_vla
+    (progn
+      (setq final_p2_target_pt (list (car p2_projected_on_straight)
+                                     (cadr p2_projected_on_straight)
+                                     (caddr p2_coords))) ; <--- ЗБЕРІГАЄМО ОРИГІНАЛЬНУ Z
+      
+      (command "_move" (vlax-vla-object->ename p2_block_vla) "" 
+               "_none" p2_coords ; Оригінальна точка P2
+               "_none" final_p2_target_pt)
+      (princ "\nБлок P2 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
+    )
+    (princ "\nПомилка: Не вдалося перемістити блок P2, VLA-об'єкт не знайдено.")
+  )
+
+  ;; --- Обрізка/зміна довжини ПРЯМОЇ осі (P1 - P2_proj - P4) ---
+  ;; Видаляємо стару тимчасову пряму полілінію, створюємо нову з 3-ма вершинами
+  (if temp_straight_axis_ent
+    (progn
+      (vla-delete (vlax-ename->vla-object temp_straight_axis_ent))
+      (setq straight_axis_obj nil) ; Очищаємо змінну
+      (princ "\nТимчасова пряма вісь видалена.")
+      
+      ;; Створюємо нову пряму полілінію P1 - P2_proj - P4
+      ;; Z-координата для вершин полілінії буде взята з їхніх X,Y,Z значень
+      ;; або Elevation, якщо це 2D полілінія.
+      ;; Давайте для P2_proj використаємо Z з P2_coords, щоб вона була в одній площині з блоком.
+      (setq p2_proj_for_pline (list (car p2_projected_on_straight)
+                                    (cadr p2_projected_on_straight)
+                                    (caddr p2_coords))) ; Використовуємо Z з оригінального P2
+      
+      (command "_.PLINE" p1_coords p2_proj_for_pline p4_coords "") ; <--- Нова пряма полілінія з P2_proj
+      (setq straight_axis_obj (vlax-ename->vla-object (entlast))) ; Оновлюємо VLA-об'єкт прямої осі
+      (princ "\nНова пряма вісь (P1-P2_proj-P4) створена.")
+    )
+    (princ "\nПомилка: Не вдалося обрізати/змінити пряму вісь.")
+  )
+
   ;; 5. Визначення напрямку відгалуження (вліво/вправо)
-  (setq vec_line (mapcar '- p4_coords p1_coords))
-  (setq vec_test (mapcar '- p5_coords p1_coords)) ; Використовуємо оригінальний P5 для визначення напрямку
+  ;; Важливо: для цього кроку потрібна нова пряма вісь, якщо її було змінено
+  (setq vec_line (mapcar '- p4_coords p1_coords)) ; Вектор нової прямої P1-P4
+  (setq vec_test (mapcar '- p5_coords p1_coords)) ; Використовуємо оригінальний P5
   (setq cross_z (caddr (cross_product vec_line vec_test)))
   (setq is_left (if (> cross_z 0) T nil))
 
@@ -161,7 +210,7 @@
   (setq branch_length 20.0) ; Довжина для створення тимчасової лінії, потім її замінимо
   (setq branch_angle_deg 5.194444444) ; 5d11'40"
   (setq branch_angle_rad (dtr branch_angle_deg))
-  (setq straight_line_angle (angle p1_coords p4_coords))
+  (setq straight_line_angle (angle p1_coords p4_coords)) ; Кут прямої осі (тепер це нова полілінія P1-P2_proj-P4)
 
   (if is_left
     (setq final_branch_angle (+ straight_line_angle branch_angle_rad))
@@ -194,26 +243,26 @@
     (princ "\nПомилка: Не вдалося перемістити блок P5, VLA-об'єкт не знайдено.")
   )
 
-  ;; --- Обрізка/зміна довжини осі відгалуження (новий, надійний підхід) ---
+  ;; --- Обрізка/зміна довжини осі відгалуження (надійний підхід) ---
   (if (and temp_branch_axis_ent branch_axis_obj)
     (progn
       ;; 1. Видалити тимчасову полілінію відгалуження
-      (vla-delete branch_axis_obj) ; Видаляємо VLA-об'єкт, який відповідає temp_branch_axis_ent
+      (vla-delete branch_axis_obj)
       (setq branch_axis_obj nil) ; Очищаємо змінну
       (princ "\nТимчасова вісь відгалуження видалена.")
 
       ;; 2. Створити нову, коректну полілінію від ЦСП до спроектованої P5
-      ;; Важливо: щоб Z полілінії була коректною, ми можемо взяти Z від ЦСП
-      (setq p5_proj_for_pline (list (car p5_projected_on_branch) (cadr p5_projected_on_branch) (caddr csp_pt))) ; Беремо Z з ЦСП для полілінії
+      ;; Z-координата для полілінії буде взята з Z ЦСП, щоб вона була горизонтальною, якщо ЦСП горизонтальний.
+      (setq p5_proj_for_pline_branch (list (car p5_projected_on_branch) (cadr p5_projected_on_branch) (caddr csp_pt)))
       
-      (command "_.PLINE" csp_pt p5_proj_for_pline "") ; Створюємо нову полілінію
+      (command "_.PLINE" csp_pt p5_proj_for_pline_branch "") ; Створюємо нову полілінію
       (setq branch_axis_obj (vlax-ename->vla-object (entlast))) ; Отримуємо VLA-об'єкт нової, коректної полілінії
       (princ "\nНова вісь відгалуження від ЦСП до спроектованої P5 створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
   )
 
-  (princ "\n--- Осі стрілочного переводу побудовано, блок P5 переміщено та вісь відгалуження скориговано! ---")
+  (princ "\n--- Осі стрілочного переводу побудовано, блоки переміщено та осі скориговано! ---")
   (princ "\nСкрипт завершено.")
   (princ) ; Тихий вихід
 
