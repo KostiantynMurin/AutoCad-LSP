@@ -115,8 +115,8 @@
                                  vec_p3_p4 vec_p3_p5 actual_branch_angle_rad actual_branch_angle_deg
                                  mark_1_9_angle_deg mark_1_11_angle_deg
                                  mark_1_9_dist_to_csp mark_1_11_dist_to_csp
-                                 determined_mark
-                                 dist_to_csp branch_angle_deg ) ; <--- Змінні для динамічних параметрів
+                                 determined_mark ; <--- Вже є
+                                 dist_to_csp branch_angle_deg )
   
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -276,7 +276,7 @@
   (setq branch_length 20.0) ; Початкова довжина
   ;;    branch_angle_deg вже визначено вище
   (setq branch_angle_rad (dtr branch_angle_deg))
-  (setq straight_line_angle (angle p1_coords p4_coords)) ; Кут прямої осі (тепер це нова полілінія P1-P2_proj-P4)
+  (setq straight_line_angle (angle p1_coords p4_coords))
 
   (if is_left
     (setq final_branch_angle (+ straight_line_angle branch_angle_rad))
@@ -322,7 +322,7 @@
     (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
   )
 
-  (princ "\n--- Осі стрілочного переводу побудовано, блоки переміщено та осі скориговано! ---")
+  (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---")) ; <--- ДОДАНО ПІДТВЕРДЖЕННЯ МАРКИ
   (princ "\nСкрипт завершено.")
   (princ)
 
