@@ -3,7 +3,7 @@
 ;; == ПОВНІСТЮ В 2D (ІГНОРУВАННЯ Z-КООРДИНАТ) ДЛЯ ГЕОМЕТРИЧНИХ РОЗРАХУНКІВ ==
 ;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
-;; == ВИПРАВЛЕНО: КОРЕКТНЕ ПОЛОЖЕННЯ ЦСП (ПРИМУСОВЕ Z=0 ДЛЯ ПРОЕКЦІЙ) ==
+;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА НАЛАШТУВАННЯ ТОВЩИНИ ЛІНІЙ ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -28,7 +28,6 @@
 )
 
 ;; Допоміжна функція для отримання одиничного вектора
-;; Працює з векторами будь-якої розмірності (2D або 3D)
 (defun unit_vector (vec)
   (setq len (distance (apply 'list (mapcar (function (lambda (x) 0.0)) vec)) vec))
   (if (and (numberp len) (> len 0.000001))
@@ -43,7 +42,6 @@
 )
 
 ;; Допоміжна функція для векторного добутку (cross product) - для визначення ліво/право
-;; Працює для 3D векторів, але для 2D використовується Z-компонента результату
 (defun cross_product (v1 v2)
   (setq v1 (if (= (length v1) 2) (append v1 '(0.0)) v1))
   (setq v2 (if (= (length v2) 2) (append v2 '(0.0)) v2))
@@ -104,7 +102,9 @@
                                  determined_mark
                                  dist_to_csp branch_angle_deg
                                  debug_file debug_file_path
-                                 etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length )
+                                 etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
+                                 csp_marker_length csp_marker_width ; Нові змінні для маркера ЦСП
+                                 straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj )
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -313,6 +313,7 @@
       
       (command "_.PLINE" p1_2d_coords p2_proj_for_pline p4_2d_coords "")
       (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
+      (vla-put-ConstantWidth straight_axis_obj 0.25) ; <--- Встановлюємо товщину
       (princ "\nНова пряма вісь (P1-P2_proj-P4) створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити пряму вісь.")
@@ -367,17 +368,34 @@
       (princ "\nТимчасова вісь відгалуження видалена.")
 
       ;; Створюємо нову, коректну полілінію від ЦСП до спроектованої P5 (в 2D)
-      ;; Z-координата для полілінії буде 0.0, оскільки ми працюємо в 2D.
       (setq p5_proj_for_pline_branch (list (car p5_projected_on_branch)
                                             (cadr p5_projected_on_branch)
                                             0.0))
       
       (command "_.PLINE" csp_pt p5_proj_for_pline_branch "")
       (setq branch_axis_obj (vlax-ename->vla-object (entlast)))
+      (vla-put-ConstantWidth branch_axis_obj 0.25) ; <--- Встановлюємо товщину
       (princ "\nНова вісь відгалуження від ЦСП до спроектованої P5 створена.")
     )
     (princ "\nПомилка: Не вдалося обрізати/змінити вісь відгалуження.")
   )
+
+  ;; --- Накреслити маркер ЦСП ---
+  (setq csp_marker_length 0.76)
+  (setq csp_marker_width 0.3)
+  
+  ;; Кут прямої осі (використовуємо P1_2d та P4_2d для загального напрямку)
+  (setq straight_axis_main_angle (angle p1_2d_coords p4_2d_coords)) 
+  (setq perp_angle (+ straight_axis_main_angle (/ pi 2.0))) ; Перпендикулярний кут
+
+  ;; Розраховуємо кінці маркера ЦСП, центруючи його на csp_pt
+  (setq csp_marker_pt1 (polar csp_pt perp_angle (/ csp_marker_length 2.0)))
+  (setq csp_marker_pt2 (polar csp_pt (+ perp_angle pi) (/ csp_marker_length 2.0))) ; Йдемо в протилежному напрямку
+
+  (command "_.PLINE" csp_marker_pt1 csp_marker_pt2 "")
+  (setq csp_marker_obj (vlax-ename->vla-object (entlast)))
+  (vla-put-ConstantWidth csp_marker_obj csp_marker_width) ; Встановлюємо товщину
+  (princ "\nМаркер ЦСП накреслено.")
 
   (princ (strcat "\n--- Осі стрілочного переводу марки " determined_mark " побудовано, блоки переміщено та осі скориговано! ---"))
   (princ "\nСкрипт завершено.")
