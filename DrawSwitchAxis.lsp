@@ -8,6 +8,7 @@
 ;; == ВИПРАВЛЕНО: БЛОКИ P1-P5 ТЕПЕР ПЕРЕМІЩУЮТЬСЯ НА ЦІЛЬОВИЙ ШАР == (ОНОВЛЕНО!)
 ;; == ОНОВЛЕНО: ВСТАВКА БЛОКУ ЗОВНІШНЬОГО ФАЙЛУ В ОКРЕМІЙ ФУНКЦІЇ! ==
 ;; == ВИПРАВЛЕНО: ТЕПЕР ВСТАВЛЯЄТЬСЯ САМ БЛОК, А НЕ ВЕСЬ DWG-ФАЙЛ! (ФІНАЛЬНЕ ВИПРАВЛЕННЯ) ==
+;; == ВИПРАВЛЕНО: ПОМИЛКА "неизвестное имя: Open" (КОРЕКТНЕ ВІДКРИТТЯ DWG) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -137,7 +138,7 @@
 ;; Якщо блок вже існує в поточному кресленні, він не буде перезаписаний,
 ;; якщо не використовувати опцію для перезапису (яку тут не додано для безпеки).
 ;; Повертає T, якщо імпорт успішний або блок вже існує, nil у разі помилки.
-(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc source_doc blocks_collection block_obj result)
+(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc documents_collection source_doc blocks_collection block_obj result)
   (princ (strcat "\nСпроба імпортувати визначення блоку '" block_name_to_import "' з файлу: " source_dwg_path))
 
   ;; Перевірка, чи існує файл джерела
@@ -150,6 +151,7 @@
       (setq acad_app (vlax-get-acad-object))
       (setq current_doc (vla-get-ActiveDocument acad_app))
       (setq blocks_collection (vla-get-Blocks current_doc))
+      (setq documents_collection (vla-get-Documents acad_app)) ; <-- Отримуємо колекцію документів
 
       ;; Перевірка, чи блок вже існує в поточному кресленні
       (if (vl-catch-all-error-p (vl-catch-all-apply 'vla-Item (list blocks_collection block_name_to_import)))
@@ -158,7 +160,8 @@
           (setq result
             (vl-catch-all-apply
               (function (lambda ()
-                (setq source_doc (vla-Open acad_app source_dwg_path :VlFalse)) ; Відкриваємо файл як прихований (vlFalse)
+                ;; Відкриваємо файл як прихований (vlFalse) через колекцію Documents
+                (setq source_doc (vla-Open documents_collection source_dwg_path :VlFalse))
                 (setq block_obj (vla-Item (vla-get-Blocks source_doc) block_name_to_import)) ; Отримуємо VLA-об'єкт блоку з файлу джерела
                 
                 ;; Копіюємо визначення блоку з джерела до поточного креслення
@@ -197,7 +200,7 @@
 ;;   rotation_angle_deg - кут повороту блоку в градусах
 ;;   scale - коефіцієнт масштабування (один для всіх осей)
 ;; Повертає: VLA-об'єкт щойно вставленого блоку або nil у разі помилки.
-(defun InsertDefinedBlock (block_name insertion_point rotation_angle_deg scale / acad_app current_doc model_space block_ref_obj)
+(defun InsertDefinedBlock (block_name insertion_point rotation_angle_deg scale / acad_app current_doc model_space block_ref_obj rotation_angle_rad)
   (princ (strcat "\nСпроба вставити визначений блок: " block_name))
   (setq acad_app (vlax-get-acad-object))
   (setq current_doc (vla-get-ActiveDocument acad_app))
