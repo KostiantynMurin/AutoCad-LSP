@@ -194,13 +194,13 @@
                         ;; Копіюємо визначення блоку з джерела до поточного креслення
                         (vla-CopyObjects source_doc safe_array_obj blocks_collection)
                         
-                        (vla-Close source_doc :VlFalse :VlFalse) ; Закриваємо файл джерела без збереження змін
+                        ;; (vla-Close source_doc :VlFalse :VlFalse) ; Закриваємо файл джерела без збереження змін
+                        ;; Changed to ensure source_doc is closed even if next line fails
                         (princ (strcat "\nВизначення блоку '" block_name_to_import "' успішно імпортовано."))
                         T ; Повертаємо T на успіх
                     )
                     (progn
                         (princ (strcat "\nПомилка: Блок '" block_name_to_import "' не знайдено у файлі-джерелі: " source_dwg_path))
-                        (vla-Close source_doc :VlFalse :VlFalse) ; Закриваємо файл джерела
                         nil ; Повертаємо nil, якщо блок не знайдено
                     )
                 )
@@ -208,6 +208,10 @@
               (list) ; Немає аргументів для внутрішнього lambda
             )
           ) ; End setq result
+          ;; Закриваємо source_doc у будь-якому випадку, якщо він був успішно відкритий
+          (if (and source_doc (not (vlax-object-released-p source_doc)))
+              (vla-Close source_doc :VlFalse :VlFalse)
+          )
           (if (vl-catch-all-error-p result)
             (progn
               (princ (strcat "\nПомилка при імпорті блоку: " (vl-catch-all-error-message result)))
@@ -250,13 +254,14 @@
   (setq block_ref_obj
     (vl-catch-all-apply
       (function (lambda ()
-        (vla-AddBlock model_space
-                      (vlax-3D-point insertion_point) ; Точка вставки у форматі Variant
-                      block_name
-                      scale
-                      scale
-                      scale
-                      rotation_angle_rad)
+        ;; ВИПРАВЛЕНО: Виклик AddBlock через vlax-invoke-method
+        (vlax-invoke-method model_space 'AddBlock
+                            (vlax-3D-point insertion_point) ; Точка вставки у форматі Variant
+                            block_name
+                            scale
+                            scale
+                            scale
+                            rotation_angle_rad)
       ))
       (list)
     )
