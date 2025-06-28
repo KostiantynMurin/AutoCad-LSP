@@ -10,8 +10,8 @@
 ;; == ВИПРАВЛЕНО: ТЕПЕР ВСТАВЛЯЄТЬСЯ САМ БЛОК, А НЕ ВЕСЬ DWG-ФАЙЛ! ==
 ;; == ВИПРАВЛЕНО: ПОМИЛКА "неизвестное имя: Open" (КОРЕКТНЕ ВІДКРИТТЯ DWG) ==
 ;; == ВИПРАВЛЕНО: ПОМИЛКА ТИПУ ВАРІАНТА В COPYOBJECTS (ТЕПЕР ВИКОРИСТОВУЄТЬСЯ SAFEARRAY КООРЕКТНО) ==
-;; == ВИПРАВЛЕНО: ПРИХОВАНЕ ВІДКРИТТЯ ФАЙЛУ (FILEDIA, CMDDIA) ==
-;; == ВИПРАВЛЕНО: ВИДАЛЕНО DISPLAYALERTS, ЯКА НЕ ЗМІНЮЄТЬСЯ ПРОГРАМНО ==
+;; == ВИПРАВЛЕНО: ПРИХОВАНЕ ВІДКРИТТЯ ФАЙЛУ (FILEDIA, CMDDIA + ВЛАСТИВІСТЬ VISIBLE) ==
+;; == ВИПРАВЛЕНО: no function definition: VLA-ADDBLOCK (ТЕПЕР ВИКОРИСТОВУЄТЬСЯ VL-ADDBLOCK) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -46,8 +46,7 @@
 (setq *oldOsmode* nil)
 (setq *oldCmdDia* nil)
 (setq *oldOsmodeZ* nil)
-(setq *oldFileDia* nil) ; Додана для збереження FILEDIA
-;; *oldDispAlerts* ВИДАЛЕНО
+(setq *oldFileDia* nil)
 
 ;; Локальна функція обробки помилок для відновлення налаштувань
 (defun *error* (msg)
@@ -56,8 +55,7 @@
   (if *oldCmdDia* (setvar "CMDDIA" *oldCmdDia*))
   (if *oldOsmodeZ* (setvar "OSNAPZ" *oldOsmodeZ*))
   (if *oldFileDia* (setvar "FILEDIA" *oldFileDia*)) ; Відновлюємо FILEDIA
-  ;; (if *oldDispAlerts* (setvar "DISPLAYALERTS" *oldDispAlerts*)) ; ВИДАЛЕНО
-
+  
   (sssetfirst nil nil) ; Зняти виділення при помилці або скасуванні
   (princ "\n*** Помилка LISP або скасовано: ")
   (if msg (princ msg))
@@ -76,7 +74,7 @@
   )
   ;; Переміщуємо об'єкт на шар
   (if (and ent (setq vla_ent_obj (vlax-ename->vla-object ent)))
-    (vla-put-Layer vla_ent_obj layer_name)
+    (vla-put-Layer vla-ent_obj layer_name)
   )
   (princ)
 )
@@ -147,7 +145,7 @@
 ;; якщо не використовувати опцію для перезапису (яку тут не додано для безпеки).
 ;; Повертає T, якщо імпорт успішний або блок вже існує, nil у разі помилки.
 (defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc documents_collection source_doc blocks_collection block_obj result objects_to_copy safe_array_obj
-                                              old_filedia old_cmddia) ; ВИДАЛЕНО old_displayalerts
+                                              old_filedia old_cmddia original_active_doc)
   (princ (strcat "\nСпроба імпортувати визначення блоку '" block_name_to_import "' з файлу: " source_dwg_path))
 
   ;; Перевірка, чи існує файл джерела
@@ -160,14 +158,13 @@
       ;; Зберігаємо поточні значення системних змінних
       (setq old_filedia (getvar "FILEDIA"))
       (setq old_cmddia (getvar "CMDDIA"))
-      ;; (setq old_displayalerts (getvar "DISPLAYALERTS")) ; ВИДАЛЕНО
+      (setq acad_app (vlax-get-acad-object))
+      (setq original_active_doc (vla-get-ActiveDocument acad_app)) ; Зберігаємо активний документ
       
       ;; Встановлюємо значення для прихованого відкриття
       (setvar "FILEDIA" 0)        ; Вимикаємо діалогові вікна
       (setvar "CMDDIA" 0)         ; Вимикаємо діалогові вікна команд
-      ;; (setvar "DISPLAYALERTS" 0)  ; ВИДАЛЕНО
 
-      (setq acad_app (vlax-get-acad-object))
       (setq current_doc (vla-get-ActiveDocument acad_app))
       (setq blocks_collection (vla-get-Blocks current_doc))
       (setq documents_collection (vla-get-Documents acad_app)) ; <-- Отримуємо колекцію документів
@@ -179,7 +176,10 @@
           (setq result
             (vl-catch-all-apply
               (function (lambda ()
-                (setq source_doc (vla-Open documents_collection source_dwg_path :VlFalse)) ; Відкриваємо файл як прихований
+                ;; Відкриваємо файл як прихований
+                (setq source_doc (vla-Open documents_collection source_dwg_path :VlFalse))
+                (vla-put-Visible source_doc :VlFalse) ; ЗРОБИТИ НЕВИДИМИМ ОДРАЗУ
+
                 ;; Додаткова перевірка, чи блок існує у файлі-джерелі
                 (if (not (vl-catch-all-error-p (vl-catch-all-apply 'vla-Item (list (vla-get-Blocks source_doc) block_name_to_import))))
                     (progn
@@ -187,7 +187,8 @@
                         
                         ;; Перетворюємо VLA-об'єкт на SafeArray
                         (setq objects_to_copy (list block_obj)) ; Створюємо LISP-список з одним об'єктом
-                        (setq safe_array_obj (vlax-make-safearray vlax-vbObject 0 (1- (length objects_to_copy)))) ; Створюємо порожній SafeArray, від 0 до (n-1)
+                        ;; !!! ВИПРАВЛЕНО SafeArray для випадку одного елемента !!!
+                        (setq safe_array_obj (vlax-make-safearray vlax-vbObject 0 0)) ; Якщо список точно з одного елемента, то межі 0 і 0
                         (vlax-safearray-fill safe_array_obj objects_to_copy) ; Заповнюємо SafeArray даними з LISP-списку
                         
                         ;; Копіюємо визначення блоку з джерела до поточного креслення
@@ -223,7 +224,7 @@
       ;; Відновлюємо системні змінні після операції з файлом
       (setvar "FILEDIA" old_filedia)
       (setvar "CMDDIA" old_cmddia)
-      ;; (setvar "DISPLAYALERTS" old_displayalerts) ; ВИДАЛЕНО
+      (vla-Activate original_active_doc) ; Повертаємо фокус на оригінальний документ
     )
   )
 )
@@ -306,14 +307,11 @@
   (setq *oldCmdDia* (getvar "CMDDIA"))
   (setq *oldOsmodeZ* (getvar "OSNAPZ"))
   (setq *oldFileDia* (getvar "FILEDIA")) ; Зберігаємо FILEDIA
-  ;; *oldDispAlerts* ВИДАЛЕНО
   
   ;; Встановити налаштування для скрипта
   (setvar "CMDECHO" 0) ; Вимикаємо ехо команд
   (setvar "CMDDIA" 0) ; Вимикаємо діалоги
   (setvar "OSNAPZ" 0) ; Тимчасово встановлюємо OSNAPZ в 0 для коректної роботи MOVE з 3D точками
-  ;; Ці змінні також будуть встановлені і відновлені в ImportBlockDefinition,
-  ;; але їх загальне встановлення тут теж корисне для інших частин скрипта.
 
   (princ "\n--- Побудова осі стрілочного переводу (Авто-визначення марки) ---")
 
@@ -725,7 +723,6 @@
   (if *oldCmdDia* (setvar "CMDDIA" *oldCmdDia*))
   (if *oldOsmodeZ* (setvar "OSNAPZ" *oldOsmodeZ*))
   (if *oldFileDia* (setvar "FILEDIA" *oldFileDia*))
-  ;; (if *oldDispAlerts* (setvar "DISPLAYALERTS" *oldDispAlerts*)) ; ВИДАЛЕНО
 
   ;; Очищаємо глобальні змінні
   (setq *oldEcho* nil)
@@ -733,7 +730,6 @@
   (setq *oldCmdDia* nil)
   (setq *oldOsmodeZ* nil)
   (setq *oldFileDia* nil)
-  ;; (setq *oldDispAlerts* nil) ; ВИДАЛЕНО
 )
 
 (princ "\nLISP 'DrawSwitchAxisPro' завантажено.")
