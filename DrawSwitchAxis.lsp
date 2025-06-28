@@ -1,8 +1,12 @@
 ;; ============================================================
 ;; == Скрипт для побудови осі стрілочного переводу (марка 1/9 або 1/11) ==
-;; == ... (попередній опис) ... ==
-;; == ВИПРАВЛЕНО: КУТ ВСТАВКИ БЛОКУ ТЕПЕР ПЕРЕТВОРЮЄТЬСЯ В ГРАДУСИ ДЛЯ COMMAND == (ОНОВЛЕНО!)
-;; ====================================================================================
+;; == З РОЗШИРЕНИМ ДЕБАГ-ЛОГУВАННЯМ У ФАЙЛ ==
+;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
+;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
+;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
+;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ЧЕРЕЗ COMMAND ==
+;; == ПЕРЕМІЩЕННЯ БЛОКІВ P1-P5 НА ШАР "22 ГЕОДЕЗИЧНА ОСНОВА" == (ОНОВЛЕНО!)
+;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
 
@@ -42,6 +46,23 @@
   (princ " ***")
   (princ)
 )
+
+;; --- Допоміжна функція для переміщення об'єкта на шар --- (ВЗЯТО З ТВОГО СКРИПТА)
+(defun Helper:MoveEntityToLayer (ent layer_name / doc layers layer_obj vla_ent_obj)
+  (setq doc (vla-get-ActiveDocument (vlax-get-acad-object))
+        layers (vla-get-Layers doc)
+  )
+  ;; Перевіряємо, чи існує шар. Якщо ні, створюємо його.
+  (if (vl-catch-all-error-p (vl-catch-all-apply 'vla-Item (list layers layer_name)))
+    (progn (setq layer_obj (vla-Add layers layer_name)) (princ (strcat "\nСтворено новий шар: '" layer_name "'.")))
+  )
+  ;; Переміщуємо об'єкт на шар
+  (if (and ent (setq vla_ent_obj (vlax-ename->vla-object ent)))
+    (vla-put-Layer vla_ent_obj layer_name)
+  )
+  (princ)
+)
+;; --- КІНЕЦЬ ДОПОМІЖНОЇ ФУНКЦІЇ ---
 
 ;; Допоміжна функція для отримання одиничного вектора
 (defun unit_vector (vec)
@@ -110,7 +131,7 @@
                                  straight_axis_obj
                                  proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p2_projected_on_straight p5_projected_on_branch
-                                 p2_block_vla p5_block_vla
+                                 p1_block_vla p2_block_vla p3_block_vla p4_block_vla p5_block_vla ; Зберігаємо VLA-об'єкти для всіх блоків
                                  final_p2_target_pt final_p5_target_pt
                                  temp_straight_axis_ent temp_branch_axis_ent
                                  mark_1_9_angle_deg mark_1_11_angle_deg
@@ -123,7 +144,7 @@
                                  straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
                                  contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
                                  block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent 
-                                 base_p1_p4_angle_rad insertion_angle_rad final_insertion_angle_deg ) ; <--- Змінені змінні для кутів
+                                 base_p1_p4_angle_rad final_insertion_angle_deg )
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -158,6 +179,7 @@
   (setq p1_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки стику рамної рейки (P1): "))
   (if (not p1_data) (progn (*error* "Вибір P1 скасовано.") (exit)))
   (setq p1_orig_coords (car p1_data))
+  (setq p1_block_vla (cdr p1_data)) ; ЗБЕРІГАЄМО VLA-ОБ'ЄКТ
 
   (setq p2_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки початку вістря (P2): "))
   (if (not p2_data) (progn (*error* "Вибір P2 скасовано.") (exit)))
@@ -167,10 +189,12 @@
   (setq p4_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по прямому напрямку (P4): "))
   (if (not p4_data) (progn (*error* "Вибір P4 скасовано.") (exit)))
   (setq p4_orig_coords (car p4_data))
+  (setq p4_block_vla (cdr p4_data)) ; ЗБЕРІГАЄМО VLA-ОБ'ЄКТ
 
   (setq p3_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки центру хрестовини (P3): "))
   (if (not p3_data) (progn (*error* "Вибір P3 скасовано.") (exit)))
   (setq p3_orig_coords (car p3_data))
+  (setq p3_block_vla (cdr p3_data)) ; ЗБЕРІГАЄМО VLA-ОБ'ЄКТ
 
   (setq p5_data (GetBlockInsertionPointAndVLA "\nВиберіть блок для точки хвоста хрестовини по відгалуженню (P5): "))
   (if (not p5_data) (progn (*error* "Вибір P5 скасовано.") (exit)))
@@ -346,8 +370,8 @@
   (setq is_left (if (> cross_z 0) T nil))
 
   ;; 6. Pobstava osi vidgaluzhennya vid CSP (pochaykova, tymchasova)
-  (setq branch_length 20.0) ; Initial length
-  ;;    branch_angle_deg already determined above
+  (setq branch_length 20.0) ; Počatkova dovžyna
+  ;;    branch_angle_deg uža viznačeno vyše
   (setq branch_angle_rad (dtr branch_angle_deg))
   (setq straight_line_angle (angle p1_2d_coords p4_2d_coords))
 
@@ -518,10 +542,10 @@
           ;; 3. Вставка блоку за допомогою COMMAND
           (command "_.INSERT"
                    block_name
-                   p2_orig_coords
+                   final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
                    1.0 ; Scale X
                    1.0 ; Scale Y
-                   final_insertion_angle_deg) ; <--- ПЕРЕДАЄМО КУТ У ГРАДУСАХ
+                   final_insertion_angle_deg) ; Кут повороту
           
           ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
           (setq block_ref_ent (entlast))
