@@ -7,7 +7,7 @@
 ;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ЧЕРЕЗ COMMAND ==
 ;; == ВИПРАВЛЕНО: БЛОКИ P1-P5 ТЕПЕР ПЕРЕМІЩУЮТЬСЯ НА ЦІЛЬОВИЙ ШАР == (ОНОВЛЕНО!)
 ;; == ОНОВЛЕНО: ВСТАВКА БЛОКУ ЗОВНІШНЬОГО ФАЙЛУ В ОКРЕМІЙ ФУНКЦІЇ! ==
-;; == ВИПРАВЛЕНО: ТЕПЕР ВСТАВЛЯЄТЬСЯ САМ БЛОК, А НЕ ВЕСЬ DWG-ФАЙЛ! ==
+;; == ВИПРАВЛЕНО: ТЕПЕР ВСТАВЛЯЄТЬСЯ САМ БЛОК, А НЕ ВЕСЬ DWG-ФАЙЛ! (ФІНАЛЬНЕ ВИПРАВЛЕННЯ) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -33,7 +33,7 @@
 ;; !!! ОНОВІТЬ ЦЕЙ ШЛЯХ НА ВАШ ВЛАСНИЙ !!!
 ;; Цей файл має містити визначення блоку з іменем "Система_Керування_СП".
 (if (not *switch_control_block_filepath*)
-  (setq *switch_control_block_filepath* "C:\\Path\\To\\Your\\Blocks\\MyBlockLibrary.dwg") ; <-- ВСТАВТЕ СВІЙ ПРАВИЛЬНИЙ ШЛЯХ
+  (setq *switch_control_block_filepath* "C:\\KM_SuperTools\\КМ_Блоки_для_залізниці.dwg") ; <-- ВСТАВТЕ СВІЙ ПРАВИЛЬНИЙ ШЛЯХ
 )
 ;; ============================================================
 
@@ -132,12 +132,12 @@
 )
 
 ;; --- НОВА ФУНКЦІЯ: Імпорт визначення блоку з зовнішнього DWG-файлу ---
-;; Ця функція копіює визначення блоку з 'source_dwg_path'
+;; Ця функція копіює визначення конкретного блоку з 'source_dwg_path'
 ;; до поточного креслення під іменем 'block_name_to_import'.
 ;; Якщо блок вже існує в поточному кресленні, він не буде перезаписаний,
 ;; якщо не використовувати опцію для перезапису (яку тут не додано для безпеки).
 ;; Повертає T, якщо імпорт успішний або блок вже існує, nil у разі помилки.
-(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc source_doc blocks_collection block_obj)
+(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc source_doc blocks_collection block_obj result)
   (princ (strcat "\nСпроба імпортувати визначення блоку '" block_name_to_import "' з файлу: " source_dwg_path))
 
   ;; Перевірка, чи існує файл джерела
@@ -155,19 +155,28 @@
       (if (vl-catch-all-error-p (vl-catch-all-apply 'vla-Item (list blocks_collection block_name_to_import)))
         (progn
           ;; Блок не існує, потрібно імпортувати
-          (vl-catch-all-apply
-            (function (lambda ()
-              (setq source_doc (vla-Open acad_app source_dwg_path :VlFalse)) ; Відкриваємо файл як прихований (vlFalse)
-              (setq block_obj (vla-Item (vla-get-Blocks source_doc) block_name_to_import)) ; Отримуємо VLA-об'єкт блоку з файлу джерела
-              
-              ;; Копіюємо визначення блоку з джерела до поточного креслення
-              (vla-CopyObjects source_doc (list block_obj) blocks_collection)
-              
-              (vla-Close source_doc :VlFalse :VlFalse) ; Закриваємо файл джерела без збереження змін
-              (princ (strcat "\nВизначення блоку '" block_name_to_import "' успішно імпортовано."))
-              T ; Повертаємо T на успіх
-            ))
-            (list) ; Немає аргументів для внутрішнього lambda
+          (setq result
+            (vl-catch-all-apply
+              (function (lambda ()
+                (setq source_doc (vla-Open acad_app source_dwg_path :VlFalse)) ; Відкриваємо файл як прихований (vlFalse)
+                (setq block_obj (vla-Item (vla-get-Blocks source_doc) block_name_to_import)) ; Отримуємо VLA-об'єкт блоку з файлу джерела
+                
+                ;; Копіюємо визначення блоку з джерела до поточного креслення
+                (vla-CopyObjects source_doc (list block_obj) blocks_collection)
+                
+                (vla-Close source_doc :VlFalse :VlFalse) ; Закриваємо файл джерела без збереження змін
+                (princ (strcat "\nВизначення блоку '" block_name_to_import "' успішно імпортовано."))
+                T ; Повертаємо T на успіх
+              ))
+              (list) ; Немає аргументів для внутрішнього lambda
+            )
+          ) ; End setq result
+          (if (vl-catch-all-error-p result)
+            (progn
+              (princ (strcat "\nПомилка при імпорті блоку: " (vl-catch-all-error-message result)))
+              nil ; Помилка під час імпорту
+            )
+            result ; Повертаємо T
           )
         )
         (progn
@@ -179,39 +188,51 @@
   )
 )
 
-;; --- НОВА ФУНКЦІЯ: Вставка вже визначеного блоку ---
+;; --- ВИПРАВЛЕНА ФУНКЦІЯ: Вставка вже визначеного блоку ---
 ;; Ця функція вставляє блок, який вже має бути визначений в поточному кресленні.
-;; Використовує команду _.INSERT з іменем блоку.
+;; Використовує метод ModelSpace.AddBlock.
 ;; Приймає:
 ;;   block_name - ім'я блоку, який вже визначений у поточному кресленні
 ;;   insertion_point - точка вставки блоку (3D-координати)
 ;;   rotation_angle_deg - кут повороту блоку в градусах
 ;;   scale - коефіцієнт масштабування (один для всіх осей)
 ;; Повертає: VLA-об'єкт щойно вставленого блоку або nil у разі помилки.
-(defun InsertDefinedBlock (block_name insertion_point rotation_angle_deg scale / block_ref_ent block_ref_obj)
+(defun InsertDefinedBlock (block_name insertion_point rotation_angle_deg scale / acad_app current_doc model_space block_ref_obj)
   (princ (strcat "\nСпроба вставити визначений блок: " block_name))
-  (command "_.INSERT"
-           block_name ; <--- Тепер просто ім'я блоку, який вже імпортований
-           insertion_point
-           scale ; Scale X
-           scale ; Scale Y
-           rotation_angle_deg) ; Кут повороту в градусах
+  (setq acad_app (vlax-get-acad-object))
+  (setq current_doc (vla-get-ActiveDocument acad_app))
+  (setq model_space (vla-get-ModelSpace current_doc))
 
-  (setq block_ref_ent (entlast)) ; Спроба отримати ім'я щойно вставленого об'єкта
-  (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
+  ;; Кут повороту для ActiveX має бути в радіанах
+  (setq rotation_angle_rad (dtr rotation_angle_deg))
 
-  (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference"))
+  (setq block_ref_obj
+    (vl-catch-all-apply
+      (function (lambda ()
+        (vla-AddBlock model_space
+                      (vlax-3D-point insertion_point) ; Точка вставки у форматі Variant
+                      block_name
+                      scale
+                      scale
+                      scale
+                      rotation_angle_rad)
+      ))
+      (list)
+    )
+  )
+  
+  (if (vl-catch-all-error-p block_ref_obj)
     (progn
-      (princ (strcat "\nБлок '" block_name "' успішно вставлено."))
-      block_ref_obj
+      (princ (strcat "\nПомилка при вставці блоку '" block_name "': " (vl-catch-all-error-message block_ref_obj)))
+      nil
     )
     (progn
-      (princ (strcat "\nПомилка: Не вдалося отримати VLA-об'єкт щойно вставленого блоку '" block_name "'."))
-      nil
+      (princ (strcat "\nБлок '" block_name "' успішно вставлено за допомогою ActiveX."))
+      block_ref_obj
     )
   )
 )
-;; --- КІНЕЦЬ НОВИХ ФУНКЦІЙ ---
+;; --- КІНЕЦЬ ВИПРАВЛЕНОЇ ФУНКЦІЇ ---
 
 
 ;; ============================================================
@@ -237,7 +258,7 @@
                                 contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
                                 block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent
                                 base_p1_p4_angle_rad final_insertion_angle_deg
-                                block_import_success ) ; Додана змінна для перевірки успішності імпорту
+                                block_import_success rotation_angle_rad) ; Додана змінна для перевірки успішності імпорту та для радіан
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -619,6 +640,7 @@
       ;; --- END DEBUG ---
 
       ;; 3. Вставляємо вже визначений блок
+      ;; Використовуємо InsertDefinedBlock, яка тепер використовує ActiveX
       (setq block_ref_obj (InsertDefinedBlock block_name final_p2_target_pt final_insertion_angle_deg 1.0))
       
       (if block_ref_obj
