@@ -6,6 +6,7 @@
 ;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
 ;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ЧЕРЕЗ COMMAND ==
 ;; == ВИПРАВЛЕНО: БЛОКИ P1-P5 ТЕПЕР ПЕРЕМІЩУЮТЬСЯ НА ЦІЛЬОВИЙ ШАР == (ОНОВЛЕНО!)
+;; == ОНОВЛЕНО: ВСТАВКА БЛОКУ ЗОВНІШНЬОГО ФАЙЛУ В ОКРЕМІЙ ФУНКЦІЇ! ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -24,7 +25,14 @@
 ;; була перпендикулярна до лінії P1-P4, залиште 0.0.
 ;; Якщо він виглядає горизонтальним, спробуйте 90.0 або -90.0.
 (if (not *switch_block_rotation_offset_deg*)
-    (setq *switch_block_rotation_offset_deg* 0.0) ; За замовчуванням: немає додаткової корекції
+  (setq *switch_block_rotation_offset_deg* 0.0) ; За замовчуванням: немає додаткової корекції
+)
+
+;; -- Шлях до DWG-файлу, що містить блок "Система_Керування_СП" --
+;; !!! ОНОВІТЬ ЦЕЙ ШЛЯХ НА ВАШ ВЛАСНИЙ !!!
+;; Цей шлях буде використовуватися функцією InsertExternalBlock.
+(if (not *switch_control_block_filepath*)
+  (setq *switch_control_block_filepath* "C:\\KM_SuperTools\\КМ_Блоки_для_залізниці.dwg") ; <-- ВСТАВТЕ СВІЙ ШЛЯХ
 )
 ;; ============================================================
 
@@ -122,29 +130,69 @@
   )
 )
 
+;; --- НОВА ФУНКЦІЯ: Вставка блоку з зовнішнього DWG-файлу ---
+;; Приймає:
+;;   block_filepath - повний шлях до DWG-файлу, який містить блок
+;;   insertion_point - точка вставки блоку (3D-координати)
+;;   rotation_angle_deg - кут повороту блоку в градусах
+;;   scale - коефіцієнт масштабування (один для всіх осей)
+;; Повертає: VLA-об'єкт щойно вставленого блоку або nil у разі помилки.
+(defun InsertExternalBlock (block_filepath insertion_point rotation_angle_deg scale / block_ref_ent block_ref_obj)
+  (princ (strcat "\nСпроба вставити блок з файлу: " block_filepath))
+  (if (findfile block_filepath)
+    (progn
+      (command "_.INSERT"
+               block_filepath ; <--- Вказуємо повний шлях до файлу DWG
+               insertion_point
+               scale ; Scale X
+               scale ; Scale Y
+               rotation_angle_deg) ; Кут повороту в градусах
+
+      (setq block_ref_ent (entlast)) ; Спроба отримати ім'я щойно вставленого об'єкта
+      (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
+
+      (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference"))
+        (progn
+          (princ (strcat "\nБлок з файлу '" block_filepath "' успішно вставлено."))
+          block_ref_obj
+        )
+        (progn
+          (princ (strcat "\nПомилка: Не вдалося отримати VLA-об'єкт щойно вставленого блоку '" block_filepath "'."))
+          nil
+        )
+      )
+    )
+    (progn
+      (princ (strcat "\nПомилка: Файл блоку не знайдено за шляхом: " block_filepath))
+      nil
+    )
+  )
+)
+;; --- КІНЕЦЬ НОВОЇ ФУНКЦІЇ ---
+
 ;; ============================================================
 ;; == ОСНОВНА ФУНКЦІЯ СКРИПТА ==
 ;; ============================================================
 (defun c:DrawSwitchAxisPro ( / p1_data p2_data p4_data p3_data p5_data
-                                 p1_orig_coords p2_orig_coords p4_orig_coords p3_orig_coords p5_orig_coords
-                                 p1_2d_coords p2_2d_coords p4_2d_coords p3_2d_coords p5_2d_coords
-                                 straight_axis_obj
-                                 proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt
-                                 branch_axis_obj p2_projected_on_straight p5_projected_on_branch
-                                 p1_block_vla p2_block_vla p3_block_vla p4_block_vla p5_block_vla ; Зберігаємо VLA-об'єкти для всіх блоків
-                                 final_p2_target_pt final_p5_target_pt
-                                 temp_straight_axis_ent temp_branch_axis_ent
-                                 mark_1_9_angle_deg mark_1_11_angle_deg
-                                 mark_1_9_dist_to_csp mark_1_11_dist_to_csp
-                                 determined_mark
-                                 dist_to_csp branch_angle_deg
-                                 debug_file debug_file_path
-                                 etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
-                                 csp_marker_length csp_marker_lineweight
-                                 straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
-                                 contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
-                                 block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent 
-                                 base_p1_p4_angle_rad final_insertion_angle_deg )
+                                p1_orig_coords p2_orig_coords p4_orig_coords p3_orig_coords p5_orig_coords
+                                p1_2d_coords p2_2d_coords p4_2d_coords p3_2d_coords p5_2d_coords
+                                straight_axis_obj
+                                proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt
+                                branch_axis_obj p2_projected_on_straight p5_projected_on_branch
+                                p1_block_vla p2_block_vla p3_block_vla p4_block_vla p5_block_vla ; Зберігаємо VLA-об'єкти для всіх блоків
+                                final_p2_target_pt final_p5_target_pt
+                                temp_straight_axis_ent temp_branch_axis_ent
+                                mark_1_9_angle_deg mark_1_11_angle_deg
+                                mark_1_9_dist_to_csp mark_1_11_dist_to_csp
+                                determined_mark
+                                dist_to_csp branch_angle_deg
+                                debug_file debug_file_path
+                                etalon_p2_p4_1_9 etalon_p2_p4_1_11 actual_p2_p4_length
+                                csp_marker_length csp_marker_lineweight
+                                straight_axis_main_angle perp_angle csp_marker_pt1 csp_marker_pt2 csp_marker_obj
+                                contour_length_along_straight contour_pt2 contour_pt3 contour_polyline_ent contour_polyline_obj hatch_ent hatch_obj
+                                block_name acad_doc model_space block_def_found block_ref_obj block_ref_ent
+                                base_p1_p4_angle_rad final_insertion_angle_deg )
 
   ;; Зберегти поточні налаштування AutoCAD
   (setq *oldEcho* (getvar "CMDECHO"))
@@ -331,12 +379,12 @@
   (if p2_block_vla
     (progn
       (setq final_p2_target_pt (list (car proj_pt_p2)
-                                     (cadr proj_pt_p2)
-                                     (caddr p2_orig_coords)))
+                                      (cadr proj_pt_p2)
+                                      (caddr p2_orig_coords)))
       
       (command "_move" (vlax-vla-object->ename p2_block_vla) "" 
-               "_none" p2_orig_coords
-               "_none" final_p2_target_pt)
+                "_none" p2_orig_coords
+                "_none" final_p2_target_pt)
       (princ "\nБлок P2 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
     )
     (princ "\nПомилка: Не вдалося перемістити блок P2, VLA-об'єкт не знайдено.")
@@ -351,8 +399,8 @@
       
       ;; Створюємо нову пряму полілінію P1 - P2_proj - P4 в 2D
       (setq p2_proj_for_pline (list (car proj_pt_p2)
-                                    (cadr proj_pt_p2)
-                                    0.0))
+                                     (cadr proj_pt_p2)
+                                     0.0))
       
       (command "_.PLINE" p1_2d_coords p2_proj_for_pline p4_2d_coords "")
       (setq straight_axis_obj (vlax-ename->vla-object (entlast)))
@@ -371,7 +419,7 @@
 
   ;; 6. Pobstava osi vidgaluzhennya vid CSP (pochaykova, tymchasova)
   (setq branch_length 20.0) ; Počatkova dovžyna
-  ;;    branch_angle_deg uža viznačeno vyše
+  ;;      branch_angle_deg uža viznačeno vyše
   (setq branch_angle_rad (dtr branch_angle_deg))
   (setq straight_line_angle (angle p1_2d_coords p4_2d_coords))
 
@@ -392,12 +440,12 @@
   (if p5_block_vla
     (progn
       (setq final_p5_target_pt (list (car p5_projected_on_branch)
-                                     (cadr p5_projected_on_branch)
-                                     (caddr p5_orig_coords)))
+                                      (cadr p5_projected_on_branch)
+                                      (caddr p5_orig_coords)))
       
       (command "_move" (vlax-vla-object->ename p5_block_vla) "" 
-               "_none" p5_orig_coords
-               "_none" final_p5_target_pt)
+                "_none" p5_orig_coords
+                "_none" final_p5_target_pt)
       (princ "\nБлок P5 переміщено на спроектовану точку, ЗБЕРІГАЮЧИ оригінальну Z-координату.")
     )
     (princ "\nПомилка: Не вдалося перемістити блок P5, VLA-об'єкт не знайдено.")
@@ -493,70 +541,43 @@
       (princ "\nУвага: Контурну полілінію не знайдено для видалення.")
   )
 
-  ;; === Вставка динамічного блоку "Система_Керування_СП" === (З КОРЕКЦІЄЮ КУТА)
+  ;; === Вставка динамічного блоку "Система_Керування_СП" (використовуючи нову функцію) ===
   (princ "\n--- Вставка позначення Система_Керування_СП ---")
-  (setq block_name "Система_Керування_СП")
+  (setq block_name "Система_Керування_СП") ; Це назва блоку всередині зовнішнього DWG-файлу
   
-  ;; Отримання посилання на простір моделі
-  (setq acad_doc (vla-get-ActiveDocument (vlax-get-acad-object)))
-  (setq model_space (vla-get-ModelSpace acad_doc))
+  ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
+  (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) 
+  (setq final_insertion_angle_deg (+ (rtd base_p1_p4_angle_rad) *switch_block_rotation_offset_deg*)) ; В ГРАДУСАХ
 
-  ;; 1. Перевірка наявності блоку в кресленні
-  (setq block_def_found nil)
-  (vl-catch-all-apply
-    (function (lambda ()
-                (setq block_def_found (vla-item (vla-get-Blocks acad_doc) block_name))
-              ))
-  )
-  
-  (if block_def_found
+  ;; --- DEBUG ---
+  (princ (strcat "\nDBG: Базовий кут P1-P4 (в рад): " (rtos base_p1_p4_angle_rad 2 8)))
+  (princ (strcat "\nDBG: Базовий кут P1-P4 (в град): " (rtos (rtd base_p1_p4_angle_rad) 2 8)))
+  (princ (strcat "\nDBG: Встановлена корекція (град): " (rtos *switch_block_rotation_offset_deg* 2 8)))
+  (princ (strcat "\nDBG: Фінальний кут вставки блоку (в град): " (rtos final_insertion_angle_deg 2 8)))
+  (if debug_file
       (progn
-          (princ (strcat "\nБлок '" block_name "' знайдено в кресленні."))
-
-          ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
-          (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) 
-          
-          ;; Кут вставки блоку = кут лінії P1-P4 + корекція з глобальної змінної.
-          ;; Важливо: перетворюємо радіани в градуси для команди _.INSERT
-          (setq final_insertion_angle_deg (+ (rtd base_p1_p4_angle_rad) *switch_block_rotation_offset_deg*)) ; <--- ТУТ ПЕРЕТВОРЮЄМО В ГРАДУСИ
-
-          ;; --- DEBUG ---
-          (princ (strcat "\nDBG: Базовий кут P1-P4 (в рад): " (rtos base_p1_p4_angle_rad 2 8)))
-          (princ (strcat "\nDBG: Базовий кут P1-P4 (в град): " (rtos (rtd base_p1_p4_angle_rad) 2 8)))
-          (princ (strcat "\nDBG: Встановлена корекція (град): " (rtos *switch_block_rotation_offset_deg* 2 8)))
-          (princ (strcat "\nDBG: Фінальний кут вставки блоку (в град): " (rtos final_insertion_angle_deg 2 8))) ; Логуємо в градусах
-          (if debug_file
-              (progn
-                  (write-line (strcat "Insertion Angle Details:" ) debug_file)
-                  (write-line (strcat "  P1_2d: " (rtos (car p1_2d_coords) 2 15) ", " (rtos (cadr p1_2d_coords) 2 15)) debug_file)
-                  (write-line (strcat "  P4_2d: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15)) debug_file)
-                  (write-line (strcat "  Base P1-P4 Angle (rad): " (rtos base_p1_p4_angle_rad 2 15)) debug_file)
-                  (write-line (strcat "  Base P1-P4 Angle (deg): " (rtos (rtd base_p1_p4_angle_rad) 2 15)) debug_file)
-                  (write-line (strcat "  Rotation Offset (deg): " (rtos *switch_block_rotation_offset_deg* 2 15)) debug_file)
-                  (write-line (strcat "  Final Insertion Angle (deg): " (rtos final_insertion_angle_deg 2 15)) debug_file)
-                  (write-line "" debug_file)
-              )
-          )
-          ;; --- END DEBUG ---
-
-          ;; 3. Вставка блоку за допомогою COMMAND
-          (command "_.INSERT"
-                   block_name
-                   final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
-                   1.0 ; Scale X
-                   1.0 ; Scale Y
-                   final_insertion_angle_deg) ; Кут повороту
-          
-          ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
-          (setq block_ref_ent (entlast))
-          (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
-
-          (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference")) ; Перевірка, чи це дійсно блок
-              (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
-              (princ "\nERROR: Не вдалося отримати посилання на щойно вставлений блок (entlast не вказав на блок).")
-          )
+          (write-line (strcat "Insertion Angle Details:" ) debug_file)
+          (write-line (strcat "   P1_2d: " (rtos (car p1_2d_coords) 2 15) ", " (rtos (cadr p1_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "   P4_2d: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "   Base P1-P4 Angle (rad): " (rtos base_p1_p4_angle_rad 2 15)) debug_file)
+          (write-line (strcat "   Base P1-P4 Angle (deg): " (rtos (rtd base_p1_p4_angle_rad) 2 15)) debug_file)
+          (write-line (strcat "   Rotation Offset (deg): " (rtos *switch_block_rotation_offset_deg* 2 15)) debug_file)
+          (write-line (strcat "   Final Insertion Angle (deg): " (rtos final_insertion_angle_deg 2 15)) debug_file)
+          (write-line "" debug_file)
       )
-      (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
+  )
+  ;; --- END DEBUG ---
+
+  ;; Виклик нової функції для вставки зовнішнього блоку
+  (setq block_ref_obj (InsertExternalBlock *switch_control_block_filepath* final_p2_target_pt final_insertion_angle_deg 1.0))
+  
+  (if block_ref_obj
+    (princ (strcat "\nДинамічний блок '" block_name "' успішно вставлено в точку P2 за допомогою нової функції."))
+    (progn
+      (princ "\nERROR: Не вдалося вставити блок 'Система_Керування_СП'. Дивіться попередні повідомлення.")
+      (*error* "Вставка блоку скасована через помилку.") ; Виклик обробника помилок
+      (exit) ; Вихід зі скрипту, якщо блок не вставлено
+    )
   )
 
   ;; === Переміщення оброблених блоків P1-P5 на цільовий шар ===
