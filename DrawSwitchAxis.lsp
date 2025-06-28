@@ -9,6 +9,7 @@
 ;; == ОНОВЛЕНО: ВСТАВКА БЛОКУ ЗОВНІШНЬОГО ФАЙЛУ В ОКРЕМІЙ ФУНКЦІЇ! ==
 ;; == ВИПРАВЛЕНО: ТЕПЕР ВСТАВЛЯЄТЬСЯ САМ БЛОК, А НЕ ВЕСЬ DWG-ФАЙЛ! (ФІНАЛЬНЕ ВИПРАВЛЕННЯ) ==
 ;; == ВИПРАВЛЕНО: ПОМИЛКА "неизвестное имя: Open" (КОРЕКТНЕ ВІДКРИТТЯ DWG) ==
+;; == ВИПРАВЛЕНО: ПОМИЛКА ТИПУ ВАРІАНТА В COPYOBJECTS (ТЕПЕР ВИКОРИСТОВУЄТЬСЯ SAFEARRAY) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -31,7 +32,7 @@
 )
 
 ;; -- Шлях до DWG-файлу, що містить блок "Система_Керування_СП" --
-;; !!! ОНОВІТЬ ЦЕЙ ШЛЯХ НА ВАШ ВЛАСНИЙ !!!
+;; !!! ОНОВІТТЬ ЦЕЙ ШЛЯХ НА ВАШ ВЛАСНИЙ !!!
 ;; Цей файл має містити визначення блоку з іменем "Система_Керування_СП".
 (if (not *switch_control_block_filepath*)
   (setq *switch_control_block_filepath* "C:\\KM_SuperTools\\КМ_Блоки_для_залізниці.dwg") ; <-- ВСТАВТЕ СВІЙ ПРАВИЛЬНИЙ ШЛЯХ
@@ -138,7 +139,7 @@
 ;; Якщо блок вже існує в поточному кресленні, він не буде перезаписаний,
 ;; якщо не використовувати опцію для перезапису (яку тут не додано для безпеки).
 ;; Повертає T, якщо імпорт успішний або блок вже існує, nil у разі помилки.
-(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc documents_collection source_doc blocks_collection block_obj result)
+(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc documents_collection source_doc blocks_collection block_obj result objects_to_copy safe_array_obj)
   (princ (strcat "\nСпроба імпортувати визначення блоку '" block_name_to_import "' з файлу: " source_dwg_path))
 
   ;; Перевірка, чи існує файл джерела
@@ -160,12 +161,16 @@
           (setq result
             (vl-catch-all-apply
               (function (lambda ()
-                ;; Відкриваємо файл як прихований (vlFalse) через колекцію Documents
-                (setq source_doc (vla-Open documents_collection source_dwg_path :VlFalse))
+                (setq source_doc (vla-Open documents_collection source_dwg_path :VlFalse)) ; Відкриваємо файл як прихований
                 (setq block_obj (vla-Item (vla-get-Blocks source_doc) block_name_to_import)) ; Отримуємо VLA-об'єкт блоку з файлу джерела
                 
+                ;; Перетворюємо VLA-об'єкт на SafeArray для vla-CopyObjects
+                (setq objects_to_copy (list block_obj)) ; Створюємо LISP-список з одним об'єктом
+                (setq safe_array_obj (vlax-make-safearray vlax-vbObject (length objects_to_copy) 0)) ; Створюємо порожній SafeArray
+                (vlax-safearray-fill safe_array_obj objects_to_copy) ; Заповнюємо SafeArray даними з LISP-списку
+                
                 ;; Копіюємо визначення блоку з джерела до поточного креслення
-                (vla-CopyObjects source_doc (list block_obj) blocks_collection)
+                (vla-CopyObjects source_doc safe_array_obj blocks_collection) ; <-- ВИПРАВЛЕНО ТУТ
                 
                 (vla-Close source_doc :VlFalse :VlFalse) ; Закриваємо файл джерела без збереження змін
                 (princ (strcat "\nВизначення блоку '" block_name_to_import "' успішно імпортовано."))
