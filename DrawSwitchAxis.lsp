@@ -4,7 +4,8 @@
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
 ;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
 ;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
-;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" (З ЗАВАНТАЖЕННЯМ З ФАЙЛУ) == (ОНОВЛЕНО!)
+;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" (З ЗАВАНТАЖЕННЯМ З ФАЙЛУ) ==
+;; == ПЕРЕВІРЕНО СИНТАКСИС (ОНОВЛЕНО!) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -52,59 +53,6 @@
   (princ " ***")
   (princ)
 )
-
-;; --- Нова допоміжна функція для завантаження блоку з файлу ---
-;; Повертає T, якщо блок знайдено або завантажено успішно, nil у випадку помилки.
-(defun Helper:LoadBlockDefinitionFromFile (block_name library_path / acad_app acad_doc blocks_collection
-                                              block_def_found hidden_doc external_block_def load_successful )
-  (setq acad_app (vlax-get-acad-object)
-        acad_doc (vla-get-ActiveDocument acad_app)
-        blocks_collection (vla-get-Blocks acad_doc)
-        block_def_found nil
-        load_successful nil
-  )
-
-  ;; 1. Спроба знайти блок у поточному кресленні
-  (vl-catch-all-apply '(lambda () (setq block_def_found (vla-item blocks_collection block_name))))
-  
-  (if block_def_found
-      (progn
-          (princ (strcat "\nБлок '" block_name "' вже знайдено в поточному кресленні."))
-          T ; Повертаємо T, бо блок вже є
-      )
-      (progn ; Блок не знайдено, спробуємо завантажити з зовнішнього файлу
-          (princ (strcat "\nБлок '" block_name "' не знайдено в поточному кресленні. Спроба завантажити з файлу: '" library_path "'."))
-          (setq hidden_doc nil)
-          (vl-catch-all-apply
-              (function (lambda ()
-                  ;; Відкриваємо файл приховано. :vla-false означає не зберігати зміни в ньому.
-                  (setq hidden_doc (vla-Open acad_app library_path :vla-false))
-                  (if hidden_doc
-                      (progn
-                          ;; Спроба знайти блок у прихованому документі
-                          (setq external_block_def (vla-item (vla-get-Blocks hidden_doc) block_name))
-                          (if external_block_def
-                              (progn
-                                  ;; Копіюємо визначення блоку з прихованого документа в поточний
-                                  (vla-CopyObjects (vla-get-Database hidden_doc) (list external_block_def) (vla-get-Database acad_doc))
-                                  (setq load_successful T)
-                                  (princ (strcat "\nБлок '" block_name "' успішно завантажено з зовнішнього файлу."))
-                              )
-                              (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено у зовнішньому файлі '" library_path "'."))
-                          )
-                      )
-                      (princ (strcat "\nПомилка: Не вдалося відкрити зовнішній файл блоків: '" library_path "'."))
-                  )
-              ))
-          )
-          ;; Завжди закриваємо прихований документ, якщо він був відкритий
-          (if hidden_doc (vla-Close hidden_doc :vla-false))
-
-          (if load_successful T nil) ; Повертаємо T, якщо завантаження було успішним
-      )
-  )
-)
-;; --- Кінець нової допоміжної функції ---
 
 ;; --- Допоміжна функція для переміщення об'єкта на шар ---
 (defun Helper:MoveEntityToLayer (ent layer_name / doc layers layer_obj vla_ent_obj)
@@ -181,6 +129,78 @@
   )
 )
 
+;; --- Нова допоміжна функція для завантаження блоку з файлу ---
+;; Повертає T, якщо блок знайдено або завантажено успішно, nil у випадку помилки.
+;; Також логує всі блоки, знайдені у зовнішньому файлі.
+(defun Helper:LoadBlockDefinitionFromFile (block_name library_path / acad_app acad_doc blocks_collection
+                                              block_def_found hidden_doc external_block_def load_successful
+                                              ext_block_def ext_block_name )
+  (setq acad_app (vlax-get-acad-object)
+        acad_doc (vla-get-ActiveDocument acad_app)
+        blocks_collection (vla-get-Blocks acad_doc)
+        block_def_found nil
+        load_successful nil
+  )
+
+  ;; 1. Спроба знайти блок у поточному кресленні
+  (vl-catch-all-apply '(lambda () (setq block_def_found (vla-item blocks_collection block_name))))
+  
+  (if block_def_found
+      (progn
+          (princ (strcat "\nБлок '" block_name "' вже знайдено в поточному кресленні."))
+          T ; Повертаємо T, бо блок вже є
+      )
+      (progn ; Блок не знайдено, спробуємо завантажити з зовнішнього файлу
+          (princ (strcat "\nБлок '" block_name "' не знайдено в поточному кресленні. Спроба завантажити з файлу: '" library_path "'."))
+          (setq hidden_doc nil)
+          (vl-catch-all-apply
+              (function (lambda ()
+                  (setq hidden_doc (vla-Open acad_app library_path :vla-false)) ; Відкриваємо файл приховано
+                  (if hidden_doc
+                      (progn
+                          ;; --- START DEBUG: List all blocks in the external file ---
+                          (princ (strcat "\nDBG: Перевірка блоків у зовнішньому файлі '" library_path "'..."))
+                          (if debug_file
+                              (write-line (strcat "--- Blocks in External File: " library_path " ---") debug_file)
+                          )
+                          (vlax-for ext_block_def (vla-get-Blocks hidden_doc)
+                              (setq ext_block_name (vla-get-Name ext_block_def))
+                              (princ (strcat "\nDBG: Знайдено блок: '" ext_block_name "'"))
+                              (if debug_file
+                                  (write-line (strcat "  Found block: '" ext_block_name "'") debug_file)
+                              )
+                          )
+                          (if debug_file (write-line "--- End of External Blocks List ---" debug_file))
+                          ;; --- END DEBUG ---
+
+                          ;; Тепер спроба отримати конкретний блок за іменем
+                          (setq external_block_def (vl-catch-all-apply 'vla-Item (list (vla-get-Blocks hidden_doc) block_name)))
+                          (if (not (vl-catch-all-error-p external_block_def)) ; Перевіряємо, чи була помилка при виклику vla-Item
+                              (if external_block_def ; Перевіряємо, чи об'єкт блоку дійсно знайдено (не nil)
+                                  (progn
+                                      ;; Копіюємо визначення блоку з прихованого документа в поточний
+                                      (vla-CopyObjects (vla-get-Database hidden_doc) (list external_block_def) (vla-get-Database acad_doc))
+                                      (setq load_successful T)
+                                      (princ (strcat "\nБлок '" block_name "' успішно завантажено з зовнішнього файлу."))
+                                  )
+                                  (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено у зовнішньому файлі '" library_path "' (за результатом vla-item - повернув NIL)."))
+                              )
+                              (princ (strcat "\nПомилка (vla-item): Проблема при доступі до блоку '" block_name "' у зовнішньому файлі: " (vl-catch-all-error-message external_block_def)))
+                          )
+                      )
+                      (princ (strcat "\nПомилка: Не вдалося відкрити зовнішній файл блоків: '" library_path "'."))
+                  )
+              ))
+          )
+          ;; Завжди закриваємо прихований документ, якщо він був відкритий
+          (if hidden_doc (vla-Close hidden_doc :vla-false))
+
+          (if load_successful T nil) ; Повертаємо T, якщо завантаження було успішним
+      )
+  )
+)
+;; --- Кінець нової допоміжної функції ---
+
 ;; ============================================================
 ;; == ОСНОВНА ФУНКЦІЯ СКРИПТА ==
 ;; ============================================================
@@ -227,7 +247,7 @@
   )
   (if debug_file
       (progn
-          (write-line (strcat "--- DEBUG LOG --- " (rtos (getvar "CDATE") 2 8)) debug_file)
+          (write-line (strcat "--- DEBUG LOG --- " (getvar "CDATE")) debug_file) ; Changed to CDATE for full date/time
           (write-line "" debug_file)
       )
   )
@@ -576,7 +596,7 @@
   (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) 
   
   ;; Кут вставки блоку = кут лінії P1-P4 (в градусах) + корекція з глобальної змінної.
-  ;; Перетворюємо базовий кут в градуси, додаємо корекцію, і логуємо.
+  ;; Важливо: перетворюємо радіани в градуси для команди _.INSERT
   (setq final_insertion_angle_deg (+ (rtd base_p1_p4_angle_rad) *switch_block_rotation_offset_deg*)) ; <--- ТУТ ПЕРЕТВОРЮЄМО В ГРАДУСИ
 
   ;; --- DEBUG ---
@@ -596,15 +616,15 @@
           (write-line "" debug_file)
       )
   )
-  ;; --- END DEBUG ---
+;; --- END DEBUG ---
 
   ;; 3. Вставка блоку за допомогою COMMAND
   (command "_.INSERT"
-           block_name
-           final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
-           1.0 ; Scale X
-           1.0 ; Scale Y
-           final_insertion_angle_deg) ; Кут повороту (уже в градусах)
+          block_name
+          final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
+          1.0 ; Scale X
+          1.0 ; Scale Y
+          final_insertion_angle_deg) ; Кут повороту (уже в градусах)
   
   ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
   (setq block_ref_ent (entlast))
@@ -614,6 +634,8 @@
       (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
       (princ "\nERROR: Не вдалося отримати посилання на щойно вставлений блок (entlast не вказав на блок).")
   )
+  (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
+
 
   ;; === Переміщення оброблених блоків P1-P5 на цільовий шар ===
   (princ "\nПереміщення вихідних блоків на шар '22 ГЕОДЕЗИЧНА ОСНОВА'...")
