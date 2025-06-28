@@ -7,9 +7,10 @@
 ;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ЧЕРЕЗ COMMAND ==
 ;; == ВИПРАВЛЕНО: БЛОКИ P1-P5 ТЕПЕР ПЕРЕМІЩУЮТЬСЯ НА ЦІЛЬОВИЙ ШАР == (ОНОВЛЕНО!)
 ;; == ОНОВЛЕНО: ВСТАВКА БЛОКУ ЗОВНІШНЬОГО ФАЙЛУ В ОКРЕМІЙ ФУНКЦІЇ! ==
-;; == ВИПРАВЛЕНО: ТЕПЕР ВСТАВЛЯЄТЬСЯ САМ БЛОК, А НЕ ВЕСЬ DWG-ФАЙЛ! (ФІНАЛЬНЕ ВИПРАВЛЕННЯ) ==
+;; == ВИПРАВЛЕНО: ТЕПЕР ВСТАВЛЯЄТЬСЯ САМ БЛОК, А НЕ ВЕСЬ DWG-ФАЙЛ! ==
 ;; == ВИПРАВЛЕНО: ПОМИЛКА "неизвестное имя: Open" (КОРЕКТНЕ ВІДКРИТТЯ DWG) ==
-;; == ВИПРАВЛЕНО: ПОМИЛКА ТИПУ ВАРІАНТА В COPYOBJECTS (ТЕПЕР ВИКОРИСТОВУЄТЬСЯ SAFEARRAY) ==
+;; == ВИПРАВЛЕНО: ПОМИЛКА ТИПУ ВАРІАНТА В COPYOBJECTS (ТЕПЕР ВИКОРИСТОВУЄТЬСЯ SAFEARRAY КООРЕКТНО) ==
+;; == ВИПРАВЛЕНО: ПРИХОВАНЕ ВІДКРИТТЯ ФАЙЛУ (FILEDIA, CMDDIA, DISPLAYALERTS) ==
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -32,7 +33,7 @@
 )
 
 ;; -- Шлях до DWG-файлу, що містить блок "Система_Керування_СП" --
-;; !!! ОНОВІТТЬ ЦЕЙ ШЛЯХ НА ВАШ ВЛАСНИЙ !!!
+;; !!! ОНОВІТЬ ЦЕЙ ШЛЯХ НА ВАШ ВЛАСНИЙ !!!
 ;; Цей файл має містити визначення блоку з іменем "Система_Керування_СП".
 (if (not *switch_control_block_filepath*)
   (setq *switch_control_block_filepath* "C:\\KM_SuperTools\\КМ_Блоки_для_залізниці.dwg") ; <-- ВСТАВТЕ СВІЙ ПРАВИЛЬНИЙ ШЛЯХ
@@ -44,6 +45,8 @@
 (setq *oldOsmode* nil)
 (setq *oldCmdDia* nil)
 (setq *oldOsmodeZ* nil)
+(setq *oldFileDia* nil) ; Додана для збереження FILEDIA
+(setq *oldDispAlerts* nil) ; Додана для збереження DISPLAYALERTS
 
 ;; Локальна функція обробки помилок для відновлення налаштувань
 (defun *error* (msg)
@@ -51,6 +54,9 @@
   (if *oldOsmode* (setvar "OSMODE" *oldOsmode*))
   (if *oldCmdDia* (setvar "CMDDIA" *oldCmdDia*))
   (if *oldOsmodeZ* (setvar "OSNAPZ" *oldOsmodeZ*))
+  (if *oldFileDia* (setvar "FILEDIA" *oldFileDia*)) ; Відновлюємо FILEDIA
+  (if *oldDispAlerts* (setvar "DISPLAYALERTS" *oldDispAlerts*)) ; Відновлюємо DISPLAYALERTS
+
   (sssetfirst nil nil) ; Зняти виділення при помилці або скасуванні
   (princ "\n*** Помилка LISP або скасовано: ")
   (if msg (princ msg))
@@ -139,7 +145,8 @@
 ;; Якщо блок вже існує в поточному кресленні, він не буде перезаписаний,
 ;; якщо не використовувати опцію для перезапису (яку тут не додано для безпеки).
 ;; Повертає T, якщо імпорт успішний або блок вже існує, nil у разі помилки.
-(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc documents_collection source_doc blocks_collection block_obj result objects_to_copy safe_array_obj)
+(defun ImportBlockDefinition (source_dwg_path block_name_to_import / acad_app current_doc documents_collection source_doc blocks_collection block_obj result objects_to_copy safe_array_obj
+                                              old_filedia old_cmddia old_displayalerts)
   (princ (strcat "\nСпроба імпортувати визначення блоку '" block_name_to_import "' з файлу: " source_dwg_path))
 
   ;; Перевірка, чи існує файл джерела
@@ -149,6 +156,16 @@
       nil
     )
     (progn
+      ;; Зберігаємо поточні значення системних змінних
+      (setq old_filedia (getvar "FILEDIA"))
+      (setq old_cmddia (getvar "CMDDIA"))
+      (setq old_displayalerts (getvar "DISPLAYALERTS"))
+      
+      ;; Встановлюємо значення для прихованого відкриття
+      (setvar "FILEDIA" 0)        ; Вимикаємо діалогові вікна
+      (setvar "CMDDIA" 0)         ; Вимикаємо діалогові вікна команд
+      (setvar "DISPLAYALERTS" 0)  ; Вимикаємо сповіщення AutoCAD
+
       (setq acad_app (vlax-get-acad-object))
       (setq current_doc (vla-get-ActiveDocument acad_app))
       (setq blocks_collection (vla-get-Blocks current_doc))
@@ -164,13 +181,14 @@
                 (setq source_doc (vla-Open documents_collection source_dwg_path :VlFalse)) ; Відкриваємо файл як прихований
                 (setq block_obj (vla-Item (vla-get-Blocks source_doc) block_name_to_import)) ; Отримуємо VLA-об'єкт блоку з файлу джерела
                 
-                ;; Перетворюємо VLA-об'єкт на SafeArray для vla-CopyObjects
+                ;; Перетворюємо VLA-об'єкт на SafeArray
                 (setq objects_to_copy (list block_obj)) ; Створюємо LISP-список з одним об'єктом
-                (setq safe_array_obj (vlax-make-safearray vlax-vbObject (length objects_to_copy) 0)) ; Створюємо порожній SafeArray
+                ;; !!! ВИПРАВЛЕНО: нижня та верхня межа SafeArray !!!
+                (setq safe_array_obj (vlax-make-safearray vlax-vbObject 0 (1- (length objects_to_copy)))) ; Створюємо порожній SafeArray, від 0 до (n-1)
                 (vlax-safearray-fill safe_array_obj objects_to_copy) ; Заповнюємо SafeArray даними з LISP-списку
                 
                 ;; Копіюємо визначення блоку з джерела до поточного креслення
-                (vla-CopyObjects source_doc safe_array_obj blocks_collection) ; <-- ВИПРАВЛЕНО ТУТ
+                (vla-CopyObjects source_doc safe_array_obj blocks_collection)
                 
                 (vla-Close source_doc :VlFalse :VlFalse) ; Закриваємо файл джерела без збереження змін
                 (princ (strcat "\nВизначення блоку '" block_name_to_import "' успішно імпортовано."))
@@ -192,6 +210,10 @@
           T ; Блок вже існує, вважаємо це успіхом
         )
       )
+      ;; Відновлюємо системні змінні після операції з файлом
+      (setvar "FILEDIA" old_filedia)
+      (setvar "CMDDIA" old_cmddia)
+      (setvar "DISPLAYALERTS" old_displayalerts)
     )
   )
 )
@@ -273,11 +295,15 @@
   (setq *oldOsmode* (getvar "OSMODE"))
   (setq *oldCmdDia* (getvar "CMDDIA"))
   (setq *oldOsmodeZ* (getvar "OSNAPZ"))
+  (setq *oldFileDia* (getvar "FILEDIA")) ; Зберігаємо FILEDIA
+  (setq *oldDispAlerts* (getvar "DISPLAYALERTS")) ; Зберігаємо DISPLAYALERTS
   
   ;; Встановити налаштування для скрипта
   (setvar "CMDECHO" 0) ; Вимикаємо ехо команд
   (setvar "CMDDIA" 0) ; Вимикаємо діалоги
   (setvar "OSNAPZ" 0) ; Тимчасово встановлюємо OSNAPZ в 0 для коректної роботи MOVE з 3D точками
+  ;; Ці змінні також будуть встановлені і відновлені в ImportBlockDefinition,
+  ;; але їх загальне встановлення тут теж корисне для інших частин скрипта.
 
   (princ "\n--- Побудова осі стрілочного переводу (Авто-визначення марки) ---")
 
@@ -683,11 +709,21 @@
 
   (if debug_file (close debug_file))
 
+  ;; Відновлюємо глобальні системні змінні AutoCAD (якщо вони не були відновлені раніше через *error*)
+  (if *oldEcho* (setvar "CMDECHO" *oldEcho*))
+  (if *oldOsmode* (setvar "OSMODE" *oldOsmode*))
+  (if *oldCmdDia* (setvar "CMDDIA" *oldCmdDia*))
+  (if *oldOsmodeZ* (setvar "OSNAPZ" *oldOsmodeZ*))
+  (if *oldFileDia* (setvar "FILEDIA" *oldFileDia*))
+  (if *oldDispAlerts* (setvar "DISPLAYALERTS" *oldDispAlerts*))
+
+  ;; Очищаємо глобальні змінні
   (setq *oldEcho* nil)
   (setq *oldOsmode* nil)
   (setq *oldCmdDia* nil)
   (setq *oldOsmodeZ* nil)
-
+  (setq *oldFileDia* nil)
+  (setq *oldDispAlerts* nil)
 )
 
 (princ "\nLISP 'DrawSwitchAxisPro' завантажено.")
