@@ -5,7 +5,7 @@
 ;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
 ;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
 ;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" (З ЗАВАНТАЖЕННЯМ З ФАЙЛУ) ==
-;; == ПЕРЕВІРЕНО СИНТАКСИС (ОНОВЛЕНО!) ==
+;; == ВИПРАВЛЕНО: ТИП ДАНИХ ДЛЯ ЗАПИСУ ДАТИ У ДЕБАГ-ЛОГ == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -614,27 +614,28 @@
           (write-line (strcat "  Rotation Offset (deg): " (rtos *switch_block_rotation_offset_deg* 2 15)) debug_file)
           (write-line (strcat "  Final Insertion Angle (deg): " (rtos final_insertion_angle_deg 2 15)) debug_file)
           (write-line "" debug_file)
-      )
-  )
+              )
+          )
 ;; --- END DEBUG ---
 
-  ;; 3. Вставка блоку за допомогою COMMAND
-  (command "_.INSERT"
-          block_name
-          final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
-          1.0 ; Scale X
-          1.0 ; Scale Y
-          final_insertion_angle_deg) ; Кут повороту (уже в градусах)
-  
-  ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
-  (setq block_ref_ent (entlast))
-  (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
+          ;; 3. Вставка блоку за допомогою COMMAND
+          (command "_.INSERT"
+                   block_name
+                   final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
+                   1.0 ; Scale X
+                   1.0 ; Scale Y
+                   final_insertion_angle_deg) ; Кут повороту (уже в градусах)
+          
+          ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
+          (setq block_ref_ent (entlast))
+          (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
 
-  (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference")) ; Перевірка, чи це дійсно блок
-      (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
-      (princ "\nERROR: Не вдалося отримати посилання на щойно вставлений блок (entlast не вказав на блок).")
-  )
-  (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
+          (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference")) ; Перевірка, чи це дійсно блок
+              (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
+              (princ "\nERROR: Не вдалося отримати посилання на щойно вставлений блок (entlast не вказав на блок).")
+          )
+      )
+      (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
 
 
   ;; === Переміщення оброблених блоків P1-P5 на цільовий шар ===
@@ -657,8 +658,6 @@
   (setq *oldOsmode* nil)
   (setq *oldCmdDia* nil)
   (setq *oldOsmodeZ* nil)
-
-)
 
 (princ "\nLISP 'DrawSwitchAxisPro' завантажено.")
 (princ "\nДля запуску введіть DrawSwitchAxisPro.")
