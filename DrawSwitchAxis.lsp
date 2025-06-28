@@ -4,8 +4,7 @@
 ;; == МАРКА ВИЗНАЧАЄТЬСЯ ЗА ЕТАЛОННОЮ ДОВЖИНОЮ ВІДРІЗКА P2-P4 ==
 ;; == ДОДАНО ПОЗНАЧКУ ЦСП ТА ВАГУ ЛІНІЙ (0.30 мм) ==
 ;; == ДОДАНО ЗАМКНУТИЙ КОНТУР З ЧОРНОЮ ЗАЛИВКОЮ ВІД ЦСП ==
-;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" ЧЕРЕЗ COMMAND ==
-;; == ВИПРАВЛЕНО: БЛОКИ P1-P5 ТЕПЕР ПЕРЕМІЩУЮТЬСЯ НА ЦІЛЬОВИЙ ШАР == (ОНОВЛЕНО!)
+;; == ДОДАНО ВСТАВКУ ДИНАМІЧНОГО БЛОКУ "Система_Керування_СП" (З ЗАВАНТАЖЕННЯМ З ФАЙЛУ) == (ОНОВЛЕНО!)
 ;; ============================================================
 
 (vl-load-com) ; Переконатися, що VLISP функції доступні
@@ -25,6 +24,13 @@
 ;; Якщо він виглядає горизонтальним, спробуйте 90.0 або -90.0.
 (if (not *switch_block_rotation_offset_deg*)
     (setq *switch_block_rotation_offset_deg* 0.0) ; За замовчуванням: немає додаткової корекції
+)
+
+;; -- Шлях до DWG-файлу, що містить блок "Система_Керування_СП" --
+;; !!! ВАЖЛИВО: ЗАМІНІТЬ ЦЕЙ ШЛЯХ НА КОРЕКТНИЙ ШЛЯХ ДО ВАШОГО ФАЙЛУ !!!
+;; Наприклад: "C:\\Users\\ВашеІм'я\\Documents\\МояБібліотекаБлоків\\Система_Керування_СП.dwg"
+(if (not *switch_block_library_path*)
+    (setq *switch_block_library_path* "C:\\KM_SuperTools\\КМ_Блоки_для_залізниці.dwg")
 )
 ;; ============================================================
 
@@ -46,6 +52,59 @@
   (princ " ***")
   (princ)
 )
+
+;; --- Нова допоміжна функція для завантаження блоку з файлу ---
+;; Повертає T, якщо блок знайдено або завантажено успішно, nil у випадку помилки.
+(defun Helper:LoadBlockDefinitionFromFile (block_name library_path / acad_app acad_doc blocks_collection
+                                              block_def_found hidden_doc external_block_def load_successful )
+  (setq acad_app (vlax-get-acad-object)
+        acad_doc (vla-get-ActiveDocument acad_app)
+        blocks_collection (vla-get-Blocks acad_doc)
+        block_def_found nil
+        load_successful nil
+  )
+
+  ;; 1. Спроба знайти блок у поточному кресленні
+  (vl-catch-all-apply '(lambda () (setq block_def_found (vla-item blocks_collection block_name))))
+  
+  (if block_def_found
+      (progn
+          (princ (strcat "\nБлок '" block_name "' вже знайдено в поточному кресленні."))
+          T ; Повертаємо T, бо блок вже є
+      )
+      (progn ; Блок не знайдено, спробуємо завантажити з зовнішнього файлу
+          (princ (strcat "\nБлок '" block_name "' не знайдено в поточному кресленні. Спроба завантажити з файлу: '" library_path "'."))
+          (setq hidden_doc nil)
+          (vl-catch-all-apply
+              (function (lambda ()
+                  ;; Відкриваємо файл приховано. :vla-false означає не зберігати зміни в ньому.
+                  (setq hidden_doc (vla-Open acad_app library_path :vla-false))
+                  (if hidden_doc
+                      (progn
+                          ;; Спроба знайти блок у прихованому документі
+                          (setq external_block_def (vla-item (vla-get-Blocks hidden_doc) block_name))
+                          (if external_block_def
+                              (progn
+                                  ;; Копіюємо визначення блоку з прихованого документа в поточний
+                                  (vla-CopyObjects (vla-get-Database hidden_doc) (list external_block_def) (vla-get-Database acad_doc))
+                                  (setq load_successful T)
+                                  (princ (strcat "\nБлок '" block_name "' успішно завантажено з зовнішнього файлу."))
+                              )
+                              (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено у зовнішньому файлі '" library_path "'."))
+                          )
+                      )
+                      (princ (strcat "\nПомилка: Не вдалося відкрити зовнішній файл блоків: '" library_path "'."))
+                  )
+              ))
+          )
+          ;; Завжди закриваємо прихований документ, якщо він був відкритий
+          (if hidden_doc (vla-Close hidden_doc :vla-false))
+
+          (if load_successful T nil) ; Повертаємо T, якщо завантаження було успішним
+      )
+  )
+)
+;; --- Кінець нової допоміжної функції ---
 
 ;; --- Допоміжна функція для переміщення об'єкта на шар ---
 (defun Helper:MoveEntityToLayer (ent layer_name / doc layers layer_obj vla_ent_obj)
@@ -131,7 +190,7 @@
                                  straight_axis_obj
                                  proj_pt_p3 proj_pt_p2 csp_pt branch_angle branch_end_pt
                                  branch_axis_obj p2_projected_on_straight p5_projected_on_branch
-                                 p1_block_vla p2_block_vla p3_block_vla p4_block_vla p5_block_vla ; Зберігаємо VLA-об'єкти для всіх блоків
+                                 p1_block_vla p2_block_vla p3_block_vla p4_block_vla p5_block_vla
                                  final_p2_target_pt final_p5_target_pt
                                  temp_straight_axis_ent temp_branch_axis_ent
                                  mark_1_9_angle_deg mark_1_11_angle_deg
@@ -501,62 +560,59 @@
   (setq acad_doc (vla-get-ActiveDocument (vlax-get-acad-object)))
   (setq model_space (vla-get-ModelSpace acad_doc))
 
-  ;; 1. Перевірка наявності блоку в кресленні
-  (setq block_def_found nil)
-  (vl-catch-all-apply
-    (function (lambda ()
-                (setq block_def_found (vla-item (vla-get-Blocks acad_doc) block_name))
-              ))
+  ;; 1. Завантаження блоку з зовнішнього файлу або перевірка його наявності
+  (if (not (Helper:LoadBlockDefinitionFromFile block_name *switch_block_library_path*)) ; Виклик нової функції
+      (progn
+          (princ (strcat "\nКРИТИЧНА ПОМИЛКА: Блок '" block_name "' не знайдено і не вдалося завантажити. Операцію скасовано."))
+          (*error* "Не вдалося завантажити блок")
+          (exit) ; Перериваємо скрипт
+      )
   )
   
-  (if block_def_found
+  ;; Якщо ми дійшли сюди, блок гарантовано існує в поточному кресленні
+  (princ (strcat "\nБлок '" block_name "' доступний для вставки."))
+
+  ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
+  (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) 
+  
+  ;; Кут вставки блоку = кут лінії P1-P4 (в градусах) + корекція з глобальної змінної.
+  ;; Перетворюємо базовий кут в градуси, додаємо корекцію, і логуємо.
+  (setq final_insertion_angle_deg (+ (rtd base_p1_p4_angle_rad) *switch_block_rotation_offset_deg*)) ; <--- ТУТ ПЕРЕТВОРЮЄМО В ГРАДУСИ
+
+  ;; --- DEBUG ---
+  (princ (strcat "\nDBG: Базовий кут P1-P4 (в рад): " (rtos base_p1_p4_angle_rad 2 8)))
+  (princ (strcat "\nDBG: Базовий кут P1-P4 (в град): " (rtos (rtd base_p1_p4_angle_rad) 2 8)))
+  (princ (strcat "\nDBG: Встановлена корекція (град): " (rtos *switch_block_rotation_offset_deg* 2 8)))
+  (princ (strcat "\nDBG: Фінальний кут вставки блоку (в град): " (rtos final_insertion_angle_deg 2 8))) ; Логуємо в градусах
+  (if debug_file
       (progn
-          (princ (strcat "\nБлок '" block_name "' знайдено в кресленні."))
-
-          ;; 2. Розрахунок кута для вставки (напрямок лінії P1-P4)
-          (setq base_p1_p4_angle_rad (angle p1_2d_coords p4_2d_coords)) 
-          
-          ;; Кут вставки блоку = кут лінії P1-P4 + корекція з глобальної змінної.
-          ;; Важливо: перетворюємо радіани в градуси для команди _.INSERT
-          (setq final_insertion_angle_deg (+ (rtd base_p1_p4_angle_rad) *switch_block_rotation_offset_deg*)) ; <--- ТУТ ПЕРЕТВОРЮЄМО В ГРАДУСИ
-
-          ;; --- DEBUG ---
-          (princ (strcat "\nDBG: Базовий кут P1-P4 (в рад): " (rtos base_p1_p4_angle_rad 2 8)))
-          (princ (strcat "\nDBG: Базовий кут P1-P4 (в град): " (rtos (rtd base_p1_p4_angle_rad) 2 8)))
-          (princ (strcat "\nDBG: Встановлена корекція (град): " (rtos *switch_block_rotation_offset_deg* 2 8)))
-          (princ (strcat "\nDBG: Фінальний кут вставки блоку (в град): " (rtos final_insertion_angle_deg 2 8))) ; Логуємо в градусах
-          (if debug_file
-              (progn
-                  (write-line (strcat "Insertion Angle Details:" ) debug_file)
-                  (write-line (strcat "  P1_2d: " (rtos (car p1_2d_coords) 2 15) ", " (rtos (cadr p1_2d_coords) 2 15)) debug_file)
-                  (write-line (strcat "  P4_2d: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15)) debug_file)
-                  (write-line (strcat "  Base P1-P4 Angle (rad): " (rtos base_p1_p4_angle_rad 2 15)) debug_file)
-                  (write-line (strcat "  Base P1-P4 Angle (deg): " (rtos (rtd base_p1_p4_angle_rad) 2 15)) debug_file)
-                  (write-line (strcat "  Rotation Offset (deg): " (rtos *switch_block_rotation_offset_deg* 2 15)) debug_file)
-                  (write-line (strcat "  Final Insertion Angle (deg): " (rtos final_insertion_angle_deg 2 15)) debug_file)
-                  (write-line "" debug_file)
-              )
-          )
-          ;; --- END DEBUG ---
-
-          ;; 3. Вставка блоку за допомогою COMMAND
-          (command "_.INSERT"
-                   block_name
-                   final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
-                   1.0 ; Scale X
-                   1.0 ; Scale Y
-                   final_insertion_angle_deg) ; Кут повороту
-          
-          ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
-          (setq block_ref_ent (entlast))
-          (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
-
-          (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference")) ; Перевірка, чи це дійсно блок
-              (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
-              (princ "\nERROR: Не вдалося отримати посилання на щойно вставлений блок (entlast не вказав на блок).")
-          )
+          (write-line (strcat "Insertion Angle Details:" ) debug_file)
+          (write-line (strcat "  P1_2d: " (rtos (car p1_2d_coords) 2 15) ", " (rtos (cadr p1_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "  P4_2d: " (rtos (car p4_2d_coords) 2 15) ", " (rtos (cadr p4_2d_coords) 2 15)) debug_file)
+          (write-line (strcat "  Base P1-P4 Angle (rad): " (rtos base_p1_p4_angle_rad 2 15)) debug_file)
+          (write-line (strcat "  Base P1-P4 Angle (deg): " (rtos (rtd base_p1_p4_angle_rad) 2 15)) debug_file)
+          (write-line (strcat "  Rotation Offset (deg): " (rtos *switch_block_rotation_offset_deg* 2 15)) debug_file)
+          (write-line (strcat "  Final Insertion Angle (deg): " (rtos final_insertion_angle_deg 2 15)) debug_file)
+          (write-line "" debug_file)
       )
-      (princ (strcat "\nПомилка: Блок '" block_name "' не знайдено в кресленні. Будь ласка, переконайтеся, що блок існує."))
+  )
+  ;; --- END DEBUG ---
+
+  ;; 3. Вставка блоку за допомогою COMMAND
+  (command "_.INSERT"
+           block_name
+           final_p2_target_pt ; <--- Використовуємо кінцеву, зміщену точку P2
+           1.0 ; Scale X
+           1.0 ; Scale Y
+           final_insertion_angle_deg) ; Кут повороту (уже в градусах)
+  
+  ;; Спроба отримати VLA-об'єкт щойно вставленого блоку за допомогою entlast
+  (setq block_ref_ent (entlast))
+  (setq block_ref_obj (vlax-ename->vla-object block_ref_ent))
+
+  (if (and block_ref_obj (equal (vla-get-objectname block_ref_obj) "AcDbBlockReference")) ; Перевірка, чи це дійсно блок
+      (princ (strcat "\nДинамічний блок '" block_name "' вставлено в точку P2."))
+      (princ "\nERROR: Не вдалося отримати посилання на щойно вставлений блок (entlast не вказав на блок).")
   )
 
   ;; === Переміщення оброблених блоків P1-P5 на цільовий шар ===
