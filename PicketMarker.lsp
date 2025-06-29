@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -29,7 +29,7 @@
   (setq doc (vla-get-ActiveDocument acad_obj))
   (setq blocks (vla-get-Blocks doc))
   ;; Перевірка чи існує блок з таким ім'ям взагалі
-  (if (not (vl-catch-all-error-p (setq blk_obj (vla-item blocks blockname))))
+  (if (not (vl-catch-all-error-p (setq blk_obj (vlax-invoke-method blocks 'Item blockname)))) ; Використано vlax-invoke-method для Item
       ;; Якщо блок існує, шукаємо атрибут
       (vlax-for ent blk_obj
         (if (= "AcDbAttributeDefinition" (vla-get-ObjectName ent))
@@ -117,30 +117,39 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-(defun RegisterAppID (app_name / dicts acad_obj doc)
+(defun RegisterAppID (app_name / dicts acad_obj doc app_names err_obj)
   (setq acad_obj (vlax-get-acad-object)
         doc (vla-get-ActiveDocument acad_obj)
         dicts (vla-get-Dictionaries doc))
-  (if (not (vl-catch-all-error-p (vlax-invoke-method dicts 'Item "ACAD_APPNAMES")))
+
+  ;; Перевірка та створення словника ACAD_APPNAMES, якщо він не існує
+  (setq err_obj (vl-catch-all-apply 'vlax-invoke-method (list dicts 'Item "ACAD_APPNAMES")))
+  (if (vl-catch-all-error-p err_obj)
       (progn
-        (vl-catch-all-apply
-          '(lambda ()
-             (vla-Add dicts "ACAD_APPNAMES")
-           )
+        (princ "\nСловник ACAD_APPNAMES не знайдено. Спроба створити...")
+        (setq err_obj (vl-catch-all-apply 'vla-Add (list dicts "ACAD_APPNAMES")))
+        (if (vl-catch-all-error-p err_obj)
+            (princ (strcat "\n*** Помилка створення словника ACAD_APPNAMES: " (vl-catch-all-error-message err_obj)))
+            (princ "\nСловник ACAD_APPNAMES успішно створено.")
         )
       )
   )
-  (setq app_names (vla-Item dicts "ACAD_APPNAMES"))
-  (if (vl-catch-all-error-p (vlax-invoke-method app_names 'Item app_name))
-      (progn
-        (vl-catch-all-apply
-          '(lambda ()
-             (vla-Add app_names app_name)
-             (princ (strcat "\nЗареєстровано AppID: " app_name))
-           )
-        )
+  ;; Тепер словник точно має існувати (або ми отримали фатальну помилку)
+  (setq app_names (vlax-invoke-method dicts 'Item "ACAD_APPNAMES"))
+
+  (if app_names ; Перевіряємо, що app_names не nil після спроби створення
+      (if (vl-catch-all-error-p (vlax-invoke-method app_names 'Item app_name))
+          (progn
+            (vl-catch-all-apply
+              '(lambda ()
+                 (vla-Add app_names app_name)
+                 (princ (strcat "\nЗареєстровано AppID: " app_name))
+               )
+            )
+          )
+          (princ (strcat "\nAppID '" app_name "' вже зареєстровано."))
       )
-      (princ (strcat "\nAppID '" app_name "' вже зареєстровано."))
+      (princ "\n*** Помилка: Не вдалося отримати словник ACAD_APPNAMES для реєстрації AppID.")
   )
 )
 
@@ -156,7 +165,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -403,6 +412,10 @@
         (vl-catch-all-apply
           '(lambda ()
              (setq ent_data (entget (vlax-vla-object->ename pline_obj) (list app_id_name)))
+             ;; Видаляємо старі XDATA, якщо вони існують, щоб уникнути дублювання
+             (if (assoc -3 ent_data)
+                 (setq ent_data (vl-remove-if '(lambda (x) (and (listp x) (= (car x) -3) (equal (cadr x) (list app_id_name)))) ent_data))
+             )
              (setq xdata_list (list (cons -3 (list app_id_name))
                                     (cons 1000 (rtos picket_at_start 2 8)) ; Код 1000 для рядка
                                     (cons 1000 (rtos dir_factor 2 8))
