@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_CHECKED (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -150,17 +150,19 @@
         (setq acad_appname_obj (vl-catch-all-apply 'vla-Add (list dictionaries "ACAD_APPNAMES")))
         (if (vl-catch-all-error-p acad_appname_obj)
             (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити словник ACAD_APPNAMES в кресленні: " (vl-catch-all-error-message acad_appname_obj)))
+            (setq acad_appname_obj nil) ; Встановлюємо в nil, якщо створення не вдалося
             (princ "\nСловник ACAD_APPNAMES успішно створено в кресленні.")
         )
       )
       (princ "\nСловник ACAD_APPNAMES знайдено в кресленні.")
   )
 
-  (if acad_appname_obj ; Якщо словник ACAD_APPNAMES тепер валідний
+  (if acad_appname_obj ; Якщо словник ACAD_APPNAMES тепер валідний (отриманий або успішно створений)
+      ;; Ось тут обгортаємо виклик vla-Add в vl-catch-all-apply
       (if (vl-catch-all-error-p (vlax-invoke-method acad_appname_obj 'Item app_name))
           (progn
             (princ (strcat "\nAppID '" app_name "' не знайдено в словнику креслення. Спроба додати..."))
-            (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name))
+            (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)) ; <--- Змінено тут
                 (princ (strcat "\nAppID '" app_name "' успішно додано до словника креслення."))
                 (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до словника креслення."))
             )
@@ -184,7 +186,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_CHECKED ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -372,9 +374,8 @@
                         (progn
                           (princ (strcat "\n Вставлено блок для: " piket_str))
                           (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str)
-                        )
-                        (princ (strcat "\n*** Помилка: vla-InsertBlock повернув nil для " piket_str))
-                    )
+                      )
+                      (princ "\n*** Помилка: vla-InsertBlock повернув nil для " piket_str))
                 )
              )
              (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну на відстані " (rtos dist_on_pline) ". Пропуск 100м пікету."))
@@ -391,7 +392,6 @@
   )
 
   ;; --- Маркер в КІНЦІ полілінії ---
-  ;; Цей розрахунок перенесено вище, щоб picket_at_end завжди мав значення перед використанням
   (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
   (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
   (if (>= picket_at_end (- 0.0 fuzz))
@@ -427,7 +427,7 @@
       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
   )
   
-  ;; --- Збереження XDATA на полілінії ---
+  ;; --- Зберігання XDATA на полілінії ---
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
