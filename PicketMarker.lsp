@@ -2,6 +2,9 @@
 ;;; Версія v2025-04-25_UseBlock (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
+;;; --- ДОДАНО функціонал збереження XDATA для пікетажних параметрів ---
+
+(vl-load-com) ; Завантажуємо підтримку ActiveX/COM для XDATA
 
 ;; === Допоміжні функції для векторної математики ===
 (defun normalize (v / len) (setq len (distance '(0 0 0) v)) (if (< len 1e-12) nil (mapcar '(lambda (x) (/ x len)) v)))
@@ -134,21 +137,23 @@
 
 ;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
-                             val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
-                             vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
-                             first_picket_val last_picket_val current_picket_val dist_on_pline
-                             pt_on_pline vec_tangent target_layer block_name_selected block_vla_obj block_insert_obj
-                             fuzz piket_str piket_str_start piket_str_end
-                             pt_start pt_end vec_tangent_start vec_tangent_end block_angle block_angle_perp mspace
-                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
-                             num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename)
+                             val_ref pt_dir vec_dir vec_tangent_ref dir_factor pt_side_ref vec_side_ref
+                             vec_perp_ref dot_prod_side side_factor picket_at_start pline_len picket_at_end
+                             first_picket_val last_picket_val current_picket_val dist_on_pline
+                             pt_on_pline vec_tangent target_layer block_name_selected block_vla_obj block_insert_obj
+                             fuzz piket_str piket_str_start piket_str_end
+                             pt_start pt_end vec_tangent_start vec_tangent_end block_angle block_angle_perp mspace
+                             acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
+                             num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
+                            xdata_app_name dicts named_objs) ; <<< Додано xdata_app_name та інші змінні для XDATA
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-04-25_UseBlock_RotateFixY_RemAngle ***") ; <<< Оновлено версію
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-04-25_UseBlock_RotateFixY_RemAngle ***") ; <<< Оновлено версію
 
-  ;; Налаштування констант
-  (setq target_layer   "0"
-        fuzz           1e-9
-  )
+  ;; Налаштування констант
+  (setq target_layer   "0"
+        fuzz           1e-9
+        xdata_app_name "PicketMaster" ; <<< ДОДАНО: Унікальне ім'я для твоїх даних XDATA
+  )
 
   ;; Перевизначення обробника помилок
   (defun *error* (msg)
@@ -159,9 +164,16 @@
     (princ)
   ) ; *error* defun end
 
-  ;; Збереження системних змінних
-  (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
-  (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
+  ;; Збереження системних змінних
+  (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
+  (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
+
+  ;; <<< ДОДАНО: Реєстрація App Name для XDATA
+  (setq acad_obj (vlax-get-acad-object))
+  (setq dicts (vla-get-Dictionaries acad_obj))
+  (setq named_objs (vla-item dicts "AcDbGroupDict")) ; Отримуємо словник іменованих об'єктів
+  (vl-catch-all-apply 'vla-AddNamedObject (list named_objs xdata_app_name "AcDbAppId")) ; Спроба додати, якщо вже є - помилка, яку ігноруємо
+  ;; <<< КІНЕЦЬ ДОДАНОГО БЛОКУ
 
   ;; --- Збір вхідних даних ---
   (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
@@ -339,14 +351,14 @@
     (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
   ) ; WHILE END
 
-  ;; --- Маркер в КІНЦІ полілінії ---
-  (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
-  (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
-  (if (>= picket_at_end (- 0.0 fuzz))
-      (progn
-        (princ "\nСпроба поставити маркер в кінці полілінії...")
-        (setq pt_end (vlax-curve-getEndPoint pline_obj))
-        (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_obj (- pline_len fuzz))))
+  ;; --- Маркер в КІНЦІ полілінії ---
+  (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
+  (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
+  (if (>= picket_at_end (- 0.0 fuzz))
+      (progn
+        (princ "\nСпроба поставити маркер в кінці полілінії...")
+        (setq pt_end (vlax-curve-getEndPoint pline_obj))
+        (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getParamAtDist pline_len))) ; Змінено на getParamAtDist pline_len для надійності
         (if (not vec_tangent_end) (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj))))
         (if vec_tangent_end
             (progn
@@ -377,12 +389,38 @@
       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
   ) ; if picket_at_end end
 
-  ;; --- Завершення ---
-  (command "_REGEN")
-  (princ "\nРозстановка пікетажу (блоками) завершена.")
-  (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))
-  (setq *error* nil)
-  (princ)
+
+  ;; <<< ДОДАНО: ЗБЕРЕЖЕННЯ XDATA на полілінії
+  (if (and pline_obj picket_at_start dir_factor)
+    (progn
+      (princ (strcat "\nЗберігання даних пікетажу на полілінії під '" xdata_app_name "'..."))
+      (vl-catch-all-apply
+        'vla-SetXData
+        (list pline_obj
+              (vlax-make-variant xdata_app_name vlax-vbString)
+              (vlax-make-variant
+                (vlax-safearray-fill
+                  (vlax-make-safearray vlax-vbVariant '(0 . 1)) ; Масив для двох значень
+                  (list (vlax-make-variant picket_at_start vlax-vbDouble)
+                        (vlax-make-variant dir_factor vlax-vbDouble)
+                  )
+                )
+                vlax-vbVariant
+              )
+        )
+      )
+      (princ "\nДані пікетажу збережено на полілінії.")
+    )
+    (princ "\n*** Попередження: Не вдалося зберегти дані пікетажу на полілінії (неповні параметри).")
+  )
+  ;; <<< КІНЕЦЬ ДОДАНОГО БЛОКУ
+
+  ;; --- Завершення ---
+  (command "_REGEN")
+  (princ "\nРозстановка пікетажу (блоками) завершена.")
+  (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))
+  (setq *error* nil)
+  (princ)
 ) ; Defun C:CREATE_PICKET_MARKER End
 
 ;; Повідомлення про завантаження
