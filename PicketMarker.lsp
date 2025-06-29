@@ -168,17 +168,20 @@
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
   (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
 
-  ;;; Виправлений блок реєстрації App Name для XDATA (ВЕРСІЯ 3)
+  ;;; Виправлений блок реєстрації App Name для XDATA (Остаточна версія)
 
   (setq acad_obj (vlax-get-acad-object))
   (setq doc (vla-get-ActiveDocument acad_obj))
   (setq dictionaries (vla-get-Dictionaries doc)) ; Колекція словників креслення
 
-  ;; Спроба отримати існуючий AppID. Якщо його немає, створюємо.
-  (if (vl-catch-all-error-p (setq app_id_obj (vla-item dictionaries xdata_app_name)))
+  ;; Спроба отримати існуючий AppID.
+  ;; Якщо його немає (тобто "Ключ не найден"), то створюємо новий AppID.
+  (if (vl-catch-all-error-p (vlax-invoke dictionaries 'Item xdata_app_name)) ; Правильний виклик Item
     (progn
       (princ (strcat "\nРеєстрація AppID '" xdata_app_name "'..."))
-      (vl-catch-all-apply 'vla-Add (list dictionaries xdata_app_name "AcDbAppId"))
+      ;; Правильний виклик методу Add для створення нового AppID
+      (vlax-invoke dictionaries 'Add xdata_app_name "AcDbAppId")
+      (princ "\nAppID успішно зареєстровано.")
     )
     (princ (strcat "\nAppID '" xdata_app_name "' вже зареєстровано."))
   )
