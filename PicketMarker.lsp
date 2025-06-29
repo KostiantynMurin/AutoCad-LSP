@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_FINAL_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_REGISTRY_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -119,18 +119,34 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID з коректним викликом (command) ***
-(defun RegisterAppID (app_name / old_cmdecho)
-  (setq old_cmdecho (getvar "CMDECHO")) ; Зберігаємо поточне значення CMDECHO
-  (setvar "CMDECHO" 1) ; Встановлюємо CMDECHO в 1 для коректної роботи (command)
+;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID через реєстр Windows ***
+(defun RegisterAppID (app_name / acad_ver reg_path app_ids)
+  (princ (strcat "\nСпроба реєстрації AppID: " app_name " через реєстр Windows..."))
 
-  (princ (strcat "\nСпроба реєстрації AppID: " app_name " за допомогою REGAPP..."))
-  ;; Використовуємо (command) для запуску _.-REGAPP
-  ;; " " - це ENTER
-  (vl-catch-all-apply 'command (list "_.-REGAPP" app_name "A" "")) ; Тепер передаємо "A" і ENTER окремо
+  ;; Визначаємо шлях до реєстру залежно від версії AutoCAD
+  ;; Приклад шляху: "HKEY_CURRENT_USER\\Software\\Autodesk\\AutoCAD\\R24.0\\ACAD-F001:409\\Applications"
+  ;; R24.0 (або інша версія)
+  ;; ACAD-F001:409 - це Product/Language ID. Ми можемо отримати його програмно.
+
+  (setq acad_ver (getvar "ACADVER")) ; Отримуємо рядок версії AutoCAD (наприклад, "24.0" для ACAD 2022)
+
+  ;; Отримуємо ключ реєстру для поточного профілю AutoCAD
+  (setq reg_path (strcat "HKEY_CURRENT_USER\\" (vlax-product-key) "\\Applications\\"))
   
-  (setvar "CMDECHO" old_cmdecho) ; Відновлюємо CMDECHO
-  (princ (strcat "\nAppID '" app_name "' зареєстровано (або вже існувало)."))
+  (setq app_ids (vl-registry-read reg_path app_name))
+  
+  (if (null app_ids) ; Якщо AppID не знайдено в реєстрі
+      (progn
+        (princ (strcat "\nAppID '" app_name "' не знайдено в реєстрі. Спроба додати..."))
+        (setq app_ids (list (cons 1 app_name) (cons 2 "Description for PicketMaster") (cons 3 "YOUR_COMPANY_NAME") (cons 4 "0"))) ; Створюємо мінімальні дані для AppID
+        (if (vl-catch-all-apply 'vl-registry-write (list reg_path app_name app_ids))
+            (princ (strcat "\nAppID '" app_name "' успішно додано до реєстру."))
+            (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до реєстру."))
+        )
+      )
+      (princ (strcat "\nAppID '" app_name "' вже зареєстровано в реєстрі."))
+  )
+  (princ (strcat "\nAppID реєстрація для " app_name " завершена."))
 )
 
 ;; Головна функція (Нормалізація кута через REM)
@@ -145,7 +161,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_FINAL_FIX ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_REGISTRY_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -165,7 +181,7 @@
       )
   )
 
-  ;; Реєстрація AppID (тепер через REGAPP команду)
+  ;; Реєстрація AppID (тепер через реєстр Windows)
   (RegisterAppID app_id_name)
 
 
@@ -180,7 +196,7 @@
 
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
-  ;; CMDECHO буде встановлено в 1 у RegisterAppID і відновлено там же.
+  (setvar "CMDECHO" 0) ; CMDECHO може бути 0, бо ми не використовуємо (command) для REGAPP
   (setvar "ATTREQ" 1)
   (setvar "ATTDIA" 0)
 
@@ -336,8 +352,7 @@
                         )
                         (princ (strcat "\n*** Помилка: vla-InsertBlock повернув nil для " piket_str))
                     )
-                )
-             )
+              )
              (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну на відстані " (rtos dist_on_pline) ". Пропуск 100м пікету."))
           )
       )
