@@ -168,18 +168,21 @@
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
   (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
 
-  ;; <<< ДОДАНО: Реєстрація App Name для XDATA (ВИПРАВЛЕНО ДОСТУП ДО СЛОВНИКІВ)
-  (setq acad_obj (vlax-get-acad-object))
-  (setq doc (vla-get-ActiveDocument acad_obj)) ; Отримуємо активний документ
-  (setq dicts (vla-get-Dictionaries doc))       ; Тепер звертаємося до Dictionaries через документ
-  (setq named_objs (vl-catch-all-apply 'vla-item (list dicts "ACAD_GROUP"))) ; Правильне ім'я для словника груп
-  ;; Перевіряємо, чи отримали ми словник груп, якщо ні - то це звичайний словник
-  (if (vl-catch-all-error-p named_objs)
-    (setq named_objs (vla-item dicts "ACAD_NAMEDOBJECTDICTIONARY")) ; Запасний варіант: словник іменованих об'єктів
-  )
+  ;;; Виправлений блок реєстрації App Name для XDATA (ВЕРСІЯ 3)
 
-  (vl-catch-all-apply 'vla-AddNamedObject (list named_objs xdata_app_name "AcDbAppId")) ; Спроба додати, якщо вже є - помилка, яку ігноруємо
-  ;; <<< КІНЕЦЬ ДОДАНОГО ВИПРАВЛЕНОГО БЛОКУ
+  (setq acad_obj (vlax-get-acad-object))
+  (setq doc (vla-get-ActiveDocument acad_obj))
+  (setq dictionaries (vla-get-Dictionaries doc)) ; Колекція словників креслення
+
+  ;; Спроба отримати існуючий AppID. Якщо його немає, створюємо.
+  (if (vl-catch-all-error-p (setq app_id_obj (vla-item dictionaries xdata_app_name)))
+    (progn
+      (princ (strcat "\nРеєстрація AppID '" xdata_app_name "'..."))
+      (vl-catch-all-apply 'vla-Add (list dictionaries xdata_app_name "AcDbAppId"))
+    )
+    (princ (strcat "\nAppID '" xdata_app_name "' вже зареєстровано."))
+  )
+;;; КІНЕЦЬ ВИПРАВЛЕНОГО БЛОКУ
 
   ;; --- Збір вхідних даних ---
   (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
