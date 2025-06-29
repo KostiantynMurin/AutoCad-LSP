@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_VLAX_SETXDATA (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_WORKING (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -196,7 +196,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_SIMPLE_WRITE ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_WORKING ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -441,14 +441,16 @@
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-        ;; Запис XDATA за допомогою vlax-put-XData. Це найпростіший і найнадійніший спосіб.
-        (vl-catch-all-apply 'vlax-put-XData
+        ;; Запис XDATA за допомогою vla-SetXData. Це найпростіший і найнадійніший спосіб.
+        (vl-catch-all-apply 'vla-SetXData
           (list
             (vlax-ename->vla-object (vlax-vla-object->ename pline_obj)) ; VLA-об'єкт полілінії
             app_id_name ; Ім'я AppID
             (vlax-make-safearray vlax-vbVariant '(0 . 1)) ; SafeArray для двох значень
-            (vlax-make-variant (rtos picket_at_start 2 8)) ; picket_at_start
-            (vlax-make-variant (rtos dir_factor 2 8))    ; dir_factor
+            (list ; Список значень для SafeArray
+              (vlax-make-variant (rtos picket_at_start 2 8)) ; picket_at_start
+              (vlax-make-variant (rtos dir_factor 2 8))    ; dir_factor
+            )
           )
         )
         (princ "\nXDATA успішно збережено на полілінії.")
