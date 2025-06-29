@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FIXED_XDATA_FINAL (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_CLEAN_XDATA (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -155,7 +155,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FIXED_XDATA_FINAL ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_CLEAN_XDATA ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -398,7 +398,6 @@
       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
   )
   
-
   ;; --- Збереження XDATA на полілінії ---
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
@@ -407,33 +406,38 @@
           '(lambda ()
              (setq ent_data (entget (vlax-vla-object->ename pline_obj) (list app_id_name)))
              
-             ;; Найнадійніший спосіб видалити старі XDATA:
-             (setq current_xdata (entget (vlax-vla-object->ename pline_obj))) ; Отримуємо СВІЖІ дані
-             (setq filtered_xdata nil)
-             (setq i 0)
-             (setq found_our_xdata nil) ; Флаг, що ми знайшли наші XDATA
-             
-             (while (< i (length current_xdata))
-                 (setq group (nth i current_xdata))
-                 (if (and (listp group) (= (car group) -3) (equal (cadr group) (list app_id_name)))
-                     ;; Якщо це початок нашого AppID XDATA, пропустити до наступного -3
-                     (progn
-                         (setq found_our_xdata T) ; Встановлюємо флаг
-                         (setq i (1+ i)) ; Пропускаємо сам тег -3 AppID
-                         (while (and (< i (length current_xdata))
-                                     (not (and (listp (nth i current_xdata)) (= (car (nth i current_xdata)) -3))))
-                             (setq i (1+ i))
-                         )
-                         ;; Якщо ми дійшли до кінця списку або знайшли інший -3 (кінець наших XDATA)
+             ;; Простіший і надійніший спосіб видалити існуючі XDATA для нашого AppID
+             (if (and (listp ent_data) (assoc -3 ent_data)) ; Перевіряємо, чи ent_data це список і чи є в ньому асоціація -3
+                 ;; Фільтруємо список ent_data, залишаючи тільки ті групи, які НЕ є початком XDATA для нашого AppID
+                 ;; Або які НЕ є частиною XDATA для нашого AppID.
+                 ;; Найкращий спосіб - це видалити всі групи DXF-кодів з -3 до наступного -3
+                 (progn
+                   (setq filtered_data nil)
+                   (setq in_our_xdata nil)
+                   (foreach group ent_data
+                     (cond
+                       ((and (= (car group) -3) (equal (cadr group) (list app_id_name)))
+                        ;; Знайшли початок наших XDATA, встановлюємо флаг і пропускаємо
+                        (setq in_our_xdata T)
+                       )
+                       ((and (= (car group) -3) (not (equal (cadr group) (list app_id_name))))
+                        ;; Знайшли початок чужих XDATA, або кінець наших.
+                        ;; Якщо були в наших XDATA, значить, ми вийшли з них.
+                        (if in_our_xdata (setq in_our_xdata nil))
+                        ;; Додаємо цю групу до фільтрованих
+                        (setq filtered_data (append filtered_data (list group)))
+                       )
+                       (T
+                        ;; Звичайна група даних. Додаємо, якщо не в наших XDATA
+                        (if (not in_our_xdata)
+                            (setq filtered_data (append filtered_data (list group)))
+                        )
+                       )
                      )
-                     ;; Інакше, це не наші XDATA, додаємо до відфільтрованого списку
-                     (progn
-                         (setq filtered_xdata (append filtered_xdata (list group)))
-                         (setq i (1+ i))
-                     )
+                   )
+                   (setq ent_data filtered_data)
                  )
              )
-             (setq ent_data filtered_xdata) ; Тепер ent_data містить об'єкт без наших старих XDATA
 
              (setq xdata_list (list (cons -3 (list app_id_name))
                                     (cons 1000 (rtos picket_at_start 2 8)) ; Код 1000 для рядка
