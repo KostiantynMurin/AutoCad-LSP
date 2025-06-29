@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_SIMPLE_WRITE (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_VLAX_SETXDATA (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -441,26 +441,15 @@
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-        ;; Отримуємо поточні дані об'єкта. Якщо XDATA з цим AppID вже існують, вони будуть ПОВНІСТЮ замінені.
-        ;; Якщо їх немає, вони будуть додані. Це найчистіший спосіб.
-        (vl-catch-all-apply 'entmod
-          (list (append
-                  (vl-remove-if
-                    '(lambda (x)
-                       (and (listp x)
-                            (eq (car x) -3)
-                            (equal (cadr x) (list app_id_name)))) ; Видаляємо старі XDATA для нашого AppID
-                    (entget (vlax-vla-object->ename pline_obj))
-                  )
-                  ;; Додаємо нові XDATA
-                  (list (cons -3 (list app_id_name))
-                        (cons 1000 (rtos picket_at_start 2 8)) ; Код 1000 для рядка
-                        (cons 1000 (rtos dir_factor 2 8))
-                        (cons -3 (list app_id_name)) ; Закриваємо список XDATA
-                  )
-                )
+        ;; Запис XDATA за допомогою vlax-put-XData. Це найпростіший і найнадійніший спосіб.
+        (vl-catch-all-apply 'vlax-put-XData
+          (list
+            (vlax-ename->vla-object (vlax-vla-object->ename pline_obj)) ; VLA-об'єкт полілінії
+            app_id_name ; Ім'я AppID
+            (vlax-make-safearray vlax-vbVariant '(0 . 1)) ; SafeArray для двох значень
+            (vlax-make-variant (rtos picket_at_start 2 8)) ; picket_at_start
+            (vlax-make-variant (rtos dir_factor 2 8))    ; dir_factor
           )
-          (vl-catch-all-error-message)
         )
         (princ "\nXDATA успішно збережено на полілінії.")
       )
