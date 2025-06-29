@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FINAL (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_XDATA_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -150,7 +150,10 @@
         (princ "\nСловник ACAD_APPNAMES не знайдено в кресленні. Спроба створити...")
         (setq acad_appname_obj (vl-catch-all-apply 'vla-Add (list dictionaries "ACAD_APPNAMES")))
         (if (vl-catch-all-error-p acad_appname_obj)
-            (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити словник ACAD_APPNAMES в кресленні: " (vl-catch-all-error-message acad_appname_obj)))
+            (progn
+              (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити словник ACAD_APPNAMES в кресленні: " (vl-catch-all-error-message acad_appname_obj)))
+              (setq acad_appname_obj nil) ; Встановлюємо в nil, якщо створення не вдалося
+            )
             (princ "\nСловник ACAD_APPNAMES успішно створено в кресленні.")
         )
       )
@@ -167,7 +170,8 @@
         (if (vl-catch-all-error-p check_result) ; Якщо AppID не знайдено в словнику (викликало помилку)
             (progn
               (princ (strcat "\nAppID '" app_name "' не знайдено в словнику креслення. Спроба додати..."))
-              (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)) ; <--- ОБГОРНУТО В vl-catch-all-apply
+              ;; Другий vl-catch-all-apply для vla-Add на випадок, якщо додавання також викликає помилку
+              (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name))
                   (princ (strcat "\nAppID '" app_name "' успішно додано до словника креслення."))
                   (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до словника креслення: " (vl-catch-all-error-message (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)))))
               )
@@ -439,7 +443,7 @@
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
         (vl-catch-all-apply
           '(lambda ()
-             (setq ent_data (entget (vlax-vla-object->ename pline_obj) (list app_id_name)))
+             (setq ent_data (entget (vlax-vla-object->ename pline_obj))) ; Отримуємо всі дані без фільтру
              
              ;; Простий і надійний спосіб видалити існуючі XDATA для нашого AppID
              (setq filtered_data nil)
