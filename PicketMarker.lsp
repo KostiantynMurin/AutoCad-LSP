@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_REGAPP_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_ATTEMPT (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -119,14 +119,12 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID з використанням (command "_.-REGAPP" ...) ***
+;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID з використанням (command "" "_.-REGAPP" ...) ***
 (defun RegisterAppID (app_name / err_check)
   (princ (strcat "\nСпроба реєстрації AppID: " app_name " за допомогою REGAPP..."))
+  ;; Додаємо порожню команду (command ""), щоб очистити буфер і забезпечити правильний контекст
+  (command "")
   ;; Використовуємо _.-REGAPP команду:
-  ;; - "_" для глобального імені команди
-  ;; - "." для виклику оригінальної команди (ігнорує аліаси)
-  ;; - "-" для подавлення діалогових вікон (робить її командною)
-  ;; Синтаксис: .-REGAPP <Enter> <AppID> <Enter> A <Enter>
   ;; 'A' означає Add (додати), якщо його немає. Якщо є, нічого не робить, помилок не буде.
   (setq err_check (vl-catch-all-apply 'command (list "_.-REGAPP" app_name "A")))
   
@@ -134,6 +132,7 @@
       (princ (strcat "\n*** ПОМИЛКА REGAPP: Не вдалося зареєструвати AppID '" app_name "': " (vl-catch-all-error-message err_check)))
       (princ (strcat "\nAppID '" app_name "' зареєстровано (або вже існувало)."))
   )
+  (princ (strcat "\nAppID реєстрація для " app_name " завершена."))
 )
 
 ;; Головна функція (Нормалізація кута через REM)
@@ -148,7 +147,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_REGAPP_FIX ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_ATTEMPT ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
