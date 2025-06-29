@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FINAL (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -119,8 +119,8 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID: тепер примусово створює в кресленні, якщо його немає ***
-(defun RegisterAppID (app_name / acad_ver reg_path app_ids doc dictionaries app_names_dict acad_appname_obj)
+;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID: тепер примусово створює в кресленні, якщо його немає, і захищена від помилок ***
+(defun RegisterAppID (app_name / acad_ver reg_path app_ids doc dictionaries acad_appname_obj check_result)
   (princ (strcat "\nСпроба реєстрації AppID: " app_name " через реєстр Windows та в кресленні..."))
 
   ;; 1. Реєстрація в реєстрі Windows (якщо не зареєстровано)
@@ -142,34 +142,40 @@
   (setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))
   (setq dictionaries (vla-get-Dictionaries doc))
   
-  (setq acad_appname_obj (vl-catch-all-apply 'vlax-invoke-method (list dictionaries 'Item "ACAD_APPNAMES")))
+  ;; Спроба отримати словник ACAD_APPNAMES. Якщо помилка, значить його немає.
+  (setq check_result (vl-catch-all-apply 'vlax-invoke-method (list dictionaries 'Item "ACAD_APPNAMES")))
   
-  (if (vl-catch-all-error-p acad_appname_obj)
+  (if (vl-catch-all-error-p check_result) ; Якщо словника ACAD_APPNAMES немає
       (progn
         (princ "\nСловник ACAD_APPNAMES не знайдено в кресленні. Спроба створити...")
         (setq acad_appname_obj (vl-catch-all-apply 'vla-Add (list dictionaries "ACAD_APPNAMES")))
         (if (vl-catch-all-error-p acad_appname_obj)
             (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити словник ACAD_APPNAMES в кресленні: " (vl-catch-all-error-message acad_appname_obj)))
-            (setq acad_appname_obj nil) ; Встановлюємо в nil, якщо створення не вдалося
             (princ "\nСловник ACAD_APPNAMES успішно створено в кресленні.")
         )
       )
-      (princ "\nСловник ACAD_APPNAMES знайдено в кресленні.")
+      (progn ; Якщо словник ACAD_APPNAMES знайдено
+        (setq acad_appname_obj check_result) ; Зберігаємо посилання на знайдений словник
+        (princ "\nСловник ACAD_APPNAMES знайдено в кресленні.")
+      )
   )
 
   (if acad_appname_obj ; Якщо словник ACAD_APPNAMES тепер валідний (отриманий або успішно створений)
-      ;; Ось тут обгортаємо виклик vla-Add в vl-catch-all-apply
-      (if (vl-catch-all-error-p (vlax-invoke-method acad_appname_obj 'Item app_name))
-          (progn
-            (princ (strcat "\nAppID '" app_name "' не знайдено в словнику креслення. Спроба додати..."))
-            (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)) ; <--- Змінено тут
-                (princ (strcat "\nAppID '" app_name "' успішно додано до словника креслення."))
-                (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до словника креслення."))
+      (progn
+        ;; Перевірка, чи AppID вже є в словнику креслення. Якщо немає, додаємо.
+        (setq check_result (vl-catch-all-apply 'vlax-invoke-method (list acad_appname_obj 'Item app_name))) ; <--- ОБГОРНУТО В vl-catch-all-apply
+        (if (vl-catch-all-error-p check_result) ; Якщо AppID не знайдено в словнику (викликало помилку)
+            (progn
+              (princ (strcat "\nAppID '" app_name "' не знайдено в словнику креслення. Спроба додати..."))
+              (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)) ; <--- ОБГОРНУТО В vl-catch-all-apply
+                  (princ (strcat "\nAppID '" app_name "' успішно додано до словника креслення."))
+                  (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до словника креслення: " (vl-catch-all-error-message (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)))))
+              )
             )
-          )
-          (princ (strcat "\nAppID '" app_name "' вже зареєстровано в словнику креслення."))
+            (princ (strcat "\nAppID '" app_name "' вже зареєстровано в словнику креслення."))
+        )
       )
-      (princ "\n*** ПОПЕРЕДЖЕННЯ: Пропущено реєстрацію AppID в словнику креслення через попередні помилки.")
+      (princ "\n*** ПОПЕРЕДЖЕННЯ: Пропущено реєстрацію AppID в словнику креслення через попередні фатальні помилки.")
   )
   (princ (strcat "\nAppID реєстрація для " app_name " завершена."))
 )
@@ -186,7 +192,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FIX ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FINAL ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -435,7 +441,7 @@
           '(lambda ()
              (setq ent_data (entget (vlax-vla-object->ename pline_obj) (list app_id_name)))
              
-             ;; Простіший і надійніший спосіб видалити існуючі XDATA для нашого AppID
+             ;; Простий і надійний спосіб видалити існуючі XDATA для нашого AppID
              (setq filtered_data nil)
              (setq in_our_xdata nil)
              (foreach group ent_data
