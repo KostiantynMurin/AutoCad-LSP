@@ -168,12 +168,18 @@
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
   (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
 
-  ;; <<< ДОДАНО: Реєстрація App Name для XDATA
+  ;; <<< ДОДАНО: Реєстрація App Name для XDATA (ВИПРАВЛЕНО ДОСТУП ДО СЛОВНИКІВ)
   (setq acad_obj (vlax-get-acad-object))
-  (setq dicts (vla-get-Dictionaries acad_obj))
-  (setq named_objs (vla-item dicts "AcDbGroupDict")) ; Отримуємо словник іменованих об'єктів
+  (setq doc (vla-get-ActiveDocument acad_obj)) ; Отримуємо активний документ
+  (setq dicts (vla-get-Dictionaries doc))       ; Тепер звертаємося до Dictionaries через документ
+  (setq named_objs (vl-catch-all-apply 'vla-item (list dicts "ACAD_GROUP"))) ; Правильне ім'я для словника груп
+  ;; Перевіряємо, чи отримали ми словник груп, якщо ні - то це звичайний словник
+  (if (vl-catch-all-error-p named_objs)
+    (setq named_objs (vla-item dicts "ACAD_NAMEDOBJECTDICTIONARY")) ; Запасний варіант: словник іменованих об'єктів
+  )
+
   (vl-catch-all-apply 'vla-AddNamedObject (list named_objs xdata_app_name "AcDbAppId")) ; Спроба додати, якщо вже є - помилка, яку ігноруємо
-  ;; <<< КІНЕЦЬ ДОДАНОГО БЛОКУ
+  ;; <<< КІНЕЦЬ ДОДАНОГО ВИПРАВЛЕНОГО БЛОКУ
 
   ;; --- Збір вхідних даних ---
   (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
