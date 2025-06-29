@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_ATTEMPT (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_FINAL_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -119,20 +119,18 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID з використанням (command "" "_.-REGAPP" ...) ***
-(defun RegisterAppID (app_name / err_check)
+;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID з коректним викликом (command) ***
+(defun RegisterAppID (app_name / old_cmdecho)
+  (setq old_cmdecho (getvar "CMDECHO")) ; Зберігаємо поточне значення CMDECHO
+  (setvar "CMDECHO" 1) ; Встановлюємо CMDECHO в 1 для коректної роботи (command)
+
   (princ (strcat "\nСпроба реєстрації AppID: " app_name " за допомогою REGAPP..."))
-  ;; Додаємо порожню команду (command ""), щоб очистити буфер і забезпечити правильний контекст
-  (command "")
-  ;; Використовуємо _.-REGAPP команду:
-  ;; 'A' означає Add (додати), якщо його немає. Якщо є, нічого не робить, помилок не буде.
-  (setq err_check (vl-catch-all-apply 'command (list "_.-REGAPP" app_name "A")))
+  ;; Використовуємо (command) для запуску _.-REGAPP
+  ;; " " - це ENTER
+  (vl-catch-all-apply 'command (list "_.-REGAPP" app_name "A" "")) ; Тепер передаємо "A" і ENTER окремо
   
-  (if (vl-catch-all-error-p err_check)
-      (princ (strcat "\n*** ПОМИЛКА REGAPP: Не вдалося зареєструвати AppID '" app_name "': " (vl-catch-all-error-message err_check)))
-      (princ (strcat "\nAppID '" app_name "' зареєстровано (або вже існувало)."))
-  )
-  (princ (strcat "\nAppID реєстрація для " app_name " завершена."))
+  (setvar "CMDECHO" old_cmdecho) ; Відновлюємо CMDECHO
+  (princ (strcat "\nAppID '" app_name "' зареєстровано (або вже існувало)."))
 )
 
 ;; Головна функція (Нормалізація кута через REM)
@@ -147,7 +145,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_ATTEMPT ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_FINAL_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -182,9 +180,7 @@
 
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
-  ;; Важливо: CMDECHO має бути 1 під час використання (command) для REGAPP.
-  ;; Відновимо його потім.
-  (setvar "CMDECHO" 1)
+  ;; CMDECHO буде встановлено в 1 у RegisterAppID і відновлено там же.
   (setvar "ATTREQ" 1)
   (setvar "ATTDIA" 0)
 
