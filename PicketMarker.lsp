@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_CLEAN_XDATA (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_CHECKED (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -119,26 +119,55 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID через реєстр Windows ***
-(defun RegisterAppID (app_name / acad_ver reg_path app_ids)
-  (princ (strcat "\nСпроба реєстрації AppID: " app_name " через реєстр Windows..."))
+;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID: тепер примусово створює в кресленні, якщо його немає ***
+(defun RegisterAppID (app_name / acad_ver reg_path app_ids doc dictionaries app_names_dict acad_appname_obj)
+  (princ (strcat "\nСпроба реєстрації AppID: " app_name " через реєстр Windows та в кресленні..."))
 
+  ;; 1. Реєстрація в реєстрі Windows (якщо не зареєстровано)
   (setq reg_path (strcat "HKEY_CURRENT_USER\\" (vlax-product-key) "\\Applications\\"))
-  
   (setq app_ids (vl-registry-read reg_path app_name))
   
-  (if (null app_ids) ; Якщо AppID не знайдено в реєстрі
+  (if (null app_ids)
       (progn
         (princ (strcat "\nAppID '" app_name "' не знайдено в реєстрі. Спроба додати..."))
-        ;; Дані, які ми записуємо. Поле (1 . AppID) є обов'язковим.
-        ;; Інші поля (Description, YOUR_COMPANY_NAME, Flags) є стандартними, але не завжди суворо необхідними для функціональності AppID.
-        ;; Ми спробуємо з мінімальним набором.
-        (if (vl-catch-all-apply 'vl-registry-write (list reg_path app_name (list (cons 1 app_name)))) ; Спробуємо лише з cons 1
+        (if (vl-catch-all-apply 'vl-registry-write (list reg_path app_name (list (cons 1 app_name))))
             (princ (strcat "\nAppID '" app_name "' успішно додано до реєстру."))
             (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до реєстру."))
         )
       )
       (princ (strcat "\nAppID '" app_name "' вже зареєстровано в реєстрі."))
+  )
+
+  ;; 2. Примусова реєстрація в поточному кресленні (якщо не зареєстровано)
+  (setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))
+  (setq dictionaries (vla-get-Dictionaries doc))
+  
+  (setq acad_appname_obj (vl-catch-all-apply 'vlax-invoke-method (list dictionaries 'Item "ACAD_APPNAMES")))
+  
+  (if (vl-catch-all-error-p acad_appname_obj)
+      (progn
+        (princ "\nСловник ACAD_APPNAMES не знайдено в кресленні. Спроба створити...")
+        (setq acad_appname_obj (vl-catch-all-apply 'vla-Add (list dictionaries "ACAD_APPNAMES")))
+        (if (vl-catch-all-error-p acad_appname_obj)
+            (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити словник ACAD_APPNAMES в кресленні: " (vl-catch-all-error-message acad_appname_obj)))
+            (princ "\nСловник ACAD_APPNAMES успішно створено в кресленні.")
+        )
+      )
+      (princ "\nСловник ACAD_APPNAMES знайдено в кресленні.")
+  )
+
+  (if acad_appname_obj ; Якщо словник ACAD_APPNAMES тепер валідний
+      (if (vl-catch-all-error-p (vlax-invoke-method acad_appname_obj 'Item app_name))
+          (progn
+            (princ (strcat "\nAppID '" app_name "' не знайдено в словнику креслення. Спроба додати..."))
+            (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name))
+                (princ (strcat "\nAppID '" app_name "' успішно додано до словника креслення."))
+                (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до словника креслення."))
+            )
+          )
+          (princ (strcat "\nAppID '" app_name "' вже зареєстровано в словнику креслення."))
+      )
+      (princ "\n*** ПОПЕРЕДЖЕННЯ: Пропущено реєстрацію AppID в словнику креслення через попередні помилки.")
   )
   (princ (strcat "\nAppID реєстрація для " app_name " завершена."))
 )
@@ -155,7 +184,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_CLEAN_XDATA ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_CHECKED ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -175,7 +204,7 @@
       )
   )
 
-  ;; Реєстрація AppID (тепер через реєстр Windows)
+  ;; Реєстрація AppID (тепер через реєстр Windows та в кресленні)
   (RegisterAppID app_id_name)
 
 
@@ -349,7 +378,7 @@
                 )
              )
              (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну на відстані " (rtos dist_on_pline) ". Пропуск 100м пікету."))
-          )
+        )
       )
       (progn
          (if (< current_picket_val (- 0.0 fuzz))
@@ -407,37 +436,29 @@
              (setq ent_data (entget (vlax-vla-object->ename pline_obj) (list app_id_name)))
              
              ;; Простіший і надійніший спосіб видалити існуючі XDATA для нашого AppID
-             (if (and (listp ent_data) (assoc -3 ent_data)) ; Перевіряємо, чи ent_data це список і чи є в ньому асоціація -3
-                 ;; Фільтруємо список ent_data, залишаючи тільки ті групи, які НЕ є початком XDATA для нашого AppID
-                 ;; Або які НЕ є частиною XDATA для нашого AppID.
-                 ;; Найкращий спосіб - це видалити всі групи DXF-кодів з -3 до наступного -3
-                 (progn
-                   (setq filtered_data nil)
-                   (setq in_our_xdata nil)
-                   (foreach group ent_data
-                     (cond
-                       ((and (= (car group) -3) (equal (cadr group) (list app_id_name)))
-                        ;; Знайшли початок наших XDATA, встановлюємо флаг і пропускаємо
-                        (setq in_our_xdata T)
-                       )
-                       ((and (= (car group) -3) (not (equal (cadr group) (list app_id_name))))
-                        ;; Знайшли початок чужих XDATA, або кінець наших.
-                        ;; Якщо були в наших XDATA, значить, ми вийшли з них.
-                        (if in_our_xdata (setq in_our_xdata nil))
-                        ;; Додаємо цю групу до фільтрованих
-                        (setq filtered_data (append filtered_data (list group)))
-                       )
-                       (T
-                        ;; Звичайна група даних. Додаємо, якщо не в наших XDATA
-                        (if (not in_our_xdata)
-                            (setq filtered_data (append filtered_data (list group)))
-                        )
-                       )
-                     )
-                   )
-                   (setq ent_data filtered_data)
+             (setq filtered_data nil)
+             (setq in_our_xdata nil)
+             (foreach group ent_data
+               (cond
+                 ((and (listp group) (= (car group) -3) (equal (cadr group) (list app_id_name)))
+                  ;; Знайшли початок наших XDATA, встановлюємо флаг і пропускаємо групу
+                  (setq in_our_xdata T)
                  )
+                 ((and (listp group) (= (car group) -3) (not (equal (cadr group) (list app_id_name))))
+                  ;; Знайшли початок чужих XDATA. Якщо були в наших, то вже вийшли з них.
+                  (if in_our_xdata (setq in_our_xdata nil))
+                  ;; Додаємо цю групу до фільтрованих
+                  (setq filtered_data (append filtered_data (list group)))
+                 )
+                 (T
+                  ;; Звичайна група даних. Додаємо, якщо не в наших XDATA
+                  (if (not in_our_xdata)
+                      (setq filtered_data (append filtered_data (list group)))
+                  )
+                 )
+               )
              )
+             (setq ent_data filtered_data) ; Тепер ent_data містить об'єкт без наших старих XDATA
 
              (setq xdata_list (list (cons -3 (list app_id_name))
                                     (cons 1000 (rtos picket_at_start 2 8)) ; Код 1000 для рядка
