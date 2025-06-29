@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_XDATA_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_SIMPLE_WRITE (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -196,7 +196,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ULTIMATE_FINAL ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_SIMPLE_WRITE ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -441,46 +441,28 @@
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-        (vl-catch-all-apply
-          '(lambda ()
-             (setq ent_data (entget (vlax-vla-object->ename pline_obj))) ; Отримуємо всі дані без фільтру
-             
-             ;; Простий і надійний спосіб видалити існуючі XDATA для нашого AppID
-             (setq filtered_data nil)
-             (setq in_our_xdata nil)
-             (foreach group ent_data
-               (cond
-                 ((and (listp group) (= (car group) -3) (equal (cadr group) (list app_id_name)))
-                  ;; Знайшли початок наших XDATA, встановлюємо флаг і пропускаємо групу
-                  (setq in_our_xdata T)
-                 )
-                 ((and (listp group) (= (car group) -3) (not (equal (cadr group) (list app_id_name))))
-                  ;; Знайшли початок чужих XDATA. Якщо були в наших, то вже вийшли з них.
-                  (if in_our_xdata (setq in_our_xdata nil))
-                  ;; Додаємо цю групу до фільтрованих
-                  (setq filtered_data (append filtered_data (list group)))
-                 )
-                 (T
-                  ;; Звичайна група даних. Додаємо, якщо не в наших XDATA
-                  (if (not in_our_xdata)
-                      (setq filtered_data (append filtered_data (list group)))
+        ;; Отримуємо поточні дані об'єкта. Якщо XDATA з цим AppID вже існують, вони будуть ПОВНІСТЮ замінені.
+        ;; Якщо їх немає, вони будуть додані. Це найчистіший спосіб.
+        (vl-catch-all-apply 'entmod
+          (list (append
+                  (vl-remove-if
+                    '(lambda (x)
+                       (and (listp x)
+                            (eq (car x) -3)
+                            (equal (cadr x) (list app_id_name)))) ; Видаляємо старі XDATA для нашого AppID
+                    (entget (vlax-vla-object->ename pline_obj))
                   )
-                 )
-               )
-             )
-             (setq ent_data filtered_data) ; Тепер ent_data містить об'єкт без наших старих XDATA
-
-             (setq xdata_list (list (cons -3 (list app_id_name))
-                                    (cons 1000 (rtos picket_at_start 2 8)) ; Код 1000 для рядка
-                                    (cons 1000 (rtos dir_factor 2 8))
-                                    (cons -3 (list app_id_name)) ; Закриваємо список XDATA
-                             ))
-             (setq new_ent_data (append ent_data xdata_list)) ; Додаємо до існуючих даних
-             (entmod new_ent_data)
-             (princ "\nXDATA успішно збережено на полілінії.")
-           )
+                  ;; Додаємо нові XDATA
+                  (list (cons -3 (list app_id_name))
+                        (cons 1000 (rtos picket_at_start 2 8)) ; Код 1000 для рядка
+                        (cons 1000 (rtos dir_factor 2 8))
+                        (cons -3 (list app_id_name)) ; Закриваємо список XDATA
+                  )
+                )
+          )
           (vl-catch-all-error-message)
         )
+        (princ "\nXDATA успішно збережено на полілінії.")
       )
       (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
   )
