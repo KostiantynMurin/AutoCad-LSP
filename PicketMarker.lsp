@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ROBUST_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_REGAPP_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -119,45 +119,20 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-(defun RegisterAppID (app_name / dicts acad_obj doc app_names err_obj)
-  (setq acad_obj (vlax-get-acad-object)
-        doc (vla-get-ActiveDocument acad_obj)
-        dicts (vla-get-Dictionaries doc))
-
-  ;; Перевіряємо, чи існує AppName в колекції ACAD_APPNAMES.
-  ;; Якщо його немає, vla-Item викличе помилку, яку ми спіймаємо.
-  (setq err_obj (vl-catch-all-apply 'vlax-invoke-method (list dicts 'Item "ACAD_APPNAMES")))
+;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID з використанням (command "_.-REGAPP" ...) ***
+(defun RegisterAppID (app_name / err_check)
+  (princ (strcat "\nСпроба реєстрації AppID: " app_name " за допомогою REGAPP..."))
+  ;; Використовуємо _.-REGAPP команду:
+  ;; - "_" для глобального імені команди
+  ;; - "." для виклику оригінальної команди (ігнорує аліаси)
+  ;; - "-" для подавлення діалогових вікон (робить її командною)
+  ;; Синтаксис: .-REGAPP <Enter> <AppID> <Enter> A <Enter>
+  ;; 'A' означає Add (додати), якщо його немає. Якщо є, нічого не робить, помилок не буде.
+  (setq err_check (vl-catch-all-apply 'command (list "_.-REGAPP" app_name "A")))
   
-  (if (vl-catch-all-error-p err_obj) ; Якщо словника ACAD_APPNAMES ще немає
-      (progn
-        (princ "\nСловник ACAD_APPNAMES не знайдено. Спроба створити...")
-        (setq err_obj (vl-catch-all-apply 'vla-Add (list dicts "ACAD_APPNAMES")))
-        (if (vl-catch-all-error-p err_obj)
-            (progn
-              (princ (strcat "\n*** Фатальна помилка створення словника ACAD_APPNAMES: " (vl-catch-all-error-message err_obj)))
-              (setq app_names nil) ; Робимо nil, якщо фатальна помилка
-            )
-            (setq app_names err_obj) ; Зберігаємо посилання на щойно створений словник
-            (princ "\nСловник ACAD_APPNAMES успішно створено.")
-        )
-      )
-      (setq app_names err_obj) ; Якщо словник існував, зберігаємо посилання на нього
-  )
-
-  ;; Якщо app_names не nil (тобто словник ACAD_APPNAMES тепер валідний)
-  (if app_names
-      (if (vl-catch-all-error-p (vlax-invoke-method app_names 'Item app_name))
-          (progn
-            ;; AppID не знайдено, намагаємося його додати
-            (setq err_obj (vl-catch-all-apply 'vla-Add (list app_names app_name)))
-            (if (vl-catch-all-error-p err_obj)
-                (princ (strcat "\n*** Помилка реєстрації AppID '" app_name "': " (vl-catch-all-error-message err_obj)))
-                (princ (strcat "\nЗареєстровано AppID: " app_name))
-            )
-          )
-          (princ (strcat "\nAppID '" app_name "' вже зареєстровано."))
-      )
-      (princ "\n*** Помилка: Не вдалося ініціалізувати словник AppNames. Реєстрація AppID неможлива.")
+  (if (vl-catch-all-error-p err_check)
+      (princ (strcat "\n*** ПОМИЛКА REGAPP: Не вдалося зареєструвати AppID '" app_name "': " (vl-catch-all-error-message err_check)))
+      (princ (strcat "\nAppID '" app_name "' зареєстровано (або вже існувало)."))
   )
 )
 
@@ -173,7 +148,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ROBUST_FIX ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_REGAPP_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -193,7 +168,7 @@
       )
   )
 
-  ;; Реєстрація AppID
+  ;; Реєстрація AppID (тепер через REGAPP команду)
   (RegisterAppID app_id_name)
 
 
@@ -208,7 +183,11 @@
 
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
-  (setvar "CMDECHO" 0) (setvar "ATTREQ" 1) (setvar "ATTDIA" 0)
+  ;; Важливо: CMDECHO має бути 1 під час використання (command) для REGAPP.
+  ;; Відновимо його потім.
+  (setvar "CMDECHO" 1)
+  (setvar "ATTREQ" 1)
+  (setvar "ATTDIA" 0)
 
   ;; --- Збір вхідних даних ---
   (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
@@ -442,7 +421,7 @@
   ;; --- Завершення ---
   (command "_REGEN")
   (princ "\nРозстановка пікетажу (блоками) завершена.")
-  (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))
+  (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)) ; Відновлюємо всі змінні
   (setq *error* nil)
   (princ)
 )
