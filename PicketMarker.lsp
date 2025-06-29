@@ -1,8 +1,10 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ROBUST_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
+
+(vl-load-com) ; Завантажуємо VLAX-функції на старті, щоб уникнути проблем з ініціалізацією.
 
 ;; === Допоміжні функції для векторної математики ===
 (defun normalize (v / len) (setq len (distance '(0 0 0) v)) (if (< len 1e-12) nil (mapcar '(lambda (x) (/ x len)) v)))
@@ -29,7 +31,7 @@
   (setq doc (vla-get-ActiveDocument acad_obj))
   (setq blocks (vla-get-Blocks doc))
   ;; Перевірка чи існує блок з таким ім'ям взагалі
-  (if (not (vl-catch-all-error-p (setq blk_obj (vlax-invoke-method blocks 'Item blockname)))) ; Використано vlax-invoke-method для Item
+  (if (not (vl-catch-all-error-p (setq blk_obj (vlax-invoke-method blocks 'Item blockname))))
       ;; Якщо блок існує, шукаємо атрибут
       (vlax-for ent blk_obj
         (if (= "AcDbAttributeDefinition" (vla-get-ObjectName ent))
@@ -122,40 +124,40 @@
         doc (vla-get-ActiveDocument acad_obj)
         dicts (vla-get-Dictionaries doc))
 
-  ;; Спробуємо отримати словник ACAD_APPNAMES.
-  ;; Якщо його немає, vla-Item викличе помилку, і ми його створимо.
-  (setq app_names (vl-catch-all-apply 'vlax-invoke-method (list dicts 'Item "ACAD_APPNAMES")))
-
-  (if (vl-catch-all-error-p app_names) ; Якщо була помилка (словника не існує)
+  ;; Перевіряємо, чи існує AppName в колекції ACAD_APPNAMES.
+  ;; Якщо його немає, vla-Item викличе помилку, яку ми спіймаємо.
+  (setq err_obj (vl-catch-all-apply 'vlax-invoke-method (list dicts 'Item "ACAD_APPNAMES")))
+  
+  (if (vl-catch-all-error-p err_obj) ; Якщо словника ACAD_APPNAMES ще немає
       (progn
         (princ "\nСловник ACAD_APPNAMES не знайдено. Спроба створити...")
-        ;; Тепер створюємо словник і ЗБЕРІГАЄМО його VLA-об'єкт
-        (setq app_names (vl-catch-all-apply 'vla-Add (list dicts "ACAD_APPNAMES")))
-        (if (vl-catch-all-error-p app_names)
+        (setq err_obj (vl-catch-all-apply 'vla-Add (list dicts "ACAD_APPNAMES")))
+        (if (vl-catch-all-error-p err_obj)
             (progn
-              (princ (strcat "\n*** Фатальна помилка створення словника ACAD_APPNAMES: " (vl-catch-all-error-message app_names)))
-              (setq app_names nil) ; Встановлюємо в nil, щоб подальші операції не викликали помилок
+              (princ (strcat "\n*** Фатальна помилка створення словника ACAD_APPNAMES: " (vl-catch-all-error-message err_obj)))
+              (setq app_names nil) ; Робимо nil, якщо фатальна помилка
             )
+            (setq app_names err_obj) ; Зберігаємо посилання на щойно створений словник
             (princ "\nСловник ACAD_APPNAMES успішно створено.")
         )
       )
+      (setq app_names err_obj) ; Якщо словник існував, зберігаємо посилання на нього
   )
-  
-  ;; Якщо app_names все ще nil (через фатальну помилку створення), виходимо
-  (if (not app_names) (princ (strcat "\n*** Помилка: Не вдалося ініціалізувати словник ACAD_APPNAMES. Реєстрація AppID неможлива.")) nil)
 
-  (if app_names ; Якщо словник app_names валідний
+  ;; Якщо app_names не nil (тобто словник ACAD_APPNAMES тепер валідний)
+  (if app_names
       (if (vl-catch-all-error-p (vlax-invoke-method app_names 'Item app_name))
           (progn
-            (vl-catch-all-apply
-              '(lambda ()
-                 (vla-Add app_names app_name)
-                 (princ (strcat "\nЗареєстровано AppID: " app_name))
-               )
+            ;; AppID не знайдено, намагаємося його додати
+            (setq err_obj (vl-catch-all-apply 'vla-Add (list app_names app_name)))
+            (if (vl-catch-all-error-p err_obj)
+                (princ (strcat "\n*** Помилка реєстрації AppID '" app_name "': " (vl-catch-all-error-message err_obj)))
+                (princ (strcat "\nЗареєстровано AppID: " app_name))
             )
           )
           (princ (strcat "\nAppID '" app_name "' вже зареєстровано."))
       )
+      (princ "\n*** Помилка: Не вдалося ініціалізувати словник AppNames. Реєстрація AppID неможлива.")
   )
 )
 
@@ -171,7 +173,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_FIX ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ROBUST_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
