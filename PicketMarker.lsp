@@ -335,40 +335,40 @@
   )
 
   ;; --- Маркер в КІНЦІ полілінії ---
-  (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
-  (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
-  (if (>= picket_at_end (- 0.0 fuzz))
-      (progn
-        (princ "\nСпроба поставити маркер в кінці полілінії...")
-        (setq pt_end (vlax-curve-getEndPoint pline_obj))
-        ;; Завжди використовуємо getEndParam для надійності
-        (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj)))
-        (if vec_tangent_end
-            (progn
-              (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
-              (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-              (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
-              (setq block_angle (- block_angle_perp (/ pi 2.0)))
-              (setq block_angle (rem block_angle (* 2.0 pi)))
-              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi))))
-              (setq piket_str_end (FormatPicketValue picket_at_end))
-              (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
-              (if (vl-catch-all-error-p block_insert_obj)
-                  (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
-                  (if block_insert_obj
-                      (progn
-                        (princ (strcat "\n Вставлено блок для: " piket_str_end))
-                        (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str_end)
-                      )
-                      (princ "\n*** Помилка: vla-InsertBlock повернув nil в кінці.")
-                  )
-              )
-            )
-            (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в кінцевій точці. Маркер не створено."))
-        )
-      )
-      (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
-  )
+;   (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
+;   (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
+;   (if (>= picket_at_end (- 0.0 fuzz))
+;       (progn
+;         (princ "\nСпроба поставити маркер в кінці полілінії...")
+;         (setq pt_end (vlax-curve-getEndPoint pline_obj))
+;         ;; Завжди використовуємо getEndParam для надійності
+;         (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj)))
+;         (if vec_tangent_end
+;             (progn
+;               (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
+;               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
+;               (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
+;               (setq block_angle (- block_angle_perp (/ pi 2.0)))
+;               (setq block_angle (rem block_angle (* 2.0 pi)))
+;               (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi))))
+;               (setq piket_str_end (FormatPicketValue picket_at_end))
+;               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
+;               (if (vl-catch-all-error-p block_insert_obj)
+;                   (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
+;                   (if block_insert_obj
+;                       (progn
+;                         (princ (strcat "\n Вставлено блок для: " piket_str_end))
+;                         (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str_end)
+;                       )
+;                       (princ "\n*** Помилка: vla-InsertBlock повернув nil в кінці.")
+;                   )
+;               )
+;             )
+;             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в кінцевій точці. Маркер не створено."))
+;         )
+;       )
+;       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
+;   )
   
   ;; --- Зберігання XDATA на полілінії за допомогою C:XDATA ---
 ;   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
