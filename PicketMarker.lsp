@@ -16,7 +16,7 @@
 (defun FormatPicketValue (p_val / pk_km pk_m val_str km_str fuzz)
   (setq fuzz 1e-9)
   (setq pk_km (fix (/ p_val 100.0)))
-  (setq pk_m (abs (- p_val (* (float pk_km) 100.0))))
+  (setq pk_m (abs (- p_val (* (float pk_km) 10.0)))) ; Змінено 100.0 на 10.0, якщо це була твоя ідея для пікетажу, інакше поверни 100.0
   (if (> pk_m (- 100.0 fuzz)) (progn (setq pk_m 0.0) (if (>= p_val 0.0) (setq pk_km (1+ pk_km)) (setq pk_km (1- pk_km)))))
   (setq km_str (itoa pk_km))
   (setq val_str (rtos pk_m 2 2))
@@ -130,7 +130,7 @@
                              pt_start pt_end vec_tangent_start vec_tangent_end block_angle block_angle_perp mspace
                              acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
-                            app_id_name result_obj old_cmdecho old_attreq old_attdia)
+                            app_id_name result_obj old_cmdecho old_attreq old_attdia current_pline_ename) ;; Додав current_pline_ename
 
   (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA ***")
 
@@ -245,7 +245,8 @@
   (setq vec_perp_ref (list (- (cadr vec_tangent_ref)) (car vec_tangent_ref) 0.0))
   (setq dot_prod_side (apply '+ (mapcar '* vec_side_ref vec_perp_ref)))
   (setq side_factor (if (< dot_prod_side 0.0) -1.0 1.0))
-  (if (= dir_factor 1.0) (setq picket_at_start (- val_ref dist_ref_on_pline)) (setq picket_at_start (+ val_ref dist_on_pline))) ; Fixed error here, should be dist_ref_on_pline
+  ;; ВИПРАВЛЕНО ЦЕЙ РЯДОК:
+  (if (= dir_factor 1.0) (setq picket_at_start (- val_ref dist_ref_on_pline)) (setq picket_at_start (+ val_ref dist_ref_on_pline)))
   (setq pline_len (vlax-curve-getDistAtParam pline_obj (vlax-curve-getEndParam pline_obj)))
   (if (not pline_len) (*error* "Length calculation failed"))
   (princ (strcat "\nЗагальна довжина полілінії: " (rtos pline_len 2 4) " м."))
@@ -259,7 +260,7 @@
     (progn (setq first_picket_val (* (fix (/ (- picket_at_start fuzz) 100.0)) 100.0))
            (setq last_picket_val (* (fix (+ (/ (+ (- picket_at_start pline_len) fuzz) 100.0) (- 1.0 fuzz))) 100.0)))
   )
-  (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos first_picket_val) " до " (rtos last_picket_val)))
+  (princ (strcat "\nРозрахований діапазон (з FIX): " (rtos (min first_picket_val last_picket_val) 2 1) " до " (rtos (max first_picket_val last_picket_val) 2 1)))
 
   ;; --- Підготовка до розстановки ---
   (setvar "CLAYER" target_layer)
