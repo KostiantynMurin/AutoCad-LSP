@@ -44,7 +44,7 @@
 )
 
 ;; === Допоміжна функція для встановлення значення атрибуту (обробка типу атрибутів) ===
-(defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
+;(defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
   ; (setq found nil update_needed nil)
   ; (if (and block_vla_obj (= (type block_vla_obj) 'VLA-OBJECT) (not (vlax-object-released-p block_vla_obj)))
   ;   (progn
@@ -104,7 +104,7 @@
   ;     found
   ;   )
   ; )
-)
+;)
 
 ;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
