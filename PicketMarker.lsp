@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_WORKING (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ENTMOD_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
@@ -196,7 +196,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_WORKING ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ENTMOD_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -441,7 +441,6 @@
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-        ;; Запис XDATA за допомогою vla-SetXData. Це найпростіший і найнадійніший спосіб.
         (vl-catch-all-apply 'vla-SetXData
           (list
             (vlax-ename->vla-object (vlax-vla-object->ename pline_obj)) ; VLA-об'єкт полілінії
