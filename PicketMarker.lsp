@@ -7,10 +7,10 @@
 (vl-load-com) ; Завантажуємо VLAX-функції на старті, щоб уникнути проблем з ініціалізацією.
 
 ;; === Допоміжні функції для векторної математики ===
-;; (defun normalize (v / len) (setq len (distance '(0 0 0) v)) (if (< len 1e-12) nil (mapcar '(lambda (x) (/ x len)) v)))
-;; (defun v_scale (v s) (mapcar '(lambda (x) (* x s)) v))
-;; (defun v_add (v1 v2) (mapcar '+ v1 v2))
-;; (defun v_sub (v1 v2) (mapcar '- v1 v2))
+(defun normalize (v / len) (setq len (distance '(0 0 0) v)) (if (< len 1e-12) nil (mapcar '(lambda (x) (/ x len)) v)))
+(defun v_scale (v s) (mapcar '(lambda (x) (* x s)) v))
+(defun v_add (v1 v2) (mapcar '+ v1 v2))
+(defun v_sub (v1 v2) (mapcar '- v1 v2))
 
 ;; === Допоміжна функція для форматування значення пікету ===
 ;; (defun FormatPicketValue (p_val / pk_km pk_m val_str km_str fuzz)
