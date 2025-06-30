@@ -1,31 +1,25 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_SYNTAX_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_AUTODESK_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії за допомогою перевіреного entmod методу.
 
-(vl-load-com) ; Завантажуємо VLAX-функції на старті.
+(vl-load-com) ; Завантажуємо VLAX-функції на старті, щоб уникнути проблем з ініціалізацією.
 
-;; --- Допоміжна функція для форматування рядків ---
-;; Ця версія більш надійна і не викликає синтаксичних помилок при завантаженні
+;; Допоміжна функція для форматування рядків, якщо acet-str-format недоступна
 (defun my-str-format (format-string . args)
   (if (and (boundp 'acet-str-format) (type acet-str-format) (atom acet-str-format))
-      ;; Якщо acet-str-format існує і є функцією, використовуємо її
       (apply 'acet-str-format (cons format-string args))
-      ;; Інакше, використовуємо власну просту реалізацію
-      (let ((result format-string))
-        (mapcar
-          '(lambda (arg)
-             (setq result (vl-string-subst (vl-princ-to-string arg) "%1" result 1)) ; Замінюємо тільки перше входження
-             (setq result (vl-string-subst (vl-princ-to-string arg) "%2" result 1))
-             (setq result (vl-string-subst (vl-princ-to-string arg) "%3" result 1))
-           )
-          args
-        )
-        result
+      ;; Проста реалізація, якщо acet-str-format недоступна
+      (progn
+        (setq format-string (vl-string-subst "%s" "%1" format-string))
+        (setq format-string (vl-string-subst "%s" "%2" format-string))
+        (setq format-string (vl-string-subst "%s" "%3" format-string))
+        (apply 'strcat (cons format-string args))
       )
   )
 )
+
 
 ;; === Допоміжні функції для векторної математики ===
 (defun normalize (v / len) (setq len (distance '(0 0 0) v)) (if (< len 1e-12) nil (mapcar '(lambda (x) (/ x len)) v)))
@@ -51,17 +45,19 @@
   (setq acad_obj (vlax-get-acad-object))
   (setq doc (vla-get-ActiveDocument acad_obj))
   (setq blocks (vla-get-Blocks doc))
+  ;; Перевірка чи існує блок з таким ім'ям взагалі
   (if (not (vl-catch-all-error-p (setq blk_obj (vlax-invoke-method blocks 'Item blockname))))
+      ;; Якщо блок існує, шукаємо атрибут
       (vlax-for ent blk_obj
         (if (= "AcDbAttributeDefinition" (vla-get-ObjectName ent))
           (if (= (strcase (vla-get-TagString ent)) (strcase att_tag))
-            (setq attdef_found T)
+            (setq attdef_found T) ; Знайдено!
           )
         )
       )
       (princ (strcat "\n*** Помилка: Блок з ім'ям '" blockname "' не знайдено в таблиці блоків."))
   )
-  attdef_found
+  attdef_found ; Повертає T якщо знайдено, nil інакше
 )
 
 ;; === Допоміжна функція для встановлення значення атрибуту (обробка типу атрибутів) ===
@@ -102,7 +98,7 @@
                                         (progn
                                           (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
                                           (if (vl-catch-all-error-p set_result)
-                                              (princ (strcat "\n  Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
+                                              (princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
                                           )
                                           (setq update_needed T) (setq found T)
                                         )
@@ -138,94 +134,70 @@
   (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID: тепер використовує (regapp) ***
-(defun RegisterAppID (app_name / old_cmdecho)
-  (princ (my-str-format "\nСпроба реєстрації AppID: %1 за допомогою (regapp)..." app_name))
-  (setq old_cmdecho (getvar "CMDECHO")) ; Зберігаємо поточне значення CMDECHO
-  (setvar "CMDECHO" 1) ; Встановлюємо CMDECHO в 1 для коректної роботи (command)
+;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID: тепер примусово створює в кресленні, якщо його немає, і захищена від помилок ***
+(defun RegisterAppID (app_name / acad_ver reg_path app_ids doc dictionaries acad_appname_obj check_result)
+  (princ (strcat "\nСпроба реєстрації AppID: " app_name " через реєстр Windows та в кресленні..."))
 
-  ;; Використовуємо _.-REGAPP команду для реєстрації AppID.
-  ;; AutoCAD сам додасть його до ACAD_APPNAMES в кресленні при першому використанні.
-  ;; Обгортаємо в vl-catch-all-apply, щоб помилки regapp не переривали виконання
-  (if (vl-catch-all-apply 'regapp (list app_name))
-      (princ (my-str-format "\nAppID '%1' зареєстровано (або вже існувало)." app_name))
-      (princ (my-str-format "\n*** ПОМИЛКА: Не вдалося зареєструвати AppID '%1' через (regapp)." app_name))
-  )
+  ;; 1. Реєстрація в реєстрі Windows (якщо не зареєстровано)
+  (setq reg_path (strcat "HKEY_CURRENT_USER\\" (vlax-product-key) "\\Applications\\"))
+  (setq app_ids (vl-registry-read reg_path app_name))
   
-  (setvar "CMDECHO" old_cmdecho) ; Відновлюємо CMDECHO
-)
-
-;; === Допоміжна функція для запису XDATA на об'єкті використовуючи логіку XDATA.LSP ===
-;; Ця функція замінює весь попередній блок "Зберігання XDATA на полілінії"
-;; Вона використовує той самий метод DXF-груп, що й оригінальний XDATA.LSP, але адаптований для наших потреб
-(defun WritePicketXData (ent_ename app_name_str p_start_val d_factor_val / elist xd_list new_elist)
-  ;; Переконуємось, що AppID зареєстровано в поточному кресленні.
-  ;; Це crucial для того, щоб XDATA не втрачалися.
-  (if (not (snvalid (strcat "APPID|" app_name_str))) ; Перевіряємо, чи AppID зареєстровано в поточній сесії
-    (progn
-      (princ (my-str-format "\n*** ПОПЕРЕДЖЕННЯ: AppID '%1' не зареєстровано в кресленні. Спроба зареєструвати..." app_name_str))
-      (if (vl-catch-all-apply 'regapp (list app_name_str)) ; Викликаємо стандартну LISP-функцію regapp
-          (princ (my-str-format "\nAppID '%1' успішно зареєстровано в кресленні." app_name_str))
-          (princ (my-str-format "\n*** ПОМИЛКА: Не вдалося зареєструвати AppID '%1' в кресленні." app_name_str))
+  (if (null app_ids)
+      (progn
+        (princ (strcat "\nAppID '" app_name "' не знайдено в реєстрі. Спроба додати..."))
+        (if (vl-catch-all-apply 'vl-registry-write (list reg_path app_name (list (cons 1 app_name))))
+            (princ (strcat "\nAppID '" app_name "' успішно додано до реєстру."))
+            (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до реєстру."))
+        )
       )
-    )
+      (princ (strcat "\nAppID '" app_name "' вже зареєстровано в реєстрі."))
   )
 
-  ;; Отримуємо дані об'єкта, включаючи XDATA для нашого AppID.
-  ;; Важливо: (entget ename (list app_name)) повертає список, де AppIDXDATA ВЖЕ видалені.
-  ;; Ми хочемо отримати ВСІ дані, а потім вручну видалити лише наш блок XDATA.
-  (setq elist (entget ent_ename)) ; Отримуємо ВСІ DXF-групи об'єкта
-
-  ;; Створюємо новий список XDATA для запису (використовуючи групові коди 1000 для рядків)
-  ;; Format: (1001 . "AppID") (1002 . "{") (1000 . "value1") (1000 . "value2") (1002 . "}")
-  (setq xd_list (list
-                  (cons 1001 app_name_str)            ; DXF group 1001 for AppID
-                  (cons 1002 . "{")                   ; Opening brace
-                  (cons 1000 (rtos p_start_val 2 8))  ; picket_at_start as string
-                  (cons 1000 (rtos d_factor_val 2 8)) ; dir_factor as string
-                  (cons 1002 . "}")                   ; Closing brace
-                 ))
-
-  ;; Видаляємо старі XDATA для нашого AppID (якщо вони існують)
-  (setq new_elist nil) ; Новий список DXF-груп об'єкта
-  (setq found-xdata-block nil) ; Флаг для визначення нашого XDATA блоку
+  ;; 2. Примусова реєстрація в поточному кресленні (якщо не зареєстровано)
+  (setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))
+  (setq dictionaries (vla-get-Dictionaries doc))
   
-  (foreach group elist
-    (cond
-      ((and (listp group) (eq (car group) -3) (listp (cdr group)) (equal (car (cdr group)) app_name_str))
-       ;; Знайдено початок нашого XDATA блоку (-3 (AppID ...))
-       (setq found-xdata-block T)
+  ;; Спроба отримати словник ACAD_APPNAMES. Якщо помилка, значить його немає.
+  (setq check_result (vl-catch-all-apply 'vlax-invoke-method (list dictionaries 'Item "ACAD_APPNAMES")))
+  
+  (if (vl-catch-all-error-p check_result) ; Якщо словника ACAD_APPNAMES немає
+      (progn
+        (princ "\nСловник ACAD_APPNAMES не знайдено в кресленні. Спроба створити...")
+        (setq acad_appname_obj (vl-catch-all-apply 'vla-Add (list dictionaries "ACAD_APPNAMES")))
+        (if (vl-catch-all-error-p acad_appname_obj)
+            (progn
+              (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити словник ACAD_APPNAMES в кресленні: " (vl-catch-all-error-message acad_appname_obj)))
+              (setq acad_appname_obj nil) ; Встановлюємо в nil, якщо створення не вдалося
+            )
+            (princ "\nСловник ACAD_APPNAMES успішно створено в кресленні.")
+        )
       )
-      ((and (listp group) (eq (car group) -3) (not (listp (cdr group)))) ; <-- Це помилка в DXF-групі, якщо вона не (list app_name_str)
-       ;; Закінчення попереднього блоку XDATA або іншого AppID
-       (setq found-xdata-block nil)
-       (setq new-elist (append new-elist (list group))) ; Додаємо цю групу
+      (progn ; Якщо словник ACAD_APPNAMES знайдено
+        (setq acad_appname_obj check_result) ; Зберігаємо посилання на знайдений словник
+        (princ "\nСловник ACAD_APPNAMES знайдено в кресленні.")
       )
-      ((and (listp group) (eq (car group) -3)) ; Новий блок XDATA з іншим AppID
-       (setq found-xdata-block nil)
-       (setq new-elist (append new-elist (list group))) ; Додаємо цю групу
-      )
-      (found-xdata-block
-       ;; Ми всередині нашого XDATA блоку, пропускаємо цю групу
-      )
-      (T
-       ;; Звичайні групи DXF, додаємо їх
-       (setq new-elist (append new-elist (list group)))
-      )
-    )
   )
 
-  ;; Додаємо наш новий блок XDATA до модифікованого списку DXF-груп об'єкта
-  (setq new_elist (append new_elist (list (cons -3 xd_list)))) ; XDATA завжди починається з (-3 (AppID ...))
-
-  ;; Оновлюємо об'єкт у базі даних.
-  ;; (entmod) повертає T при успіху, nil при невдачі.
-  (if (entmod new_elist)
-      (princ (my-str-format "\n  -> XDATA для '%1' успішно оновлено через entmod." app_name_str))
-      (princ (my-str-format "\n  -> *** ПОМИЛКА: Не вдалося оновити XDATA для '%1' через entmod." app_name_str))
+  (if acad_appname_obj ; Якщо словник ACAD_APPNAMES тепер валідний (отриманий або успішно створений)
+      (progn
+        ;; Перевірка, чи AppID вже є в словнику креслення. Якщо немає, додаємо.
+        (setq check_result (vl-catch-all-apply 'vlax-invoke-method (list acad_appname_obj 'Item app_name))) ; <--- ОБГОРНУТО В vl-catch-all-apply
+        (if (vl-catch-all-error-p check_result) ; Якщо AppID не знайдено в словнику (викликало помилку)
+            (progn
+              (princ (strcat "\nAppID '" app_name "' не знайдено в словнику креслення. Спроба додати..."))
+              ;; Другий vl-catch-all-apply для vla-Add на випадок, якщо додавання також викликає помилку
+              (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name))
+                  (princ (strcat "\nAppID '" app_name "' успішно додано до словника креслення."))
+                  (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до словника креслення: " (vl-catch-all-error-message (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)))))
+              )
+            )
+            (princ (strcat "\nAppID '" app_name "' вже зареєстровано в словнику креслення."))
+        )
+      )
+      (princ "\n*** ПОПЕРЕДЖЕННЯ: Пропущено реєстрацію AppID в словнику креслення через попередні фатальні помилки.")
   )
+  (princ (strcat "\nAppID реєстрація для " app_name " завершена."))
 )
-
 
 ;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
@@ -239,7 +211,7 @@
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_AUTODESK_XDATA ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ENTMOD_FIX ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -259,10 +231,9 @@
       )
   )
 
-  ;; Реєстрація AppID (через стандартну LISP-функцію regapp)
-  ;; Це crucial для того, щоб XDATA не втрачалися і були видимими.
-  (regapp app_id_name) 
-  (princ (my-str-format "\nAppID '%1' зареєстровано (або вже існувало) в кресленні." app_id_name))
+  ;; Реєстрація AppID (тепер через реєстр Windows та в кресленні)
+  (RegisterAppID app_id_name)
+
 
   ;; Перевизначення обробника помилок
   (defun *error* (msg)
@@ -484,8 +455,8 @@
   ;; --- Зберігання XDATA на полілінії ---
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
-        (princ (my-str-format "\nЗберігаємо XDATA на полілінії '%1' під AppID '%2'..." (vla-get-Handle pline_obj) app_id_name))
-        (vl-catch-all-apply 'WritePicketXDataUsingXdataLSP
+        (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
+        (vl-catch-all-apply 'SavePicketXDataUsingEntmod
           (list
             (vlax-vla-object->ename pline_obj) ; Ім'я сутності полілінії
             app_id_name                        ; Ім'я AppID
@@ -506,59 +477,35 @@
   (princ)
 )
 
-;; *** НОВА ДОПОМІЖНА ФУНКЦІЯ: викликає функціонал XDATA.LSP для запису ***
-(defun WritePicketXDataUsingXdataLSP (ent_ename app_name_str p_start_str d_factor_str / old_cmdecho old_attreq old_attdia olderr xdata_lisp_path)
-  (setq old_cmdecho (getvar "CMDECHO"))
-  (setq old_attreq (getvar "ATTREQ"))
-  (setq old_attdia (getvar "ATTDIA"))
-  (setq olderr *error*) ; Зберігаємо поточний обробник помилок
-  (setq *error* (lambda (s) (setvar "CMDECHO" old_cmdecho) (setvar "ATTREQ" old_attreq) (setvar "ATTDIA" old_attdia) (setq *error* olderr) (princ (strcat "\nПОМИЛКА У WritePicketXDataUsingXdataLSP: " s))))
+;; *** НОВА ДОПОМІЖНА ФУНКЦІЯ для запису XDATA на об'єкті через entmod (за зразком XDATA.LSP) ***
+(defun SavePicketXDataUsingEntmod (ent_ename app_name_str p_start_str d_factor_str / elist xd_list new_elist)
+  (setq elist (entget ent_ename (list app_name_str))) ; Отримуємо дані об'єкта, включаючи XDATA для нашого AppID
 
-  (setvar "CMDECHO" 1)   ; Вмикаємо відлуння для (command)
-  (setvar "ATTREQ" 0)    ; Відключаємо запит атрибутів (нехай XDATA.LSP це робить без діалогів)
-  (setvar "ATTDIA" 0)    ; Відключаємо діалогові вікна атрибутів
+  ;; Створюємо новий список XDATA для запису
+  (setq xd_list (list
+                  (cons 1000 p_start_str) ; picket_at_start як рядок
+                  (cons 1000 d_factor_str) ; dir_factor як рядок
+                 ))
 
-  ;; Перевіряємо, чи завантажено XDATA.LSP
-  (if (not (fboundp 'C:XDATA))
-      (progn
-        (setq xdata_lisp_path (findfile "xdata.lsp")) ; Шукаємо xdata.lsp
-        (if xdata_lisp_path
-            (progn
-              (princ (my-str-format "\nЗавантажую XDATA.LSP з %1..." xdata_lisp_path))
-              (load xdata_lisp_path) ; Завантажуємо XDATA.LSP
-              (princ "\nXDATA.LSP завантажено.")
-            )
-            (progn
-              (princ "\n*** ПОМИЛКА: XDATA.LSP не знайдено в шляху доступу AutoCAD.")
-              (setq *error* olderr) ; Відновлюємо обробник помилок
-              (exit) ; Виходимо, оскільки не можемо продовжити
-            )
-        )
-      )
+  ;; Додаємо керуючі групи AppID до списку XDATA
+  (setq xd_list (cons (cons 1002 . "{") xd_list)) ; Відкриваюча дужка
+  (setq xd_list (cons (cons 1001 app_name_str) xd_list)) ; Ім'я AppID
+  (setq xd_list (append xd_list (list (cons 1002 . "}")))) ; Закриваюча дужка
+
+  ;; Формуємо повний блок XDATA
+  (setq xd_list (list (cons -3 xd_list)))
+
+  ;; Видаляємо старі XDATA для нашого AppID, якщо вони існують
+  (setq new_elist (vl-remove-if '(lambda (x) (and (listp x) (eq (car x) -3) (equal (cadr x) (list app_name_str)))) elist))
+  
+  ;; Додаємо новий блок XDATA до списку DXF-груп об'єкта
+  (setq new_elist (append new_elist xd_list))
+
+  ;; Оновлюємо об'єкт у базі даних
+  (if (entmod new_elist)
+      (princ (my-str-format "\n  -> XDATA для '%1' успішно оновлено через entmod." app_name_str))
+      (princ (my-str-format "\n  -> *** ПОМИЛКА: Не вдалося оновити XDATA для '%1' через entmod." app_name_str))
   )
-
-  ;; Викликаємо команду XDATA, симулюючи введення користувача
-  ;; (command "XDATA" <об'єкт> <ім'я AppID> "STr" <p_start_str> "STr" <d_factor_str> "EXit")
-  (princ (my-str-format "\nВикликаю команду XDATA для '%1'..." (vlax-vla-object->ename (vlax-ename->vla-object ent_ename))))
-  (command
-    "XDATA"
-    ent_ename
-    app_name_str
-    "STr"         ; Додаємо перший рядок
-    p_start_str   ; Значення picket_at_start
-    "STr"         ; Додаємо другий рядок
-    d_factor_str  ; Значення dir_factor
-    "EXit"        ; Завершуємо введення даних
-    ""            ; Enter для завершення команди XDATA
-  )
-  (princ "\nКоманда XDATA виконана.")
-
-  ;; Відновлюємо системні змінні
-  (setvar "CMDECHO" old_cmdecho)
-  (setvar "ATTREQ" old_attreq)
-  (setvar "ATTDIA" old_attdia)
-  (setq *error* olderr) ; Відновлюємо обробник помилок
-  (princ)
 )
 
 ;; Повідомлення про завантаження
