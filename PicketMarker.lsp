@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v3 (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v4 (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії за допомогою команди C:XDATA.
@@ -16,8 +16,7 @@
 (defun FormatPicketValue (p_val / pk_km pk_m val_str km_str fuzz)
   (setq fuzz 1e-9)
   (setq pk_km (fix (/ p_val 100.0)))
-  ;; ВИПРАВЛЕНО: Повернуто 10.0 на 100.0 для коректного пікетажу
-  (setq pk_m (abs (- p_val (* (float pk_km) 100.0))))
+  (setq pk_m (abs (- p_val (* (float pk_km) 100.0)))) ;; Виправлено: Повернуто 10.0 на 100.0 для коректного пікетажу
   (if (> pk_m (- 100.0 fuzz)) (progn (setq pk_m 0.0) (if (>= p_val 0.0) (setq pk_km (1+ pk_km)) (setq pk_km (1- pk_km)))))
   (setq km_str (itoa pk_km))
   (setq val_str (rtos pk_m 2 2))
@@ -129,9 +128,10 @@
                              pt_start pt_end vec_tangent_start vec_tangent_end block_angle block_angle_perp mspace
                              acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
-                            app_id_name result_obj old_cmdecho old_attreq old_attdia current_pline_ename)
+                            app_id_name result_obj old_cmdecho old_attreq old_attdia current_pline_ename
+                            picket_start_str dir_factor_str) ;; Додав нові локальні змінні для рядків
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v3 ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v4 ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
@@ -388,19 +388,36 @@
       (progn
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
         (setq current_pline_ename (vlax-vla-object->ename pline_obj))
-        ;; Викликаємо команду XDATA, симулюючи введення користувача
-        (command
-          "._XDATA"                   ; Виклик команди XDATA
-          current_pline_ename       ; Ім'я обраної полілінії
-          app_id_name               ; Ім'я нашого AppID "PicketMaster"
-          "STr"                     ; Тип даних для picket_at_start (рядок)
-          (rtos picket_at_start 2 8) ; Значення picket_at_start як рядок
-          "STr"                     ; Тип даних для dir_factor (рядок)
-          (rtos dir_factor 2 8)     ; Значення dir_factor як рядок
-          "EXit"                    ; Команда для XDATA на завершення введення даних
-          ""                        ; Порожній рядок для імітації натискання Enter
-        )
-        (princ "\nXDATA успішно збережено на полілінії.")
+        
+        ;; Перетворення числових значень в рядки перед передачею в (command)
+        (setq picket_start_str (rtos picket_at_start 2 8))
+        (setq dir_factor_str (rtos dir_factor 2 8))
+
+        ;; Додаткова перевірка значень перед викликом (command) для налагодження
+        (princ (strcat "\nDebug: pline_ename = " (vl-princ-to-string current_pline_ename)))
+        (princ (strcat "\nDebug: app_id_name = " (vl-princ-to-string app_id_name)))
+        (princ (strcat "\nDebug: picket_start_str = " (vl-princ-to-string picket_start_str)))
+        (princ (strcat "\nDebug: dir_factor_str = " (vl-princ-to-string dir_factor_str)))
+
+        ;; Перевірка, чи не є якийсь з необхідних аргументів nil
+        (if (and current_pline_ename app_id_name picket_start_str dir_factor_str)
+            (progn
+              ;; Викликаємо команду XDATA, симулюючи введення користувача
+              (command
+                "._XDATA"                   ; Виклик команди XDATA
+                current_pline_ename       ; Ім'я обраної полілінії
+                app_id_name               ; Ім'я нашого AppID "PicketMaster"
+                "STr"                     ; Тип даних для picket_at_start (рядок)
+                picket_start_str         ; Значення picket_at_start як рядок
+                "STr"                     ; Тип даних для dir_factor (рядок)
+                dir_factor_str           ; Значення dir_factor як рядок
+                "EXit"                    ; Команда для XDATA на завершення введення даних
+                ""                        ; Порожній рядок для імітації натискання Enter
+              )
+              (princ "\nXDATA успішно збережено на полілінії.")
+            )
+            (princ "\n*** ПОМИЛКА: Один з аргументів для XDATA є NIL. XDATA не збережено.")
+        )
       )
       (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
   )
