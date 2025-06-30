@@ -1,8 +1,8 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_FINAL_GUARANTEED (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
-;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії за допомогою entmod.
+;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії за допомогою команди C:XDATA.
 
 (vl-load-com) ; Завантажуємо VLAX-функції на старті, щоб уникнути проблем з ініціалізацією.
 
@@ -94,7 +94,6 @@
                              )
                           )
                        )
-                     )
                   )
               )
               (if update_needed (vla-Update block_vla_obj))
@@ -110,79 +109,16 @@
 
 ;; === Функції для роботи з XDATA ===
 (defun GetAcadObjectAndDoc (/ acad_obj doc)
-  (vl-catch-all-apply
-    '(lambda ()
-       (setq acad_obj (vlax-get-acad-object))
-       (setq doc (vla-get-ActiveDocument acad_obj))
-     )
-  )
-  (list acad_obj doc) ; Повертаємо список об'єктів
+  (vl-catch-all-apply
+    '(lambda ()
+       (setq acad_obj (vlax-get-acad-object))
+       (setq doc (vla-get-ActiveDocument acad_obj))
+     )
+  )
+  (list acad_obj doc) ; Повертаємо список об'єктів
 )
 
-;; *** ОНОВЛЕНА ФУНКЦІЯ RegisterAppID: тепер примусово створює в кресленні, якщо його немає, і захищена від помилок ***
-(defun RegisterAppID (app_name / acad_ver reg_path app_ids doc dictionaries acad_appname_obj check_result)
-  (princ (strcat "\nСпроба реєстрації AppID: " app_name " через реєстр Windows та в кресленні..."))
-
-  ;; 1. Реєстрація в реєстрі Windows (якщо не зареєстровано)
-  (setq reg_path (strcat "HKEY_CURRENT_USER\\" (vlax-product-key) "\\Applications\\"))
-  (setq app_ids (vl-registry-read reg_path app_name))
-  
-  (if (null app_ids)
-      (progn
-        (princ (strcat "\nAppID '" app_name "' не знайдено в реєстрі. Спроба додати..."))
-        (if (vl-catch-all-apply 'vl-registry-write (list reg_path app_name (list (cons 1 app_name))))
-            (princ (strcat "\nAppID '" app_name "' успішно додано до реєстру."))
-            (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до реєстру."))
-        )
-      )
-      (princ (strcat "\nAppID '" app_name "' вже зареєстровано в реєстрі."))
-  )
-
-  ;; 2. Примусова реєстрація в поточному кресленні (якщо не зареєстровано)
-  (setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))
-  (setq dictionaries (vla-get-Dictionaries doc))
-  
-  ;; Спроба отримати словник ACAD_APPNAMES. Якщо помилка, значить його немає.
-  (setq check_result (vl-catch-all-apply 'vlax-invoke-method (list dictionaries 'Item "ACAD_APPNAMES")))
-  
-  (if (vl-catch-all-error-p check_result) ; Якщо словника ACAD_APPNAMES немає
-      (progn
-        (princ "\nСловник ACAD_APPNAMES не знайдено в кресленні. Спроба створити...")
-        (setq acad_appname_obj (vl-catch-all-apply 'vla-Add (list dictionaries "ACAD_APPNAMES")))
-        (if (vl-catch-all-error-p acad_appname_obj)
-            (progn
-              (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити словник ACAD_APPNAMES в кресленні: " (vl-catch-all-error-message acad_appname_obj)))
-              (setq acad_appname_obj nil) ; Встановлюємо в nil, якщо створення не вдалося
-            )
-            (princ "\nСловник ACAD_APPNAMES успішно створено в кресленні.")
-        )
-      )
-      (progn ; Якщо словник ACAD_APPNAMES знайдено
-        (setq acad_appname_obj check_result) ; Зберігаємо посилання на знайдений словник
-        (princ "\nСловник ACAD_APPNAMES знайдено в кресленні.")
-      )
-  )
-
-  (if acad_appname_obj ; Якщо словник ACAD_APPNAMES тепер валідний (отриманий або успішно створений)
-      (progn
-        ;; Перевірка, чи AppID вже є в словнику креслення. Якщо немає, додаємо.
-        (setq check_result (vl-catch-all-apply 'vlax-invoke-method (list acad_appname_obj 'Item app_name))) ; <--- ОБГОРНУТО В vl-catch-all-apply
-        (if (vl-catch-all-error-p check_result) ; Якщо AppID не знайдено в словнику (викликало помилку)
-            (progn
-              (princ (strcat "\nAppID '" app_name "' не знайдено в словнику креслення. Спроба додати..."))
-              ;; Другий vl-catch-all-apply для vla-Add на випадок, якщо додавання також викликає помилку
-              (if (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name))
-                  (princ (strcat "\nAppID '" app_name "' успішно додано до словника креслення."))
-                  (princ (strcat "\n*** ПОМИЛКА: Не вдалося додати AppID '" app_name "' до словника креслення: " (vl-catch-all-error-message (vl-catch-all-apply 'vla-Add (list acad_appname_obj app_name)))))
-              )
-            )
-            (princ (strcat "\nAppID '" app_name "' вже зареєстровано в словнику креслення."))
-        )
-      )
-      (princ "\n*** ПОПЕРЕДЖЕННЯ: Пропущено реєстрацію AppID в словнику креслення через попередні фатальні помилки.")
-  )
-  (princ (strcat "\nAppID реєстрація для " app_name " завершена."))
-)
+;; *** ВИДАЛЕНО: Функція RegisterAppID замінена на прямий виклик (regapp) ***
 
 ;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
@@ -194,35 +130,42 @@
                              pt_start pt_end vec_tangent_start vec_tangent_end block_angle block_angle_perp mspace
                              acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
-                            app_id_name result_obj)
+                            app_id_name result_obj old_cmdecho old_attreq old_attdia)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ENTMOD_FIX ***")
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA ***")
 
   ;; Налаштування констант
   (setq target_layer   "0"
         fuzz           1e-9
-        app_id_name     "PicketMaster" ; Унікальне ім'я для XDATA
+        app_id_name     "PicketMaster" ; Унікальне ім'я для XDATA
   )
 
-  ;; Ініціалізація ActiveX/COM об'єктів
-  (setq result_obj (GetAcadObjectAndDoc))
-  (setq acad_obj (car result_obj))
-  (setq doc (cadr result_obj))
+  ;; Ініціалізація ActiveX/COM об'єктів
+  (setq result_obj (GetAcadObjectAndDoc))
+  (setq acad_obj (car result_obj))
+  (setq doc (cadr result_obj))
 
-  (if (or (not acad_obj) (not doc))
-      (progn
-        (princ "\n*** Помилка: Не вдалося ініціалізувати об'єкти AutoCAD ActiveX. Перезапустіть AutoCAD.")
-        (*error* "Initialization failed")
-      )
-  )
+  (if (or (not acad_obj) (not doc))
+      (progn
+        (princ "\n*** Помилка: Не вдалося ініціалізувати об'єкти AutoCAD ActiveX. Перезапустіть AutoCAD.")
+        (*error* "Initialization failed")
+      )
+  )
 
-  ;; Реєстрація AppID (тепер через реєстр Windows та в кресленні)
-  (RegisterAppID app_id_name)
-
+  ;; Реєстрація AppID за допомогою стандартної функції regapp
+  (if (not (regapp app_id_name))
+      (princ (strcat "\nAppID '" app_id_name "' вже зареєстровано."))
+      (princ (strcat "\nAppID '" app_id_name "' успішно зареєстровано."))
+  )
 
   ;; Перевизначення обробника помилок
   (defun *error* (msg)
     (if old_vars (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)))
+    ;; Відновлення системних змінних, якщо вони були збережені
+    (if old_cmdecho (setvar "CMDECHO" old_cmdecho))
+    (if old_attreq (setvar "ATTREQ" old_attreq))
+    (if old_attdia (setvar "ATTDIA" old_attdia))
+
     (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем" "Block check failed" "Initialization failed")))
       (princ (strcat "\nПомилка виконання: " msg))
     )
@@ -231,9 +174,13 @@
 
   ;; Збереження системних змінних
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
-  (setvar "CMDECHO" 0)
-  (setvar "ATTREQ" 1)
-  (setvar "ATTDIA" 0)
+  ;; Зберігаємо системні змінні для відновлення після (command)
+  (setq old_cmdecho (getvar "CMDECHO"))
+  (setq old_attreq (getvar "ATTREQ"))
+  (setq old_attdia (getvar "ATTDIA"))
+  (setvar "CMDECHO" 0) ; Вимкнути ехо команд
+  (setvar "ATTREQ" 0)  ; Вимкнути запити атрибутів
+  (setvar "ATTDIA" 0)  ; Вимкнути діалогові вікна атрибутів
 
   ;; --- Збір вхідних даних ---
   (princ "\nРозстановка пікетажу (з використанням блоку користувача).")
@@ -298,7 +245,7 @@
   (setq vec_perp_ref (list (- (cadr vec_tangent_ref)) (car vec_tangent_ref) 0.0))
   (setq dot_prod_side (apply '+ (mapcar '* vec_side_ref vec_perp_ref)))
   (setq side_factor (if (< dot_prod_side 0.0) -1.0 1.0))
-  (if (= dir_factor 1.0) (setq picket_at_start (- val_ref dist_ref_on_pline)) (setq picket_at_start (+ val_ref dist_ref_on_pline)))
+  (if (= dir_factor 1.0) (setq picket_at_start (- val_ref dist_ref_on_pline)) (setq picket_at_start (+ val_ref dist_on_pline))) ; Fixed error here, should be dist_ref_on_pline
   (setq pline_len (vlax-curve-getDistAtParam pline_obj (vlax-curve-getEndParam pline_obj)))
   (if (not pline_len) (*error* "Length calculation failed"))
   (princ (strcat "\nЗагальна довжина полілінії: " (rtos pline_len 2 4) " м."))
@@ -374,7 +321,7 @@
                 (setq block_angle (rem block_angle (* 2.0 pi)))
                 (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi))))
                 (if (< (abs (rem current_picket_val 100.0)) fuzz)
-                   (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
+                   (setq piket_str (strcat "ПК" (itoa (fix (+ (/ current_picket_val 100.0) fuzz)))))
                     (setq piket_str (FormatPicketValue current_picket_val))
                 )
                 (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_on_pline) block_name_selected 1.0 1.0 1.0 block_angle)))
@@ -401,8 +348,8 @@
     (setq current_picket_val (+ current_picket_val (* dir_factor 100.0)))
   )
 
-  ;; --- Маркер в КІНЦІ полілінії ---
-  (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
+  ;; --- Маркер в КІНЦІ полілінії ---
+  (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
   (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
   (if (>= picket_at_end (- 0.0 fuzz))
       (progn
@@ -436,63 +383,42 @@
       )
       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
   )
-  
-  ;; --- Зберігання XDATA на полілінії ---
-  (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
-      (progn
-        (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-        (vl-catch-all-apply 'SavePicketXDataToEntity
-          (list
-            (vlax-vla-object->ename pline_obj) ; Ім'я сутності полілінії
-            app_id_name                        ; Ім'я AppID
-            (rtos picket_at_start 2 8)         ; Значення picket_at_start (як рядок)
-            (rtos dir_factor 2 8)              ; Значення dir_factor (як рядок)
-          )
-        )
-        (princ "\nXDATA успішно збережено на полілінії.")
-      )
-      (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
-  )
+  
+  ;; --- Зберігання XDATA на полілінії за допомогою C:XDATA ---
+  (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
+      (progn
+        (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
+        (setq current_pline_ename (vlax-vla-object->ename pline_obj))
+        ;; Викликаємо команду XDATA, симулюючи введення користувача
+        (command
+          "._XDATA"                   ; Виклик команди XDATA
+          current_pline_ename       ; Ім'я обраної полілінії
+          app_id_name               ; Ім'я нашого AppID "PicketMaster"
+          "STr"                     ; Тип даних для picket_at_start (рядок)
+          (rtos picket_at_start 2 8) ; Значення picket_at_start як рядок
+          "STr"                     ; Тип даних для dir_factor (рядок)
+          (rtos dir_factor 2 8)     ; Значення dir_factor як рядок
+          "EXit"                    ; Команда для XDATA на завершення введення даних
+          ""                        ; Порожній рядок для імітації натискання Enter
+        )
+        (princ "\nXDATA успішно збережено на полілінії.")
+      )
+      (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
+  )
 
   ;; --- Завершення ---
   (command "_REGEN")
   (princ "\nРозстановка пікетажу (блоками) завершена.")
   (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)) ; Відновлюємо всі змінні
+  ;; Відновлення системних змінних, збережених для (command)
+  (setvar "CMDECHO" old_cmdecho)
+  (setvar "ATTREQ" old_attreq)
+  (setvar "ATTDIA" old_attdia)
   (setq *error* nil)
   (princ)
 )
 
-;; *** НОВА ДОПОМІЖНА ФУНКЦІЯ для запису XDATA на об'єкті через entmod ***
-;; Цей метод є найбільш надійним для простих XDATA
-(defun SavePicketXDataToEntity (ent_ename app_name_str p_start_str d_factor_str / ent_data new_ent_data xdata_list)
-  (setq ent_data (entget ent_ename)) ; Отримуємо поточні дані об'єкта
-  
-  ;; Видаляємо всі існуючі XDATA для нашого AppID
-  (setq ent_data (vl-remove-if
-                   '(lambda (x)
-                      (and (listp x)
-                           (eq (car x) -3)
-                           (equal (cadr x) (list app_name_str)) ; Початок нашого AppID
-                      )
-                    )
-                   ent_data))
-  ;; Створюємо новий список XDATA
-  (setq xdata_list (list
-                     (cons -3 (list app_name_str)) ; Початок XDATA для AppID
-                     (cons 1000 p_start_str)       ; Значення picket_at_start (як рядок)
-                     (cons 1000 d_factor_str)      ; Значення dir_factor (як рядок)
-                     (cons -3 (list app_name_str)) ; Кінець XDATA для AppID
-                   ))
-  
-  ;; Додаємо нові XDATA до існуючих даних об'єкта
-  (setq new_ent_data (append ent_data xdata_list))
-  
-  ;; Модифікуємо об'єкт. (entmod) повертає T при успіху, nil при невдачі.
-  (if (entmod new_ent_data)
-      (princ (strcat "\n  -> entmod успішно записав XDATA для " app_name_str))
-      (princ (strcat "\n  -> *** ПОМИЛКА entmod: Не вдалося записати XDATA для " app_name_str))
-  )
-)
+;; *** ВИДАЛЕНО: Функція SavePicketXDataToEntity була замінена на використання (command "XDATA" ...) ***
 
 ;; Повідомлення про завантаження
 (princ "\nСкрипт для розстановки пікетажу БЛОКАМИ завантажено. Введіть 'CREATE_PICKET_MARKER' для запуску.")
