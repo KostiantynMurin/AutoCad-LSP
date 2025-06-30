@@ -44,67 +44,67 @@
 )
 
 ;; === Допоміжна функція для встановлення значення атрибуту (обробка типу атрибутів) ===
-(defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
-  (setq found nil update_needed nil)
-  (if (and block_vla_obj (= (type block_vla_obj) 'VLA-OBJECT) (not (vlax-object-released-p block_vla_obj)))
-      (progn
-        (setq has_attribs (vla-get-HasAttributes block_vla_obj))
-        (if (and has_attribs (/= :vlax_false has_attribs))
-            (progn
-              (setq atts (vl-catch-all-apply 'vlax-invoke (list block_vla_obj 'GetAttributes)))
-              (if (vl-catch-all-error-p atts)
-                  (princ (strcat "\n  Debug [SetAttrib]: *** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
-                  (if atts
-                     (progn
-                       (setq att_list nil)
-                       (cond
-                         ((= (type atts) 'VARIANT)
-                           (if (and (= (type (vlax-variant-value atts)) 'SAFEARRAY))
-                              (setq att_list (vlax-safearray->list (vlax-variant-value atts)))
-                           )
-                         )
-                         ((= (type atts) 'LIST)
-                           (setq att_list atts)
-                         )
-                         ((= (type atts) 'SAFEARRAY)
-                           (setq att_list (vlax-safearray->list atts))
-                         )
-                         (T)
-                       )
-                       (if att_list
-                          (progn
-                             (foreach att att_list
-                               (if (= (type att) 'VLA-OBJECT)
-                                   (progn
-                                      (setq current_tag (vla-get-TagString att))
-                                      (if (= (strcase current_tag) (strcase att_tag))
-                                        (progn
-                                          (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
-                                          (if (vl-catch-all-error-p set_result)
-                                              (princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
-                                          )
-                                          (setq update_needed T) (setq found T)
-                                        )
-                                      )
-                                   )
-                                   (princ (strcat "\n    Debug [SetAttrib]: *** Помилка: Елемент списку атрибутів не є VLA-OBJECT: " (vl-princ-to-string att)))
-                               )
-                             )
-                          )
-                       )
-                  )
-              )
-              (if update_needed (vla-Update block_vla_obj))
-              (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** Атрибут з тегом '" att_tag "' не знайдено серед атрибутів блоку.")))
-        )
-            (princ (strcat "\n  Debug [SetAttrib]: Check FAILED (HasAttributes is nil or False)."))
-        )
-      )
-      (princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
-    )
-    found
-  )
-)
+; (defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
+;   (setq found nil update_needed nil)
+;   (if (and block_vla_obj (= (type block_vla_obj) 'VLA-OBJECT) (not (vlax-object-released-p block_vla_obj)))
+;       (progn
+;         (setq has_attribs (vla-get-HasAttributes block_vla_obj))
+;         (if (and has_attribs (/= :vlax_false has_attribs))
+;             (progn
+;               (setq atts (vl-catch-all-apply 'vlax-invoke (list block_vla_obj 'GetAttributes)))
+;               (if (vl-catch-all-error-p atts)
+;                   (princ (strcat "\n  Debug [SetAttrib]: *** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
+;                   (if atts
+;                      (progn
+;                        (setq att_list nil)
+;                        (cond
+;                          ((= (type atts) 'VARIANT)
+;                            (if (and (= (type (vlax-variant-value atts)) 'SAFEARRAY))
+;                               (setq att_list (vlax-safearray->list (vlax-variant-value atts)))
+;                            )
+;                          )
+;                          ((= (type atts) 'LIST)
+;                            (setq att_list atts)
+;                          )
+;                          ((= (type atts) 'SAFEARRAY)
+;                            (setq att_list (vlax-safearray->list atts))
+;                          )
+;                          (T)
+;                        )
+;                        (if att_list
+;                           (progn
+;                              (foreach att att_list
+;                                (if (= (type att) 'VLA-OBJECT)
+;                                    (progn
+;                                       (setq current_tag (vla-get-TagString att))
+;                                       (if (= (strcase current_tag) (strcase att_tag))
+;                                         (progn
+;                                           (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
+;                                           (if (vl-catch-all-error-p set_result)
+;                                               (princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
+;                                           )
+;                                           (setq update_needed T) (setq found T)
+;                                         )
+;                                       )
+;                                    )
+;                                    (princ (strcat "\n    Debug [SetAttrib]: *** Помилка: Елемент списку атрибутів не є VLA-OBJECT: " (vl-princ-to-string att)))
+;                                )
+;                              )
+;                           )
+;                        )
+;                   )
+;               )
+;               (if update_needed (vla-Update block_vla_obj))
+;               (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** Атрибут з тегом '" att_tag "' не знайдено серед атрибутів блоку.")))
+;         )
+;             (princ (strcat "\n  Debug [SetAttrib]: Check FAILED (HasAttributes is nil or False)."))
+;         )
+;       )
+;       (princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
+;     )
+;     found
+;   )
+; )
 
 ;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
@@ -335,79 +335,79 @@
   )
 
   ;; --- Маркер в КІНЦІ полілінії ---
-;;   (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
-;;   (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
-;;   (if (>= picket_at_end (- 0.0 fuzz))
-;;       (progn
-;;         (princ "\nСпроба поставити маркер в кінці полілінії...")
-;;         (setq pt_end (vlax-curve-getEndPoint pline_obj))
-;;         ;; Завжди використовуємо getEndParam для надійності
-;;         (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj)))
-;;         (if vec_tangent_end
-;;             (progn
-;;               (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
-;;               (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
-;;               (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
-;;               (setq block_angle (- block_angle_perp (/ pi 2.0)))
-;;               (setq block_angle (rem block_angle (* 2.0 pi)))
-;;               (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi))))
-;;               (setq piket_str_end (FormatPicketValue picket_at_end))
-;;               (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
-;;               (if (vl-catch-all-error-p block_insert_obj)
-;;                   (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
-;;                   (if block_insert_obj
-;;                       (progn
-;;                         (princ (strcat "\n Вставлено блок для: " piket_str_end))
-;;                         (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str_end)
-;;                       )
-;;                       (princ "\n*** Помилка: vla-InsertBlock повернув nil в кінці.")
-;;                   )
-;;               )
-;;             )
-;;             (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в кінцевій точці. Маркер не створено."))
-;;         )
-;;       )
-;;       (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
-;;   )
+  (if (= dir_factor 1.0) (setq picket_at_end (+ picket_at_start pline_len)) (setq picket_at_end (- picket_at_start pline_len)))
+  (princ (strcat "\nРозрахункове значення пікету в кінці: " (rtos picket_at_end 2 4) " м."))
+  (if (>= picket_at_end (- 0.0 fuzz))
+      (progn
+        (princ "\nСпроба поставити маркер в кінці полілінії...")
+        (setq pt_end (vlax-curve-getEndPoint pline_obj))
+        ;; Завжди використовуємо getEndParam для надійності
+        (setq vec_tangent_end (vlax-curve-getFirstDeriv pline_obj (vlax-curve-getEndParam pline_obj)))
+        (if vec_tangent_end
+            (progn
+              (setq vec_perp (list (- (cadr vec_tangent_end)) (car vec_tangent_end) 0.0))
+              (setq vec_perp_final (if (= side_factor 1.0) vec_perp (mapcar '- vec_perp)))
+              (setq block_angle_perp (angle '(0.0 0.0 0.0) vec_perp_final))
+              (setq block_angle (- block_angle_perp (/ pi 2.0)))
+              (setq block_angle (rem block_angle (* 2.0 pi)))
+              (if (< block_angle 0.0) (setq block_angle (+ block_angle (* 2.0 pi))))
+              (setq piket_str_end (FormatPicketValue picket_at_end))
+              (setq block_insert_obj (vl-catch-all-apply 'vla-InsertBlock (list mspace (vlax-3d-point pt_end) block_name_selected 1.0 1.0 1.0 block_angle)))
+              (if (vl-catch-all-error-p block_insert_obj)
+                  (princ (strcat "\n*** Помилка вставки блоку в кінці: " (vl-catch-all-error-message block_insert_obj)))
+                  (if block_insert_obj
+                      (progn
+                        (princ (strcat "\n Вставлено блок для: " piket_str_end))
+                        (SetAttributeValue block_insert_obj "ПІКЕТ" piket_str_end)
+                      )
+                      (princ "\n*** Помилка: vla-InsertBlock повернув nil в кінці.")
+                  )
+              )
+            )
+            (princ (strcat "\n*** Попередження: Не вдалося отримати дотичну в кінцевій точці. Маркер не створено."))
+        )
+      )
+      (princ (strcat "\n--- Пропуск маркера в кінці полілінії (Пікет=" (rtos picket_at_end 2 2) " < 0)."))
+  )
   
   ;; --- Зберігання XDATA на полілінії за допомогою C:XDATA ---
-;;   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
-;;       (progn
-;;         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-;;         (setq current_pline_ename (vlax-vla-object->ename pline_obj))
-    
-;;         ;; Перетворення числових значень в рядки перед передачею в (command)
-;;         (setq picket_start_str (rtos picket_at_start 2 8))
-;;         (setq dir_factor_str (rtos dir_factor 2 8))
+  (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
+      (progn
+        (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
+        (setq current_pline_ename (vlax-vla-object->ename pline_obj))
+        
+        ;; Перетворення числових значень в рядки перед передачею в (command)
+        (setq picket_start_str (rtos picket_at_start 2 8))
+        (setq dir_factor_str (rtos dir_factor 2 8))
 
-;;         ;; Додаткова перевірка значень перед викликом (command) для налагодження
-;;         (princ (strcat "\nDebug: pline_ename = " (vl-princ-to-string current_pline_ename)))
-;;         (princ (strcat "\nDebug: app_id_name = " (vl-princ-to-string app_id_name)))
-;;         (princ (strcat "\nDebug: picket_start_str = " (vl-princ-to-string picket_start_str)))
-;;         (princ (strcat "\nDebug: dir_factor_str = " (vl-princ-to-string dir_factor_str)))
+        ;; Додаткова перевірка значень перед викликом (command) для налагодження
+        (princ (strcat "\nDebug: pline_ename = " (vl-princ-to-string current_pline_ename)))
+        (princ (strcat "\nDebug: app_id_name = " (vl-princ-to-string app_id_name)))
+        (princ (strcat "\nDebug: picket_start_str = " (vl-princ-to-string picket_start_str)))
+        (princ (strcat "\nDebug: dir_factor_str = " (vl-princ-to-string dir_factor_str)))
 
-;;         ;; Перевірка, чи не є якийсь з необхідних аргументів nil
-;;         (if (and current_pline_ename app_id_name picket_start_str dir_factor_str)
-;;             (progn
-;;               ;; Викликаємо команду XDATA, симулюючи введення користувача
-;;               (command
-;;                 "._XDATA"                   ; Виклик команди XDATA
-;;                 current_pline_ename       ; Ім'я обраної полілінії
-;;                 app_id_name               ; Ім'я нашого AppID "PicketMaster"
-;;                 "STr"                     ; Тип даних для picket_at_start (рядок)
-;;                 picket_start_str         ; Значення picket_at_start як рядок
-;;                 "STr"                     ; Тип даних для dir_factor (рядок)
-;;                 dir_factor_str           ; Значення dir_factor як рядок
-;;                 "EXit"                    ; Команда для XDATA на завершення введення даних
-;;                 ""                        ; Порожній рядок для імітації натискання Enter
-;;               )
-;;               (princ "\nXDATA успішно збережено на полілінії.")
-;;             )
-;;             (princ "\n*** ПОМИЛКА: Один з аргументів для XDATA є NIL. XDATA не збережено.")
-;;         )
-;;       )
-;;       (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
-;;   )
+        ;; Перевірка, чи не є якийсь з необхідних аргументів nil
+        (if (and current_pline_ename app_id_name picket_start_str dir_factor_str)
+            (progn
+              ;; Викликаємо команду XDATA, симулюючи введення користувача
+              (command
+                "._XDATA"                   ; Виклик команди XDATA
+                current_pline_ename       ; Ім'я обраної полілінії
+                app_id_name               ; Ім'я нашого AppID "PicketMaster"
+                "STr"                     ; Тип даних для picket_at_start (рядок)
+                picket_start_str         ; Значення picket_at_start як рядок
+                "STr"                     ; Тип даних для dir_factor (рядок)
+                dir_factor_str           ; Значення dir_factor як рядок
+                "EXit"                    ; Команда для XDATA на завершення введення даних
+                ""                        ; Порожній рядок для імітації натискання Enter
+              )
+              (princ "\nXDATA успішно збережено на полілінії.")
+            )
+            (princ "\n*** ПОМИЛКА: Один з аргументів для XDATA є NIL. XDATA не збережено.")
+        )
+      )
+      (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
+  )
 
   ;; --- Завершення ---
   (command "_REGEN")
