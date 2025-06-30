@@ -44,66 +44,67 @@
 )
 
 ;; === Допоміжна функція для встановлення значення атрибуту (обробка типу атрибутів) ===
-;; (defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
-;;   (setq found nil update_needed nil)
-;;   (if (and block_vla_obj (= (type block_vla_obj) 'VLA-OBJECT) (not (vlax-object-released-p block_vla_obj)))
-;;       (progn
-;;         (setq has_attribs (vla-get-HasAttributes block_vla_obj))
-;;         (if (and has_attribs (/= :vlax_false has_attribs))
-;;             (progn
-;;               (setq atts (vl-catch-all-apply 'vlax-invoke (list block_vla_obj 'GetAttributes)))
-;;               (if (vl-catch-all-error-p atts)
-;;                   (princ (strcat "\n  Debug [SetAttrib]: *** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
-;;                   (if atts
-;;                      (progn
-;;                        (setq att_list nil)
-;;                        (cond
-;;                          ((= (type atts) 'VARIANT)
-;;                            (if (and (= (type (vlax-variant-value atts)) 'SAFEARRAY))
-;;                               (setq att_list (vlax-safearray->list (vlax-variant-value atts)))
-;;                            )
-;;                          )
-;;                          ((= (type atts) 'LIST)
-;;                            (setq att_list atts)
-;;                          )
-;;                          ((= (type atts) 'SAFEARRAY)
-;;                            (setq att_list (vlax-safearray->list atts))
-;;                          )
-;;                          (T)
-;;                        )
-;;                        (if att_list
-;;                           (progn
-;;                              (foreach att att_list
-;;                                (if (= (type att) 'VLA-OBJECT)
-;;                                    (progn
-;;                                       (setq current_tag (vla-get-TagString att))
-;;                                       (if (= (strcase current_tag) (strcase att_tag))
-;;                                         (progn
-;;                                           (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
-;;                                           (if (vl-catch-all-error-p set_result)
-;;                                               (princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
-;;                                           )
-;;                                           (setq update_needed T) (setq found T)
-;;                                         )
-;;                                       )
-;;                                    )
-;;                                    (princ (strcat "\n    Debug [SetAttrib]: *** Помилка: Елемент списку атрибутів не є VLA-OBJECT: " (vl-princ-to-string att)))
-;;                                )
-;;                              )
-;;                           )
-;;                        )
-;;                   )
-;;               )
-;;               (if update_needed (vla-Update block_vla_obj))
-;;               (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** Атрибут з тегом '" att_tag "' не знайдено серед атрибутів блоку.")))
-;;         )
-;;             (princ (strcat "\n  Debug [SetAttrib]: Check FAILED (HasAttributes is nil or False)."))
-;;         )
-;;       )
-;;       (princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
-;;   )
-;;   found
-;; )
+(defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
+  (setq found nil update_needed nil)
+  (if (and block_vla_obj (= (type block_vla_obj) 'VLA-OBJECT) (not (vlax-object-released-p block_vla_obj)))
+      (progn
+        (setq has_attribs (vla-get-HasAttributes block_vla_obj))
+        (if (and has_attribs (/= :vlax_false has_attribs))
+            (progn
+              (setq atts (vl-catch-all-apply 'vlax-invoke (list block_vla_obj 'GetAttributes)))
+              (if (vl-catch-all-error-p atts)
+                  (princ (strcat "\n  Debug [SetAttrib]: *** Помилка отримання атрибутів: " (vl-catch-all-error-message atts)))
+                  (if atts
+                     (progn
+                       (setq att_list nil)
+                       (cond
+                         ((= (type atts) 'VARIANT)
+                           (if (and (= (type (vlax-variant-value atts)) 'SAFEARRAY))
+                              (setq att_list (vlax-safearray->list (vlax-variant-value atts)))
+                           )
+                         )
+                         ((= (type atts) 'LIST)
+                           (setq att_list atts)
+                         )
+                         ((= (type atts) 'SAFEARRAY)
+                           (setq att_list (vlax-safearray->list atts))
+                         )
+                         (T)
+                       )
+                       (if att_list
+                          (progn
+                             (foreach att att_list
+                               (if (= (type att) 'VLA-OBJECT)
+                                   (progn
+                                      (setq current_tag (vla-get-TagString att))
+                                      (if (= (strcase current_tag) (strcase att_tag))
+                                        (progn
+                                          (setq set_result (vl-catch-all-apply 'vla-put-TextString (list att new_value)))
+                                          (if (vl-catch-all-error-p set_result)
+                                              (princ (strcat "\n      Debug [SetAttrib]: *** Помилка встановлення значення: " (vl-catch-all-error-message set_result)))
+                                          )
+                                          (setq update_needed T) (setq found T)
+                                        )
+                                      )
+                                   )
+                                   (princ (strcat "\n    Debug [SetAttrib]: *** Помилка: Елемент списку атрибутів не є VLA-OBJECT: " (vl-princ-to-string att)))
+                               )
+                             )
+                          )
+                       )
+                  )
+              )
+              (if update_needed (vla-Update block_vla_obj))
+              (if (not found) (princ (strcat "\n  Debug [SetAttrib]: *** Атрибут з тегом '" att_tag "' не знайдено серед атрибутів блоку.")))
+        )
+            (princ (strcat "\n  Debug [SetAttrib]: Check FAILED (HasAttributes is nil or False)."))
+        )
+      )
+      (princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
+    )
+    found
+  )
+)
 
 ;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
