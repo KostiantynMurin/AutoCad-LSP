@@ -371,43 +371,43 @@
   )
   
   ;; --- Зберігання XDATA на полілінії за допомогою C:XDATA ---
-  (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
-      (progn
-        (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-        (setq current_pline_ename (vlax-vla-object->ename pline_obj))
+;   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
+;       (progn
+;         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
+;         (setq current_pline_ename (vlax-vla-object->ename pline_obj))
         
-        ;; Перетворення числових значень в рядки перед передачею в (command)
-        (setq picket_start_str (rtos picket_at_start 2 8))
-        (setq dir_factor_str (rtos dir_factor 2 8))
+;         ;; Перетворення числових значень в рядки перед передачею в (command)
+;         (setq picket_start_str (rtos picket_at_start 2 8))
+;         (setq dir_factor_str (rtos dir_factor 2 8))
 
-        ;; Додаткова перевірка значень перед викликом (command) для налагодження
-        (princ (strcat "\nDebug: pline_ename = " (vl-princ-to-string current_pline_ename)))
-        (princ (strcat "\nDebug: app_id_name = " (vl-princ-to-string app_id_name)))
-        (princ (strcat "\nDebug: picket_start_str = " (vl-princ-to-string picket_start_str)))
-        (princ (strcat "\nDebug: dir_factor_str = " (vl-princ-to-string dir_factor_str)))
+;         ;; Додаткова перевірка значень перед викликом (command) для налагодження
+;         (princ (strcat "\nDebug: pline_ename = " (vl-princ-to-string current_pline_ename)))
+;         (princ (strcat "\nDebug: app_id_name = " (vl-princ-to-string app_id_name)))
+;         (princ (strcat "\nDebug: picket_start_str = " (vl-princ-to-string picket_start_str)))
+;         (princ (strcat "\nDebug: dir_factor_str = " (vl-princ-to-string dir_factor_str)))
 
-        ;; Перевірка, чи не є якийсь з необхідних аргументів nil
-        (if (and current_pline_ename app_id_name picket_start_str dir_factor_str)
-            (progn
-              ;; Викликаємо команду XDATA, симулюючи введення користувача
-              (command
-                "._XDATA"                   ; Виклик команди XDATA
-                current_pline_ename       ; Ім'я обраної полілінії
-                app_id_name               ; Ім'я нашого AppID "PicketMaster"
-                "STr"                     ; Тип даних для picket_at_start (рядок)
-                picket_start_str         ; Значення picket_at_start як рядок
-                "STr"                     ; Тип даних для dir_factor (рядок)
-                dir_factor_str           ; Значення dir_factor як рядок
-                "EXit"                    ; Команда для XDATA на завершення введення даних
-                ""                        ; Порожній рядок для імітації натискання Enter
-              )
-              (princ "\nXDATA успішно збережено на полілінії.")
-            )
-            (princ "\n*** ПОМИЛКА: Один з аргументів для XDATA є NIL. XDATA не збережено.")
-        )
-      )
-      (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
-  )
+;         ;; Перевірка, чи не є якийсь з необхідних аргументів nil
+;         (if (and current_pline_ename app_id_name picket_start_str dir_factor_str)
+;             (progn
+;               ;; Викликаємо команду XDATA, симулюючи введення користувача
+;               (command
+;                 "._XDATA"                   ; Виклик команди XDATA
+;                 current_pline_ename       ; Ім'я обраної полілінії
+;                 app_id_name               ; Ім'я нашого AppID "PicketMaster"
+;                 "STr"                     ; Тип даних для picket_at_start (рядок)
+;                 picket_start_str         ; Значення picket_at_start як рядок
+;                 "STr"                     ; Тип даних для dir_factor (рядок)
+;                 dir_factor_str           ; Значення dir_factor як рядок
+;                 "EXit"                    ; Команда для XDATA на завершення введення даних
+;                 ""                        ; Порожній рядок для імітації натискання Enter
+;               )
+;               (princ "\nXDATA успішно збережено на полілінії.")
+;             )
+;             (princ "\n*** ПОМИЛКА: Один з аргументів для XDATA є NIL. XDATA не збережено.")
+;         )
+;       )
+;       (princ "\n*** Помилка: Неможливо зберегти XDATA - відсутні валідні дані або об'єкт полілінії.")
+;   )
 
   ;; --- Завершення ---
   (command "_REGEN")
