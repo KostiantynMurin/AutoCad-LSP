@@ -99,8 +99,9 @@
             (princ (strcat "\n  Debug [SetAttrib]: Check FAILED (HasAttributes is nil or False)."))
           )
         )
-        (princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
-      )found
+        ;;(princ "\n*** Помилка: Передано невалідний об'єкт блоку для SetAttributeValue.")
+      )
+      found
     )
   )
 )
