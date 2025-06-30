@@ -25,22 +25,23 @@
 )
 
 ;; === Допоміжна функція для перевірки наявності атрибуту в блоці ===
-;; (defun CheckBlockAttrib (blockname att_tag / blk_obj ent attdef_found acad_obj doc blocks)
-;;   (setq attdef_found nil)
-;;   (setq acad_obj (vlax-get-acad-object))
-;;   (setq doc (vla-get-ActiveDocument acad_obj))
-;;   (setq blocks (vla-get-Blocks doc))
-;;   (if (not (vl-catch-all-error-p (setq blk_obj (vlax-invoke-method blocks 'Item blockname))))
-;;       (vlax-for ent blk_obj
-;;         (if (= "AcDbAttributeDefinition" (vla-get-ObjectName ent))
-;;           (if (= (strcase (vla-get-TagString ent)) (strcase att_tag))
-;;             (setq attdef_found T)
-;;           )
-;;         )
-;;       (princ (strcat "\n*** Помилка: Блок з ім'ям '" blockname "' не знайдено в таблиці блоків."))
-;;   )
-;;   attdef_found
-;; )
+(defun CheckBlockAttrib (blockname att_tag / blk_obj ent attdef_found acad_obj doc blocks)
+  (setq attdef_found nil)
+  (setq acad_obj (vlax-get-acad-object))
+  (setq doc (vla-get-ActiveDocument acad_obj))
+  (setq blocks (vla-get-Blocks doc))
+  (if (not (vl-catch-all-error-p (setq blk_obj (vlax-invoke-method blocks 'Item blockname))))
+      (vlax-for ent blk_obj
+        (if (= "AcDbAttributeDefinition" (vla-get-ObjectName ent))
+          (if (= (strcase (vla-get-TagString ent)) (strcase att_tag))
+            (setq attdef_found T)
+          )
+        )
+      (princ (strcat "\n*** Помилка: Блок з ім'ям '" blockname "' не знайдено в таблиці блоків."))
+    )
+    attdef_found
+  )
+)
 
 ;; === Допоміжна функція для встановлення значення атрибуту (обробка типу атрибутів) ===
 ;; (defun SetAttributeValue (block_vla_obj att_tag new_value / atts att found update_needed has_attribs current_tag set_result att_list)
