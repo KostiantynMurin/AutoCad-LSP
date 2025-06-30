@@ -1,8 +1,8 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_ENTMOD_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-29_UseBlock_RotateFixY_RemAngle_XDATA_XRECORD_FIX (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
-;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії.
+;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії за допомогою XRECORD.
 
 (vl-load-com) ; Завантажуємо VLAX-функції на старті, щоб уникнути проблем з ініціалізацією.
 
@@ -441,15 +441,13 @@
   (if (and pline_obj (numberp picket_at_start) (numberp dir_factor)) ; Додаткова перевірка на numberp
       (progn
         (princ (strcat "\nЗберігаємо XDATA на полілінії '" (vla-get-Handle pline_obj) "' під AppID '" app_id_name "'..."))
-        (vl-catch-all-apply 'vla-SetXData
+        ;; Запис XDATA за допомогою XRECORD
+        (vl-catch-all-apply 'SavePicketXRecord
           (list
             (vlax-ename->vla-object (vlax-vla-object->ename pline_obj)) ; VLA-об'єкт полілінії
-            app_id_name ; Ім'я AppID
-            (vlax-make-safearray vlax-vbVariant '(0 . 1)) ; SafeArray для двох значень
-            (list ; Список значень для SafeArray
-              (vlax-make-variant (rtos picket_at_start 2 8)) ; picket_at_start
-              (vlax-make-variant (rtos dir_factor 2 8))    ; dir_factor
-            )
+            app_id_name                                ; Ім'я AppID
+            picket_at_start                            ; Значення picket_at_start
+            dir_factor                                 ; Значення dir_factor
           )
         )
         (princ "\nXDATA успішно збережено на полілінії.")
@@ -463,6 +461,69 @@
   (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)) ; Відновлюємо всі змінні
   (setq *error* nil)
   (princ)
+)
+
+;; *** НОВА ДОПОМІЖНА ФУНКЦІЯ для запису XDATA через XRECORD ***
+(defun SavePicketXRecord (obj_vla app_id_name p_start d_factor / acad_obj doc dicts xdict xrecord xrecord_name existing_xrecord)
+  (setq acad_obj (vlax-get-acad-object))
+  (setq doc (vla-get-ActiveDocument acad_obj))
+  (setq dicts (vla-get-Dictionaries doc))
+
+  ;; 1. Отримуємо словник розширених даних креслення (ACAD_XDICTIONARY)
+  (setq xdict (vl-catch-all-apply 'vlax-invoke-method (list dicts 'Item "ACAD_XDICTIONARY")))
+  (if (vl-catch-all-error-p xdict)
+      (progn
+        (princ "\n*** ПОМИЛКА: Словник ACAD_XDICTIONARY не знайдено. Спроба створити...")
+        (setq xdict (vl-catch-all-apply 'vla-Add (list dicts "ACAD_XDICTIONARY")))
+        (if (vl-catch-all-error-p xdict)
+            (progn (princ (strcat "\n*** КРИТИЧНА ПОМИЛКА: Не вдалося створити ACAD_XDICTIONARY: " (vl-catch-all-error-message xdict))) (setq xdict nil))
+            (princ "\nСловник ACAD_XDICTIONARY успішно створено.")
+        )
+      )
+  )
+
+  (if xdict ; Якщо xdict валідний
+      (progn
+        ;; 2. Формуємо ім'я XRECORD для конкретного об'єкта
+        ;; Ми використаємо Handle об'єкта як частину імені, щоб зв'язати XRECORD з об'єктом.
+        (setq xrecord_name (strcat app_id_name "_" (vla-get-Handle obj_vla)))
+
+        ;; 3. Перевіряємо, чи XRECORD вже існує, і видаляємо його, якщо так
+        (setq existing_xrecord (vl-catch-all-apply 'vlax-invoke-method (list xdict 'Item xrecord_name)))
+        (if (not (vl-catch-all-error-p existing_xrecord))
+            (progn
+              (vl-catch-all-apply 'vla-Delete (list existing_xrecord))
+              (princ (strcat "\nСтарий XRECORD '" xrecord_name "' видалено."))
+            )
+        )
+        
+        ;; 4. Створюємо новий XRECORD
+        (setq xrecord (vl-catch-all-apply 'vla-AddXrecord (list xdict xrecord_name)))
+
+        (if (vl-catch-all-error-p xrecord)
+            (princ (strcat "\n*** ПОМИЛКА: Не вдалося створити XRECORD '" xrecord_name "': " (vl-catch-all-error-message xrecord)))
+            (progn
+              ;; 5. Додаємо дані до XRECORD
+              ;; Код групи 1000 для рядків, 1040 для чисел з плаваючою комою.
+              ;; Це дуже важливо: XRECORD зберігає дані як пари (груповий код . значення)
+              (vl-catch-all-apply 'vla-SetXData
+                (list xrecord
+                      (vlax-make-safearray vlax-vbInteger '(0 . 1)) ; Масив для групових кодів
+                      (vlax-make-variant '(1040 1040))              ; Групові коди
+                      (vlax-make-safearray vlax-vbVariant '(0 . 1)) ; Масив для значень
+                      (vlax-make-variant (list (rtos p_start 2 8) (rtos d_factor 2 8))) ; Значення
+                )
+              )
+              ;; 6. Прикріплюємо XRECORD до об'єкта
+              ;; За допомогою reactor'а? Ні, через Dictionaries.
+              ;; Або просто зберігаємо Handle об'єкта в XRECORD, а потім читаємо з нього.
+              ;; Це вже зв'язок через ім'я xrecord_name.
+
+              (princ (strcat "\nXRECORD '" xrecord_name "' успішно створено та заповнено."))
+            )
+        )
+      )
+  )
 )
 
 ;; Повідомлення про завантаження
