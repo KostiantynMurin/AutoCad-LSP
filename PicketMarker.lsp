@@ -1,5 +1,5 @@
 ;;; Скрипт для розстановки пікетажу вздовж полілінії AutoCAD (LWPOLYLINE)
-;;; Версія v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v4 (Використання блоку користувача з атрибутом "ПІКЕТ")
+;;; Версія v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v5 (Використання блоку користувача з атрибутом "ПІКЕТ")
 ;;; Розставляє екземпляри обраного блоку кожні 100м, а також на початку/кінці
 ;;; полілінії (якщо пікет >= 0). Використовує FIX замість floor/ceiling.
 ;;; Оновлення: Зберігає дані пікетажу (picket_at_start, dir_factor) в XDATA на полілінії за допомогою команди C:XDATA.
@@ -107,16 +107,7 @@
   found
 )
 
-;; === Функції для роботи з XDATA ===
-(defun GetAcadObjectAndDoc (/ acad_obj doc)
-  (vl-catch-all-apply
-    '(lambda ()
-       (setq acad_obj (vlax-get-acad-object))
-       (setq doc (vla-get-ActiveDocument acad_obj))
-     )
-  )
-  (list acad_obj doc) ; Повертаємо список об'єктів
-)
+;; *** ВИДАЛЕНО: Функція GetAcadObjectAndDoc не буде потрібна глобально ***
 
 ;; Головна функція (Нормалізація кута через REM)
 (defun C:CREATE_PICKET_MARKER (/ *error* old_vars pline_ent pline_obj pt_ref pt_ref_on_pline dist_ref_on_pline
@@ -129,41 +120,17 @@
                              acad_obj doc blocks blk_obj ent attdef_found update_needed att atts vec_perp vec_perp_final
                              num_fix km_str val_str set_result att_list current_tag has_attribs final_stylename
                             app_id_name result_obj old_cmdecho old_attreq old_attdia current_pline_ename
-                            picket_start_str dir_factor_str) ;; Додав нові локальні змінні для рядків
+                            picket_start_str dir_factor_str)
 
-  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v4 ***")
-
-  ;; Налаштування констант
-  (setq target_layer   "0"
-        fuzz           1e-9
-        app_id_name     "PicketMaster" ; Унікальне ім'я для XDATA
-  )
-
-  ;; Ініціалізація ActiveX/COM об'єктів
-  (setq result_obj (GetAcadObjectAndDoc))
-  (setq acad_obj (car result_obj))
-  (setq doc (cadr result_obj))
-
-  (if (or (not acad_obj) (not doc))
-      (progn
-        (princ "\n*** Помилка: Не вдалося ініціалізувати об'єкти AutoCAD ActiveX. Перезапустіть AutoCAD.")
-        (*error* "Initialization failed")
-      )
-  )
-
-  ;; Реєстрація AppID за допомогою стандартної функції regapp
-  (if (not (regapp app_id_name))
-      (princ (strcat "\nAppID '" app_id_name "' вже зареєстровано."))
-      (princ (strcat "\nAppID '" app_id_name "' успішно зареєстровано."))
-  )
+  (princ "\n*** Running CREATE_PICKET_MARKER v2025-06-30_UseBlock_RotateFixY_RemAngle_XDATA_C_XDATA_v5 ***")
 
   ;; Перевизначення обробника помилок
   (defun *error* (msg)
-    (if old_vars (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars)))
     ;; Відновлення системних змінних, якщо вони були збережені
     (if old_cmdecho (setvar "CMDECHO" old_cmdecho))
     (if old_attreq (setvar "ATTREQ" old_attreq))
     (if old_attdia (setvar "ATTDIA" old_attdia))
+    (if old_vars (mapcar 'setvar (mapcar 'car old_vars) (mapcar 'cdr old_vars))) ; Це має бути останнім
 
     (if (not (member msg '("Function cancelled" "quit / exit abort" "Відміна користувачем" "Block check failed" "Initialization failed")))
       (princ (strcat "\nПомилка виконання: " msg))
@@ -171,12 +138,35 @@
     (princ)
   ) ; *error* defun end
 
-  ;; Збереження системних змінних
+  ;; Збереження системних змінних на початку функції
   (setq old_vars (mapcar '(lambda (v) (cons v (getvar v))) '("CMDECHO" "OSMODE" "CLAYER" "ATTREQ" "ATTDIA")))
-  ;; Зберігаємо системні змінні для відновлення після (command)
   (setq old_cmdecho (getvar "CMDECHO"))
   (setq old_attreq (getvar "ATTREQ"))
   (setq old_attdia (getvar "ATTDIA"))
+
+  ;; Налаштування констант
+  (setq target_layer   "0"
+        fuzz           1e-9
+        app_id_name     "PicketMaster" ; Унікальне ім'я для XDATA
+  )
+
+  ;; Ініціалізація ActiveX/COM об'єктів ПЕРЕНЕСЕНО СЮДИ
+  (setq acad_obj (vlax-get-acad-object))
+  (setq doc (vla-get-ActiveDocument acad_obj))
+
+  (if (or (not acad_obj) (not doc))
+      (progn
+        (princ "\n*** Помилка: Не вдалося ініціалізувати об'єкти AutoCAD ActiveX. Перезапустіть AutoCAD.")
+        (*error* "Initialization failed")
+      )
+  )
+
+  ;; Реєстрація AppID за допомогою стандартної функції regapp ПЕРЕНЕСЕНО СЮДИ
+  (if (not (regapp app_id_name))
+      (princ (strcat "\nAppID '" app_id_name "' вже зареєстровано."))
+      (princ (strcat "\nAppID '" app_id_name "' успішно зареєстровано."))
+  )
+
   (setvar "CMDECHO" 0) ; Вимкнути ехо команд
   (setvar "ATTREQ" 0)  ; Вимкнути запити атрибутів
   (setvar "ATTDIA" 0)  ; Вимкнути діалогові вікна атрибутів
