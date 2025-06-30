@@ -1,5 +1,5 @@
 ;;; Скрипт для інтерактивного відображення пікетажу на LWPOLYLINE з XDATA
-;;; Версія v2025-06-30_InteractivePicketDisplay_Initial
+;;; Версія v2025-06-30_InteractivePicketDisplay_FIXED_XDATA_READ
 ;;; Зчитує XDATA, збережені CREATE_PICKET_MARKER, та динамічно відображає пікетаж
 ;;; при наведенні курсора на полілінію. Дозволяє вставляти постійний текст.
 
@@ -36,35 +36,40 @@
   (list acad_obj doc)
 )
 
-;; --- Функції для роботи з XDATA ---
-;; Ця функція буде читати XDATA з об'єкта. Вона простіша, бо не реєструє, а лише читає.
-(defun GetPicketXData (ent_ename app_name / xdata_list app_data picket_at_start_str dir_factor_str)
-  (setq xdata_list (entget ent_ename (list app_name))) ; Отримуємо дані, фільтровані за нашим AppID
-  (setq app_data nil)
+;; --- Функція для коректного зчитування XDATA ---
+(defun GetPicketXData (ent_ename app_name / full_xdata_list app_data_group picket_at_start_str dir_factor_str current_group i)
+  (setq full_xdata_list (entget ent_ename)) ; Отримуємо ВСІ DXF-групи, без фільтрації
   (setq picket_at_start nil)
   (setq dir_factor nil)
 
-  (if (and xdata_list (assoc -3 xdata_list)) ; Перевіряємо, чи є взагалі XDATA для нашого AppID
-      (progn
-        ;; Знаходимо потрібний блок XDATA
-        (setq app_data (cdr (assoc -3 xdata_list))) 
-        (if (and app_data (>= (length app_data) 3) ; Перевіряємо, що список має достатньо елементів
-                 (= (car app_data) app_name)        ; Перевіряємо, що це наш AppID
-            )
-            (progn
-              (setq picket_at_start_str (cdr (nth 1 app_data))) ; (1000 . "value") -> "value"
-              (setq dir_factor_str (cdr (nth 2 app_data)))      ; (1000 . "value") -> "value"
-              
-              (if (and picket_at_start_str dir_factor_str) ; Перевірка на nil
-                  (progn
-                    (setq picket_at_start (atof picket_at_start_str))
-                    (setq dir_factor (atof dir_factor_str))
-                  )
+  (setq i 0)
+  (while (< i (length full_xdata_list))
+    (setq current_group (nth i full_xdata_list))
+    (if (and (listp current_group) (= (car current_group) -3) (equal (cadr current_group) (list app_name)))
+        ;; Знайшли початок наших XDATA
+        (progn
+          (setq app_data_group current_group) ; Це буде група (-3 (AppID ...))
+          (if (and app_data_group (>= (length app_data_group) 3)) ; Перевірка, що є достатньо елементів
+              (progn
+                ;; XDATA для GetXData повертаються як ((-3 ("AppID") (1000 . "val1") (1000 . "val2"))).
+                ;; Наші дані починаються з другого елементу списку app_data_group.
+                (setq picket_at_start_str (cdr (nth 1 (cdr app_data_group)))) ; (1000 . "value") -> "value"
+                (setq dir_factor_str (cdr (nth 2 (cdr app_data_group))))      ; (1000 . "value") -> "value"
+                
+                (if (and picket_at_start_str dir_factor_str)
+                    (progn
+                      (setq picket_at_start (atof picket_at_start_str))
+                      (setq dir_factor (atof dir_factor_str))
+                    )
+                )
               )
-            )
+          )
+          (setq i (length full_xdata_list)) ; Знайшли і обробили, виходимо з циклу
         )
-      )
+    )
+    (setq i (1+ i))
   )
+
   (if (and (numberp picket_at_start) (numberp dir_factor)) ; Повертаємо список, якщо обидва значення дійсні
       (list picket_at_start dir_factor)
       nil ; Повертаємо nil, якщо дані не знайдені або невалідні
@@ -103,7 +108,7 @@
                                pt_on_pline pt_cursor view_size text_height mspace temp_text_obj
                                old_cmdecho old_osmode old_cursorsize old_textfill)
 
-  (princ "\n*** Запущено GET_PICKET_ON_LINE v2025-06-30_InteractivePicketDisplay_Initial ***")
+  (princ "\n*** Запущено GET_PICKET_ON_LINE v2025-06-30_InteractivePicketDisplay_FIXED_XDATA_READ ***")
   (setq app_id_name "PicketMaster") ; Те саме AppID, що й у CREATE_PICKET_MARKER
 
   ;; Ініціалізація ActiveX/COM об'єктів
@@ -140,7 +145,7 @@
     (if (and pline_ent (= "LWPOLYLINE" (cdr (assoc 0 (entget (car pline_ent))))))
       (progn
         (setq pline_obj (vlax-ename->vla-object (car pline_ent)))
-        (setq xdata (GetPicketXData (car pline_ent) app_id_name))
+        (setq xdata (GetPicketXData (car pline_ent) app_id_name)) ; <--- Використовуємо нову функцію
 
         (if xdata ; Якщо дані знайдені
           (progn
@@ -216,12 +221,13 @@
              )
              (if (and *picket-display-temp-text-obj* (not (vl-catch-all-error-p *picket-display-temp-text-obj*)))
                  (progn
-                   (vl-catch-all-apply 'vla-put-Color (list *picket-display-temp-text-obj* 256)) ; Червоний колір (ByLayer)
+                   ;; Для TrueColor потрібен TrueColor об'єкт.
+                   ;; Використовуємо стандартні кольори AutoCAD (коди від 1 до 255)
+                   (vl-catch-all-apply 'vla-put-Color (list *picket-display-temp-text-obj* 1)) ; Червоний (Code 1), або 256 для ByLayer
                    (vl-catch-all-apply 'vla-put-Height (list *picket-display-temp-text-obj* text_height))
                    (vl-catch-all-apply 'vla-put-Background (list *picket-display-temp-text-obj* :vlax-true)) ; Увімкнути фон (маску)
-                   ;; Для TrueColor потрібен TrueColor об'єкт, а не просто Color. Це складніше.
-                   ;; Поки що можемо залишити Background без TrueColor, або встановити просто чорний/білий.
-                   (vl-catch-all-apply 'vla-put-TrueColor (list *picket-display-temp-text-obj* (vlax-get-property (vlax-get-acad-object) 'ActiveDocument 'Application 'Preferences 'Display 'Colors 'Background)))
+                   ;; Можна спробувати отримати колір фону креслення, але це теж може бути складно
+                   ;; (vl-catch-all-apply 'vla-put-TrueColor (list *picket-display-temp-text-obj* (vlax-get-property (vlax-get-acad-object) 'ActiveDocument 'Application 'Preferences 'Display 'Colors 'Background)))
                  )
              )
              ;; Вивід у командний рядок
