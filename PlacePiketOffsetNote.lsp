@@ -69,7 +69,7 @@
   )
 
   (setq old_cmdecho (getvar "CMDECHO") old_osmode (getvar "OSMODE") doc (vla-get-ActiveDocument (vlax-get-acad-object)))
-  (setq text_style "Д-431" text_height 0.75 text_color 4)
+  (setq text_style "Д-431" text_height 1.5 text_color 4)
   (setq pi_val 3.14159265358979)
   
   (vla-StartUndoMark doc)
