@@ -205,10 +205,11 @@
                       (setq current_value_num (distof current_value_str))
 
                       ;; 4. Обчислюємо нове значення
-                      (if (= operation "Зменшити")
-                        (setq new_value_num (- current_value_num delta))
-                        (setq new_value_num (+ current_value_num delta))
-                      )
+                      (setq new_value_num (- current_value_num delta))
+                      ; (if (= operation "Зменшити")
+                      ;   (setq new_value_num (- current_value_num delta))
+                      ;   ;;(setq new_value_num (+ current_value_num delta))
+                      ; )
                       
                       ;; Конвертуємо нове значення в текст і записуємо в атрибут
                       (setq new_value_str (rtos new_value_num 2 2)) ; 2 знаки після коми
