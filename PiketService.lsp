@@ -205,9 +205,9 @@
                       (setq current_value_num (distof current_value_str))
 
                       ;; 4. Обчислюємо нове значення
-                      (if (= operation "Збільшити")
-                        (setq new_value_num (+ current_value_num delta))
+                      (if (= operation "Зменшити")
                         (setq new_value_num (- current_value_num delta))
+                        (setq new_value_num (+ current_value_num delta))
                       )
                       
                       ;; Конвертуємо нове значення в текст і записуємо в атрибут
